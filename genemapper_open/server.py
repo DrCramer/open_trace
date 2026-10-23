@@ -42,7 +42,85 @@ def _public_sg_peaks(peaks, raw_values):
     return [dict(p, raw_height=raw_values[int(p['scan'])], width_scans=p['fwhm_scan']) for p in peaks]
 
 
-def _measure_morphology_channel(channel, threshold,spike_definition=None):
+DETECTOR_DEFAULTS = {'baseline_window': 51, 'smooth_passes': 2, 'window': 9, 'standard_window': 15,
+                     'min_width': 2.0, 'tau_begin': 0.0, 'tau_end': 0.0}
+
+
+def _detector_settings(detector):
+    """Explicit peak-detector settings (analysis method Peak Detector tab)."""
+    if detector is None:
+        return dict(DETECTOR_DEFAULTS)
+    if isinstance(detector, str):
+        detector = json.loads(detector)
+    if not isinstance(detector, dict) or set(detector) != set(DETECTOR_DEFAULTS):
+        raise ValueError('Detector settings need exactly: ' + ', '.join(sorted(DETECTOR_DEFAULTS)))
+    out = {}
+    for key in ('baseline_window', 'smooth_passes', 'window', 'standard_window'):
+        value = detector[key]
+        if type(value) is not int:
+            raise ValueError(f'detector.{key}: integer required')
+        out[key] = value
+    if not 3 <= out['baseline_window'] <= 4001 or out['baseline_window'] % 2 == 0:
+        raise ValueError('detector.baseline_window must be odd, 3..4001')
+    if not 0 <= out['smooth_passes'] <= 32:
+        raise ValueError('detector.smooth_passes must be 0..32')
+    for key in ('window', 'standard_window'):
+        if not 5 <= out[key] <= 101 or out[key] % 2 == 0:
+            raise ValueError(f'detector.{key} must be odd, 5..101')
+    for key in ('min_width', 'tau_begin', 'tau_end'):
+        value = detector[key]
+        if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value):
+            raise ValueError(f'detector.{key}: finite number required')
+        out[key] = float(value)
+    return out
+
+
+def _channel_thresholds(value):
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        value = json.loads(value)
+    if not isinstance(value, dict) or len(value) > 16:
+        raise ValueError('channel_thresholds must map DATA tags to RFU')
+    out = {}
+    for tag, rfu in value.items():
+        if not isinstance(tag, str) or not re.fullmatch(r'DATA[0-9]{1,6}', tag):
+            raise ValueError('channel_thresholds keys must be DATA tags')
+        if isinstance(rfu, bool) or not isinstance(rfu, Real) or not math.isfinite(rfu) or not 0 < rfu <= 1e12:
+            raise ValueError(f'channel_thresholds.{tag} must be in (0, 1e12]')
+        out[tag] = float(rfu)
+    return out
+
+
+def _parse_analysis_range(value):
+    if value is None or value == '':
+        return None
+    if isinstance(value, str):
+        value = json.loads(value)
+    if (not isinstance(value, (list, tuple)) or len(value) != 2 or any(type(v) is not int for v in value)
+            or not 0 <= value[0] < value[1] <= 100_000_000):
+        raise ValueError("Analysis range needs integer [start, stop] data points with stop greater than start")
+    return (value[0], value[1])
+
+
+def _apply_analysis_range(channel, analysis_range):
+    """Partial Range: data points outside [start, stop] are ignored.
+
+    Outside points are held at the boundary value, so scan indices are kept and
+    no peak can be detected there; the original raw trace is kept separately.
+    """
+    start, stop = analysis_range
+    values = channel['values']
+    if start >= len(values):
+        raise ValueError('Analysis range starts after the end of the trace')
+    stop = min(stop, len(values) - 1)
+    channel['raw_values'] = list(values)
+    channel['values'] = [values[start]] * start + values[start:stop + 1] + [values[stop]] * (len(values) - stop - 1)
+    channel['analysis_range'] = [start, stop]
+
+
+def _measure_morphology_channel(channel, threshold,spike_definition=None,detector=None):
+    detector = detector or DETECTOR_DEFAULTS
     from .preprocessing import prepare_trace
     from .sg_peaks import detect_sg_peaks
     from .standard_wrapper import wrap_standard_peaks
@@ -50,8 +128,11 @@ def _measure_morphology_channel(channel, threshold,spike_definition=None):
         channel['peaks'] = []
         channel['processing'] = {'status': 'skipped', 'reason': 'Trace is shorter than SG window9'}
         return
-    prepared = prepare_trace(channel['values'], window=51, spike_window=5, smooth_passes=2)
-    detected = detect_sg_peaks(prepared['signal'], threshold=threshold, window=9)
+    prepared = prepare_trace(channel['values'], window=detector['baseline_window'], spike_window=5,
+                             smooth_passes=detector['smooth_passes'])
+    detected = detect_sg_peaks(prepared['signal'], threshold=threshold, window=detector['window'],
+                               min_width=detector['min_width'], tau_begin=detector['tau_begin'],
+                               tau_end=detector['tau_end'])
     if spike_definition is not None:
         from .spike import measure_spike_peaks
         measurement=prepared['corrected'] if spike_definition['schema_version']>=3 else prepared['signal']
@@ -71,8 +152,11 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
             sizing_mode="", standard_channel="", standard_bp="", max_residual_bp=5.0,
             standard_start=0, standard_end=None, calibration_model="linear",
             analysis_engine="residual", height_mode="explicit", quality_threshold=0.75,
-            num_extra_peaks=25,spike_definition=None,sizing_quality_definition=None,pullup_definition=None):
+            num_extra_peaks=25,spike_definition=None,sizing_quality_definition=None,pullup_definition=None,
+            channel_thresholds=None,detector=None,analysis_range=None):
     from .calibration import MODEL_IDS, build_calibration, CalibrationError
+    detector = _detector_settings(detector)
+    channel_thresholds = _channel_thresholds(channel_thresholds)
     if calibration_model not in MODEL_IDS:
         raise ValueError("Unknown calibration model")
     if analysis_engine not in ('residual', 'morphology_ratio'):
@@ -119,6 +203,8 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
     for ch in channels:
         if any(not math.isfinite(value) for value in ch["values"]):
             raise AbifError(f"{ch['tag']}: non-finite numeric values")
+        if analysis_range is not None:
+            _apply_analysis_range(ch, analysis_range)
         if analysis_engine == 'residual':
             ch["peaks"] = find_peaks(ch["values"], threshold, distance)
     reference = None
@@ -150,7 +236,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                 ch['peaks'] = []
                 ch['processing'] = {'status': 'skipped', 'reason': 'Auxiliary or a different DATA group; no cross-group sizing'}
             elif ch is not reference:
-                _measure_morphology_channel(ch, threshold,spike_definition)
+                _measure_morphology_channel(ch, channel_thresholds.get(ch['tag'], threshold), spike_definition, detector)
     sizing = {"mode": mode, "status": "manual" if calibration else "not_requested",
               "reasons": [], "matched": [], "unmatched": [], "diagnostics": {}}
     if mode == "auto":
@@ -165,7 +251,10 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
             from .sizing_pipeline import analyze_size_standard
             result = analyze_size_standard(reference['values'], expected,
                 num_extra_peaks=num_extra_peaks, quality_threshold=quality_threshold,
-                detection_threshold=threshold, height_mode=height_mode, coordinate_mode='standard_wrapper')
+                detection_threshold=channel_thresholds.get(standard_channel, threshold), height_mode=height_mode,
+                coordinate_mode='standard_wrapper', baseline_window=detector['baseline_window'],
+                smooth_passes=detector['smooth_passes'], sg_window=detector['standard_window'],
+                min_width=detector['min_width'], tau_begin=detector['tau_begin'], tau_end=detector['tau_end'])
             calibration = result['calibration']
             standard_selected=result['selected_peaks']
             reference['peaks'] = _public_sg_peaks(result['peaks'], reference['values'])
@@ -287,6 +376,9 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                                   'height_mode': height_mode if analysis_engine == 'morphology_ratio' else 'explicit'},
                                "research_only": True}
     if artifacts is not None:output['artifacts']=artifacts
+    if channel_thresholds:output['peak_settings']['channel_thresholds']=channel_thresholds
+    if analysis_range is not None:output['peak_settings']['analysis_range']=list(analysis_range)
+    if detector!=DETECTOR_DEFAULTS:output['peak_settings']['detector']=detector
     if spike_definition is not None:
         output['peak_settings']['spike_definition']=spike_definition
         output['artifacts']=artifacts
@@ -308,7 +400,7 @@ def serve(port=8765, open_browser=False):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js")}
+                  "project.js", "plot.js", "panels.js", "methods.js")}
     for page_name in ("project.html", "panels.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
@@ -355,7 +447,8 @@ def serve(port=8765, open_browser=False):
                 return self.respond(403, {"error": "Invalid origin"})
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
-                                   "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit"):
+                                   "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit",
+                                   "/api/analysis-method"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -379,6 +472,9 @@ def serve(port=8765, open_browser=False):
                     request=json.loads(raw)
                     if not isinstance(request,dict):raise ValueError('Marker quality request must be an object')
                     return self.respond(200,attach_marker_quality(request.get('report'),request.get('definition')))
+                if parsed.path == '/api/analysis-method':
+                    from .analysis_method import method_request
+                    return self.respond(200,method_request(json.loads(raw)))
                 if parsed.path == '/api/import-gm-kit':
                     from .gm_kit_import import import_request
                     return self.respond(200,import_request(json.loads(raw)))
@@ -484,7 +580,10 @@ def serve(port=8765, open_browser=False):
                                  num_extra_peaks=int(params.get("num_extra_peaks", ["25"])[0]),
                                  spike_definition=params.get('spike_definition',[None])[0],
                                  sizing_quality_definition=params.get('sizing_quality_definition',[None])[0],
-                                 pullup_definition=params.get('pullup_definition',[None])[0])
+                                 pullup_definition=params.get('pullup_definition',[None])[0],
+                                 channel_thresholds=params.get('channel_thresholds',[None])[0],
+                                 detector=params.get('detector',[None])[0],
+                                 analysis_range=_parse_analysis_range(params.get('analysis_range',[None])[0]))
                 return self.respond(200, result)
             except (AbifError, ValueError, OverflowError, TimeoutError, TypeError, KeyError, RecursionError) as exc:
                 return self.respond(400, {"error": str(exc)})

@@ -57,17 +57,21 @@ function setStutter(db,kitName,doc){
  const kit=db.kits.find(x=>x.name===kitName);if(!kit)throw Error('kit');
  kit.stutter={version:doc.version,panels:clone(doc.panels)};return kit.name}
 
-// Panel choices for the Samples table: one per kit/panel/bin set with bins for that panel.
+// Panel choices for the Samples table: one per kit/panel (bins come from the method's bin set).
 function choices(db){
  const out=[];
- for(const kit of db.kits)for(const p of kit.panels)for(const set of kit.binSets)
-  if(set.panels[p.name])out.push({key:[kit.name,p.name,set.name].join('\u0001'),kit:kit.name,panel:p.name,binSet:set.name,label:p.name});
+ for(const kit of db.kits)for(const p of kit.panels)
+  out.push({key:[kit.name,p.name].join('\u0001'),kit:kit.name,panel:p.name,label:p.name,
+   binSets:kit.binSets.filter(s=>s.panels[p.name]).map(s=>s.name)});
  return out}
-function request(db,key){
- const [kitName,panel,binSet]=key.split('\u0001');
- const kit=db.kits.find(x=>x.name===kitName);if(!kit)return null;
- const set=kit.binSets.find(x=>x.name===binSet);if(!set||!kit.panels.some(p=>p.name===panel))return null;
- return {panels:panelsText(kit),bins:binsText(kit,set),stutter:stutterText(kit),panel}}
+// Bin set: the analysis method's bin set when the kit has it for this panel, else the first one.
+function request(db,key,binSetName){
+ const [kitName,panel]=key.split('\u0001');
+ const kit=db.kits.find(x=>x.name===kitName);if(!kit||!kit.panels.some(p=>p.name===panel))return null;
+ const usable=kit.binSets.filter(s=>s.panels[panel]);
+ const set=usable.find(s=>s.name===binSetName)||usable[0];if(!set)return null;
+ return {panels:panelsText(kit),bins:binsText(kit,set),stutter:stutterText(kit),panel,binSet:set.name,
+  binSetSubstituted:!!binSetName&&set.name!==binSetName}}
 
 window.KitStore={KEY,load,save,clone,panelsText,binsText,stutterText,addPanels,addBinSet,setStutter,choices,request};
 })();

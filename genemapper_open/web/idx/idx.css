@@ -162,3 +162,26 @@ body.pm .pmcontent{background:#fff;border:1px solid #7f9db9;overflow:auto;paddin
 .pmfoot{display:flex;justify-content:flex-end;gap:6px;padding:4px 8px;background:var(--face)}
 .pmgrid.small{flex:none}
 .pmcontent>.pmplot,.pmcontent>.pmstutter{flex:none}
+
+/* Analysis Method Editor and Manager */
+.dlg .body.amdlg{width:900px;max-width:94vw;padding-top:6px}
+table.amgrid input.num{width:50px}
+.dlg .body.mgrdlg{width:720px;max-width:88vw}
+.dtabs{top:1px}
+.dpage{border:1px solid #919b9c;background:#fcfcfe;padding:8px;min-height:380px;max-height:62vh;overflow:auto}
+.dpage fieldset{margin:6px 0}
+.dpage .field{grid-template-columns:210px 1fr}
+.inl{display:inline-flex;align-items:center;gap:4px}
+input.num{width:64px;height:20px;border:1px solid #7f9db9;padding:0 3px;text-align:right}
+input.num:disabled{background:#eee;color:#888}
+.rad{margin-right:12px}
+table.amgrid{border-collapse:collapse;margin:6px 0}
+table.amgrid th,table.amgrid td{border:1px solid #d6d2c2;padding:2px 6px;text-align:left;white-space:nowrap}
+table.amgrid th{background:linear-gradient(#fff,#ebeadb);font-weight:normal}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dyerow{display:grid;grid-template-columns:repeat(3,auto 1fr);gap:4px 6px;align-items:center;margin:4px 0}
+.dyelbl{font-weight:bold;text-align:right}
+.wgrid{display:grid;grid-template-columns:1fr 70px 1fr 70px;gap:4px 8px;align-items:center}
+.rng{margin:4px 0}
+.btnrow.right{justify-content:flex-end}
+.mgrgrid{height:300px;flex:none}

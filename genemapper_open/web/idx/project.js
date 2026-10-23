@@ -10,9 +10,9 @@ const SIZE_STANDARDS={
  'GS600_LIZ_(80-400)':[80,100,114,120,140,160,180,200,214,220,240,250,260,280,300,314,320,340,360,380,400],
  'GS500_LIZ_(75-450)':[75,100,139,150,160,200,300,340,350,400,450],
 };
-const ANALYSIS_METHOD='OpenTrace Default';
-const ANALYSIS_SETTINGS={sizing_mode:'auto',analysis_engine:'morphology_ratio',standard_channel:'DATA105',threshold:'100',
- quality_threshold:'0.75',height_mode:'explicit',calibration_model:'local_rational',num_extra_peaks:'25',distance:'8',max_residual_bp:'5'};
+const EXAMPLE_METHOD='OpenTrace example';
+const defaultMethod=()=>{let v=null;try{v=localStorage.getItem('opentrace.lastMethod')}catch(e){}
+ return (v&&Methods.get(v))?v:(Methods.list()[0]?.method.name||'')};
 
 const state={
  project:{name:null,runFolders:[],samples:[],dirty:false},
@@ -20,23 +20,48 @@ const state={
  tab:'samples',selected:new Set(),anchor:null,filter:null,lowQualityTop:false,
  showNavigator:true,busy:false,stop:false,nextId:1,
 };
-const kitCache=new Map(); // panel key -> {kit, lq, mq, policy}
+const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
+const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
-window.OT={state,plotPayload,kitsChanged:()=>{kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});render()}};
+function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
+window.OT={state,plotPayload,kitsChanged:()=>{dropCaches();render()}};
+window.addEventListener('opentrace-methods',()=>{dropCaches();
+ for(const s of state.project.samples)if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))s.method=defaultMethod();render()});
 const panelChoices=()=>KitStore.choices(KitStore.load());
 function stdCovers(std,lo,hi){const f=SIZE_STANDARDS[std];return f[0]<=lo&&f[f.length-1]>=hi}
 function panelRange(key){const [kitName,panel]=key.split('\u0001');const k=KitStore.load().kits.find(x=>x.name===kitName);const p=k?.panels.find(x=>x.name===panel);
  if(!p||!p.markers.length)return null;return [Math.min(...p.markers.map(m=>m.min_bp)),Math.max(...p.markers.map(m=>m.max_bp))]}
 function fitStandard(key,current){const r=panelRange(key);if(!r||stdCovers(current,r[0],r[1]))return current;
  return Object.keys(SIZE_STANDARDS).find(s=>stdCovers(s,r[0],r[1]))||current}
-async function kitFor(key){
+const kitKey=(panelKey,method)=>panelKey===EXAMPLE_KEY?EXAMPLE_KEY:panelKey+'\u0002'+method;
+async function kitFor(panelKey,methodName){
+ const key=kitKey(panelKey,methodName);
  if(kitCache.has(key))return kitCache.get(key);
- const req=KitStore.request(KitStore.load(),key);if(!req)throw Error(T('panelNotReady'));
- const r=await jsonPost('/api/import-gm-kit',req);
- const entry={kit:r.kit,lq:r.ladder_quality_definition,mq:null,policy:'forward_fill'};kitCache.set(key,entry);return entry}
-const sampleKit=s=>kitCache.get(s.panelKey)?.kit||null;
+ const method=Methods.get(methodName);if(!method)throw Error(T('methodMissing')+' '+methodName);
+ const req=KitStore.request(KitStore.load(),panelKey,method.allele.bin_set);if(!req)throw Error(T('panelNotReady'));
+ const r=await jsonPost('/api/import-gm-kit',{panels:req.panels,bins:req.bins,stutter:req.stutter,panel:req.panel,analysis_method:method});
+ const entry={kit:r.kit,lq:r.ladder_quality_definition,mq:r.marker_quality_definition,policy:'forward_fill',
+  binSet:req.binSet,binSetSubstituted:req.binSetSubstituted};kitCache.set(key,entry);return entry}
+const sampleKit=s=>kitCache.get(kitKey(s.panelKey,s.method))?.kit||null;
+async function analyzeSettings(methodName,sizeStd){
+ const key=methodName+'\u0001'+sizeStd;if(settingsCache.has(key))return settingsCache.get(key);
+ const method=Methods.get(methodName);if(!method)throw Error(T('methodMissing')+' '+methodName);
+ const r=await jsonPost('/api/analysis-method',{action:'analyze_settings',method,standard_bp:SIZE_STANDARDS[sizeStd]});
+ const q={};for(const [k,v] of Object.entries(r.settings)){if(v===null||v===undefined)continue;q[k]=typeof v==='object'?JSON.stringify(v):String(v)}
+ settingsCache.set(key,q);return q}
+function methodSelect(value,onChange){const sel=el('select');
+ for(const r of Methods.list())sel.append(new Option(r.method.name,r.method.name));
+ if(value===EXAMPLE_METHOD)sel.append(new Option(EXAMPLE_METHOD,EXAMPLE_METHOD));
+ sel.append(new Option(T('newMethodItem'),'__new__'));sel.value=value||'';
+ sel.addEventListener('change',()=>{if(sel.value==='__new__'){sel.value=value||'';newMethod(onChange);return}onChange(sel.value)});
+ sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
+async function newMethod(after){try{const f=await Methods.factory();let n=1;while(Methods.get(`${T('mgrUntitled')} ${n}`))n++;f.name=`${T('mgrUntitled')} ${n}`;
+ Methods.openEditor(f,{title:T('amNewTitle'),onSave:(m)=>{Methods.put(m);after&&after(m.name)}})}catch(e){message(e.message)}}
+function editMethod(name){const m=Methods.get(name||defaultMethod());if(!m)return message(T('methodMissing')+' '+name);
+ Methods.openEditor(m,{onSave:(mm,prev)=>{Methods.put(mm,prev);for(const s of state.project.samples)if(s.method===prev){s.method=mm.name;if(s.status==='analyzed')s.status='changed'}
+  state.project.dirty=true;render()}})}
 function panelSelect(value,onChange){const sel=el('select');sel.append(new Option(T('noPanelChoice'),''));
- const ch=panelChoices();for(const c of ch){const o=new Option(c.label,c.key);o.title=`${c.kit} / ${c.binSet}`;sel.append(o)}
+ const ch=panelChoices();for(const c of ch){const o=new Option(c.label,c.key);o.title=`${c.kit} / ${c.binSets.join(', ')}`;sel.append(o)}
  if(value===EXAMPLE_KEY)sel.append(new Option(state.kit?.name||'example',EXAMPLE_KEY));
  sel.value=value||'';sel.addEventListener('change',()=>onChange(sel.value));sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 
@@ -129,7 +154,10 @@ function renderSamples(){
   tsel.addEventListener('mousedown',e=>e.stopPropagation());
   const psel=panelSelect(s.panelKey,v=>{s.panelKey=v;s.panel=v?v.split('\u0001')[1]:'';if(v)s.sizeStd=fitStandard(v,s.sizeStd);
    if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
-  tr.append(el('td',{},tsel),el('td',{text:s.method}),el('td',{},psel));
+  const msel=methodSelect(s.method,v=>{s.method=v;try{localStorage.setItem('opentrace.lastMethod',v)}catch(e){}
+   if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
+  const mcell=el('td',{},msel);mcell.addEventListener('dblclick',e=>{e.stopPropagation();if(s.method!==EXAMPLE_METHOD)editMethod(s.method)});
+  tr.append(el('td',{},tsel),mcell,el('td',{},psel));
   const ssel=el('select');for(const k of Object.keys(SIZE_STANDARDS))ssel.append(new Option(k,k));ssel.value=s.sizeStd;
   ssel.addEventListener('change',()=>{s.sizeStd=ssel.value;if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
   ssel.addEventListener('mousedown',e=>e.stopPropagation());
@@ -239,36 +267,37 @@ function addSamples(){
   const ps=panelSelect(lastKey,v=>{if(v)ss.value=fitStandard(v,ss.value)});ps.id='addPanel';if(lastKey)ss.value=fitStandard(lastKey,ss.value);
   const fs=el('fieldset',{},el('legend',{text:T('addSettings')}),
    el('div',{class:'field'},el('label',{text:T('runFolderName')}),el('input',{type:'text',id:'addRun',value:'Run '+(state.project.runFolders.length+1)})),
-   el('div',{class:'field'},el('label',{text:T('colAnalysisMethod')}),el('input',{type:'text',value:ANALYSIS_METHOD,disabled:''})),
+   el('div',{class:'field'},el('label',{text:T('colAnalysisMethod')}),(()=>{const m=methodSelect(defaultMethod(),v=>{m.value=v});m.id='addMethod';return m})()),
    el('div',{class:'field'},el('label',{text:T('colPanel')}),ps),
    el('div',{class:'field'},el('label',{text:T('colSizeStandard')}),ss));
   if(!panelChoices().length)fs.append(el('div',{class:'note',text:T('noPanelsYet')}));
   b.append(el('div',{text:T('addFiles')}),list,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,clear,input),fs)},
-  [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;
+  [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;const meth=body.querySelector('#addMethod').value;
+    try{localStorage.setItem('opentrace.lastMethod',meth)}catch(e){}
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
     if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
     for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
      state.project.samples.push({id:state.nextId++,file:f.name,name,type:sampleTypeFromName(f.name),
-      runFolder:run,method:ANALYSIS_METHOD,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
+      runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
     state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
 
 async function analyze(scope){
  const targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;
- state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;render();
+ state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;state.binSetNote=null;render();
  const order=[...targets].sort((a,b)=>(a.type==='ladder'?0:1)-(b.type==='ladder'?0:1)); // ladders first
  let i=0;
  try{
   for(const s of order){
    if(state.stop)break;
    progress(i,order.length,`${T('analyzing')}: ${s.file}`);
-   if(s.blob){const p=new URLSearchParams({...ANALYSIS_SETTINGS,filename:s.file,standard_bp:SIZE_STANDARDS[s.sizeStd].join(',')});
+   if(s.blob){const p=new URLSearchParams({...(await analyzeSettings(s.method,s.sizeStd)),filename:s.file});
     const r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob});
     const j=await r.json();if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=j}
    s.status='analyzed';i++;progress(i,order.length)}
   await genotype();
   const any=state.project.samples.some(s=>s.panelKey);
-  state.lastMessage=state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone'):T('noKit');
+  state.lastMessage=state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone')+(state.binSetNote?' — '+T('binSetSubstituted')+' '+state.binSetNote:''):T('noKit');
  }catch(err){message(err.message)}
  finally{state.busy=false;state.project.dirty=true;render()}}
 
@@ -278,12 +307,14 @@ async function genotype(){
   for(const key of [...new Set(inRun.map(s=>s.panelKey))]){
    if(state.stop)return;
    const group=inRun.filter(s=>s.panelKey===key);
+   const methods=[...new Set(group.filter(s=>s.type!=='ladder').map(s=>s.method))];
    const ladders=group.filter(s=>s.type==='ladder').map(s=>({ladder_id:s.file,analysis:s.compact||compactAnalysis(s.analysis)}));
    if(!ladders.length){for(const s of group)s.report=null;state.noLadder=rf;continue}
-   const k=await kitFor(key);
    for(const s of group)if(s.type==='ladder')s.ladderQuality=null;
+   const kits={};for(const mname of methods)kits[mname]=await kitFor(key,mname);
    for(const s of group.filter(x=>x.type!=='ladder')){
     if(state.stop)return;
+    const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
     $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
     let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
     if(k.mq)rep=await jsonPost('/api/marker-quality',{report:rep,definition:k.mq});
@@ -300,10 +331,10 @@ async function loadExample(){
   state.kit=d.kit;state.ladderQuality=d.ladder_quality_definition;state.markerQuality=d.marker_quality_definition;
   kitCache.set(EXAMPLE_KEY,{kit:d.kit,lq:d.ladder_quality_definition,mq:d.marker_quality_definition,policy:'reject'});
   for(const l of d.ladders){const lq=(rep.quality?.run_ladders||[]).find(x=>x.ladder_id===l.ladder_id);
-   state.project.samples.push({id:state.nextId++,file:l.ladder_id,name:l.ladder_id.replace(/\.fsa$/,''),type:'ladder',runFolder:rf,method:ANALYSIS_METHOD,panelKey:EXAMPLE_KEY,panel:d.kit.name,
+   state.project.samples.push({id:state.nextId++,file:l.ladder_id,name:l.ladder_id.replace(/\.fsa$/,''),type:'ladder',runFolder:rf,method:EXAMPLE_METHOD,panelKey:EXAMPLE_KEY,panel:d.kit.name,
     sizeStd:'GS600_LIZ',status:'analyzed',analysis:l.analysis,compact:l.analysis,report:null,ladderQuality:lq?.quality_code})}
   state.project.samples.push({id:state.nextId++,file:d.sample.filename||'example-sample.fsa',name:d.sample.sample||'Example sample',type:'sample',runFolder:rf,
-   method:ANALYSIS_METHOD,panelKey:EXAMPLE_KEY,panel:d.kit.name,sizeStd:'GS600_LIZ',status:'analyzed',analysis:d.sample,report:rep});
+   method:EXAMPLE_METHOD,panelKey:EXAMPLE_KEY,panel:d.kit.name,sizeStd:'GS600_LIZ',status:'analyzed',analysis:d.sample,report:rep});
   state.selected.clear();state.filter=null;progress(1,1,T('ready'));
  }catch(err){message(err.message)}finally{state.busy=false;render()}}
 
@@ -351,12 +382,12 @@ function buildChrome(){
    {label:T('find'),sc:'Ctrl+F',run:notYet},{label:T('sort'),run:notYet}]},
   {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),run:()=>analyze('all')},'-',
    {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:()=>{state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}},{label:T('nonConcordantTop'),disabled:true},'-',
-   {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:notYet},{label:T('sizeStandardEditor'),run:notYet},{label:T('sizeMatchEditor'),run:notYet},{label:T('binOffsets'),run:notYet}]},
+   {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:notYet},{label:T('sizeMatchEditor'),run:notYet},{label:T('binOffsets'),run:notYet}]},
   {label:T('view'),items:[{label:T('samples'),checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
    {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),run:notYet},{label:T('rawData'),run:notYet},{label:T('eptData'),run:notYet},'-',
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
-  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:notYet},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:notYet},
+  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:notYet},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:notYet},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
@@ -367,8 +398,8 @@ function buildChrome(){
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),notYet),tbutton('saveProject',T('saveProject'),notYet),tsep(),
   tbutton('addSamples',T('addSamples'),addSamples),tbutton('exportTable',T('exportTable'),exportTable,{id:'tbExport'}),tsep(),
   tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),notYet),tbutton('labelEditViewer',T('labelEditViewer'),notYet),
-  tbutton('sizeMatchEditor',T('sizeMatchEditor'),notYet),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),notYet),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
-  tbutton('manager',T('manager'),notYet),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
+  tbutton('sizeMatchEditor',T('sizeMatchEditor'),notYet),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method),{id:'tbMethodEditor'}),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
+  tbutton('manager',T('manager'),()=>Methods.openManager(),{id:'tbManager'}),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
   tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));
  const ts=el('select',{class:'combo',title:T('tableSetting')});ts.append(new Option(T('dataInterpretation'),'default'));
  tb.append(ts,tbutton('tableSettingEditor',T('tableSettingEditor'),notYet),tsep(),tbutton('find',T('find'),notYet),tbutton('print',T('print'),()=>window.print()),
@@ -383,9 +414,11 @@ document.addEventListener('keydown',e=>{
  const k=e.key.toLowerCase();
  if(e.key==='F1'){e.preventDefault();notYet();return}
  if(!e.ctrlKey&&!e.metaKey)return;
- const map={j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
+ const map={m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
+Methods.init(jsonPost);
 buildChrome();render();
+Methods.ensureDefault().then(()=>render()).catch(e=>message(e.message));
 })();

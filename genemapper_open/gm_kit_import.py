@@ -196,8 +196,18 @@ def _method(method):
     return result
 
 
-def build_kit(panels_doc, bins_doc, stutter_doc=None, *, panel=None, method=None, dye_channels=None):
-    """Return a validated OpenTrace kit for one panel of the supplied files."""
+def build_kit(panels_doc, bins_doc, stutter_doc=None, *, panel=None, method=None, dye_channels=None,
+              analysis_method=None):
+    """Return a validated OpenTrace kit for one panel of the supplied files.
+
+    ``analysis_method`` (an OpenTrace HID method) supplies the Allele tab values
+    per marker repeat and dye; it cannot be combined with ``method``.
+    """
+    if analysis_method is not None and method is not None:
+        raise ValueError('Give either method or analysis_method, not both')
+    if analysis_method is not None:
+        from .analysis_method import load_analysis_method, kit_marker_parameters
+        analysis_method = load_analysis_method(analysis_method)
     choices = [(kit, p) for kit in panels_doc['kits'] for p in kit['panels']]
     if panel is None:
         if len(choices) != 1:
@@ -234,6 +244,9 @@ def build_kit(panels_doc, bins_doc, stutter_doc=None, *, panel=None, method=None
         missing = [label for label in row['ladder_alleles'] if label.casefold() not in known]
         if missing:
             notes.append({'code': 'ladder_alleles_without_bins', 'marker': name, 'labels': missing})
+        if analysis_method is not None:
+            m = {**kit_marker_parameters(analysis_method, row['repeat'], row['dye']),
+                 'use_marker_specific_stutter': analysis_method['allele']['use_marker_specific_stutter']}
         specific = stutter.get(name, []) if m['use_marker_specific_stutter'] else []
         minus = [{'min_bp': s['min_bp'], 'max_bp': s['max_bp'], 'ratio': s['ratio']} for s in specific if s['direction'] == 'minus']
         plus = [{'min_bp': s['min_bp'], 'max_bp': s['max_bp'], 'ratio': s['ratio']} for s in specific if s['direction'] == 'plus']
@@ -251,21 +264,26 @@ def build_kit(panels_doc, bins_doc, stutter_doc=None, *, panel=None, method=None
                 'minus_a_ratio': m['minus_a_ratio'], 'minus_a_min_bp': m['minus_a_min_bp'],
                 'minus_a_max_bp': m['minus_a_max_bp'],
                 'backward_stutter_ranges': [r for r in minus if r['ratio'] > 0],
-                'forward_stutter_ranges': [r for r in plus if r['ratio'] > 0]}})
+                'forward_stutter_ranges': [r for r in plus if r['ratio'] > 0],
+                **({'clear_ranges': m['clear_ranges']} if m.get('clear_ranges') else {})}})
     kit_def = load_kit_definition({'schema_version': 1, 'name': chosen['name'], 'markers': markers})
     kit_def['diagnostics'] = kit_def['diagnostics'] + notes + [{
         'code': 'imported_from_genemapper_text', 'chemistry_kit': kit['name'], 'panel': chosen['name'],
         'bin_set': bins_doc.get('bin_set'), 'panels_version': panels_doc.get('version'),
         'bins_version': bins_doc.get('version'),
-        'stutter_version': (stutter_doc or {}).get('version'), 'dye_channels': channels, 'method': m}]
+        'stutter_version': (stutter_doc or {}).get('version'), 'dye_channels': channels,
+        'method': m if analysis_method is None else None,
+        'analysis_method': analysis_method['name'] if analysis_method is not None else None}]
     return kit_def
 
 
-def import_kit(panels_text, bins_text, stutter_text=None, *, panel=None, method=None, dye_channels=None):
+def import_kit(panels_text, bins_text, stutter_text=None, *, panel=None, method=None, dye_channels=None,
+               analysis_method=None):
     panels_doc = parse_panels(panels_text)
     bins_doc = parse_bins(bins_text)
     stutter_doc = parse_stutter(stutter_text) if stutter_text else None
-    return build_kit(panels_doc, bins_doc, stutter_doc, panel=panel, method=method, dye_channels=dye_channels)
+    return build_kit(panels_doc, bins_doc, stutter_doc, panel=panel, method=method, dye_channels=dye_channels,
+                     analysis_method=analysis_method)
 
 
 def default_ladder_quality_definition(kit):
@@ -293,7 +311,7 @@ def import_request(request):
         raise ValueError('Kit import request must be an object')
     texts = {key: request.get(key) for key in ('panels', 'bins', 'stutter')}
     out = {'panels': None, 'bins': None, 'stutter': None, 'panel_list': [], 'kit': None,
-           'ladder_quality_definition': None}
+           'ladder_quality_definition': None, 'marker_quality_definition': None}
     if texts['panels']:
         out['panels'] = parse_panels(texts['panels'])
         out['panel_list'] = list_panels(out['panels'])
@@ -304,7 +322,15 @@ def import_request(request):
     if request.get('panel') is not None:
         if not out['panels'] or not out['bins']:
             raise ValueError('Panels and Bins files are both required to build a kit')
+        am = request.get('analysis_method')
         out['kit'] = build_kit(out['panels'], out['bins'], out['stutter'], panel=request['panel'],
-                               method=request.get('method'), dye_channels=request.get('dye_channels'))
-        out['ladder_quality_definition'] = default_ladder_quality_definition(out['kit'])
+                               method=request.get('method'), dye_channels=request.get('dye_channels'),
+                               analysis_method=am)
+        if am is not None:
+            from .analysis_method import ladder_quality_definition, marker_quality_definition, load_analysis_method
+            am = load_analysis_method(am)
+            out['ladder_quality_definition'] = ladder_quality_definition(am, out['kit'])
+            out['marker_quality_definition'] = marker_quality_definition(am, out['kit'])
+        else:
+            out['ladder_quality_definition'] = default_ladder_quality_definition(out['kit'])
     return out
