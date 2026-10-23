@@ -2,6 +2,8 @@
 (function(){
 const svg=(body,vb='0 0 16 16')=>`<svg viewBox="${vb}" aria-hidden="true">${body}</svg>`;
 const ICONS={
+ kit:svg('<rect x="1.5" y="3.5" width="13" height="10" rx="1" fill="#f3e3b5" stroke="#8a6d1c"/><path d="M1.5 6.5h13" stroke="#8a6d1c"/><rect x="6" y="2" width="4" height="3" fill="#d9b44a" stroke="#8a6d1c"/>'),
+ stutter:svg('<path d="M1 14h14" stroke="#555"/><path d="M3 14V9M6 14V4M10 14V2M13 14V11" stroke="#1f4fd6" stroke-width="2"/>'),
  newProject:svg('<path d="M3 1h7l3 3v11H3z" fill="#fff" stroke="#555"/><path d="M10 1v3h3" fill="#ddd" stroke="#555"/>'),
  openProject:svg('<path d="M1 4h5l1 1h7v9H1z" fill="#f2c94c" stroke="#9a7b1c"/><path d="M1 14l2-6h13l-2 6z" fill="#f8dd7a" stroke="#9a7b1c"/>'),
  saveProject:svg('<rect x="1.5" y="1.5" width="13" height="13" rx="1" fill="#3b6fd6" stroke="#1f3f8a"/><rect x="4" y="2" width="8" height="5" fill="#fff"/><rect x="4" y="10" width="8" height="4" fill="#cfd8ee"/>'),

@@ -60,7 +60,7 @@ function paint(cv,items,x0,x1){
  const g=cv.getContext('2d');g.scale(dpr,dpr);g.fillStyle='#fff';g.fillRect(0,0,W,H);g.font='11px Tahoma,Arial';
  const L=50,R=12,top=view.markerRange?36:16,bottom=H-(view.labels==='none'?16:46);
  const X=bp=>L+(bp-x0)/(x1-x0)*(W-L-R);
- const s=items[0].sample;const markers=(payload.kit?.markers||[]);
+ const s=items[0].sample;const markers=((s.kit||payload.kit)?.markers||[]);
  const dyes=items.flatMap(i=>i.dyes);
  // marker headers + bins
  for(const m of markers.filter(m=>dyes.includes(m.channel))){

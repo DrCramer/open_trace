@@ -39,7 +39,7 @@ class IdxPagesTests(unittest.TestCase):
             return response.code, response.headers.get("Content-Type"), response.read()
 
     def test_project_page_carries_session_token(self):
-        for path in ("idx", "idx/", "idx/project.html"):
+        for path in ("idx", "idx/", "idx/project.html", "idx/panels.html"):
             with self.subTest(path=path):
                 code, kind, body = self.get(path)
                 self.assertEqual(code, 200)
@@ -49,7 +49,8 @@ class IdxPagesTests(unittest.TestCase):
 
     def test_static_files_and_types(self):
         for name, kind in (("plot.html", "text/html"), ("idx.css", "text/css"), ("i18n.js", "text/javascript"),
-                           ("ui.js", "text/javascript"), ("project.js", "text/javascript"), ("plot.js", "text/javascript")):
+                           ("ui.js", "text/javascript"), ("project.js", "text/javascript"), ("plot.js", "text/javascript"),
+                           ("kits.js", "text/javascript"), ("panels.js", "text/javascript")):
             with self.subTest(name=name):
                 code, got, body = self.get("idx/" + name)
                 self.assertEqual(code, 200)
@@ -65,9 +66,13 @@ class IdxPagesTests(unittest.TestCase):
         source = (WEB / "i18n.js").read_text(encoding="utf-8")
         en = source[source.index("en:{"):source.index("ru:{")]
         ru = source[source.index("ru:{"):source.index("}};")]
-        keys = lambda block: set(re.findall(r"(?:^|[{,])\s*([A-Za-z][A-Za-z0-9]*):'", block, re.M))
+        keys = lambda block: set(re.findall(r"(?:^|[{,])\s*([A-Za-z][A-Za-z0-9_]*):'", block, re.M))
         self.assertGreater(len(keys(en)), 150)
         self.assertEqual(keys(en), keys(ru))
+        used = set()
+        for name in ("project.js", "plot.js", "panels.js", "ui.js"):
+            used |= set(re.findall(r"\b(?:T|fmt)\('([A-Za-z_][A-Za-z0-9_]*)'[),]", (WEB / name).read_text(encoding="utf-8")))
+        self.assertEqual(sorted(used - keys(en)), [])
 
 
 if __name__ == "__main__":

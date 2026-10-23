@@ -307,8 +307,10 @@ def serve(port=8765, open_browser=False):
     idx_types = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
-                 ("project.html", "plot.html", "idx.css", "i18n.js", "ui.js", "project.js", "plot.js")}
-    idx_files["project.html"] = idx_files["project.html"].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
+                 ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
+                  "project.js", "plot.js", "panels.js")}
+    for page_name in ("project.html", "panels.html"):
+        idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "OpenTrace/" + __version__
@@ -353,7 +355,7 @@ def serve(port=8765, open_browser=False):
                 return self.respond(403, {"error": "Invalid origin"})
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
-                                   "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality"):
+                                   "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -377,6 +379,9 @@ def serve(port=8765, open_browser=False):
                     request=json.loads(raw)
                     if not isinstance(request,dict):raise ValueError('Marker quality request must be an object')
                     return self.respond(200,attach_marker_quality(request.get('report'),request.get('definition')))
+                if parsed.path == '/api/import-gm-kit':
+                    from .gm_kit_import import import_request
+                    return self.respond(200,import_request(json.loads(raw)))
                 if parsed.path == '/api/pullup-quality':
                     from .pullup_quality import attach_pullup_quality
                     request=json.loads(raw)

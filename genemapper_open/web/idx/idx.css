@@ -143,3 +143,22 @@ legend{color:#0046d5;padding:0 3px}
 .qvd th,.qvd td{border:1px solid #a7a6aa;padding:1px 8px}
 .qvd th{background:linear-gradient(#fff,#ebeadb);font-weight:normal}
 .empty{color:var(--muted);padding:24px;text-align:center}
+
+/* Panel Manager */
+body.pm .pmcontent{background:#fff;border:1px solid #7f9db9;overflow:auto;padding:4px}
+.pmplot{border:1px solid #c9c7ba;background:#fff;margin:2px 0 6px;overflow:hidden}
+.binsvg{display:block;user-select:none}
+.binsvg .bin{cursor:pointer}
+.binsvg .mk{cursor:pointer}
+.pmgrid{max-height:none;overflow:auto;border:1px solid #c9c7ba}
+.pmgrid.small{margin-bottom:6px}
+.pmstutter .cap{font-weight:bold;margin:4px 0}
+.pmstutter fieldset{display:inline-block;vertical-align:top;margin-right:8px;min-width:320px}
+.btnrow{display:flex;gap:6px;margin-top:6px}
+.dye{display:inline-flex;align-items:center;gap:4px}
+.dye i{display:inline-block;width:10px;height:10px;border:1px solid #555}
+.note{color:#555;margin:6px 2px;max-width:640px}
+.chk{display:block;margin:6px 0}
+.pmfoot{display:flex;justify-content:flex-end;gap:6px;padding:4px 8px;background:var(--face)}
+.pmgrid.small{flex:none}
+.pmcontent>.pmplot,.pmcontent>.pmstutter{flex:none}

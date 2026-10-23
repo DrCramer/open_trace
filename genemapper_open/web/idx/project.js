@@ -20,7 +20,25 @@ const state={
  tab:'samples',selected:new Set(),anchor:null,filter:null,lowQualityTop:false,
  showNavigator:true,busy:false,stop:false,nextId:1,
 };
-window.OT={state,plotPayload};
+const kitCache=new Map(); // panel key -> {kit, lq, mq, policy}
+const EXAMPLE_KEY='__example__';
+window.OT={state,plotPayload,kitsChanged:()=>{kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});render()}};
+const panelChoices=()=>KitStore.choices(KitStore.load());
+function stdCovers(std,lo,hi){const f=SIZE_STANDARDS[std];return f[0]<=lo&&f[f.length-1]>=hi}
+function panelRange(key){const [kitName,panel]=key.split('\u0001');const k=KitStore.load().kits.find(x=>x.name===kitName);const p=k?.panels.find(x=>x.name===panel);
+ if(!p||!p.markers.length)return null;return [Math.min(...p.markers.map(m=>m.min_bp)),Math.max(...p.markers.map(m=>m.max_bp))]}
+function fitStandard(key,current){const r=panelRange(key);if(!r||stdCovers(current,r[0],r[1]))return current;
+ return Object.keys(SIZE_STANDARDS).find(s=>stdCovers(s,r[0],r[1]))||current}
+async function kitFor(key){
+ if(kitCache.has(key))return kitCache.get(key);
+ const req=KitStore.request(KitStore.load(),key);if(!req)throw Error(T('panelNotReady'));
+ const r=await jsonPost('/api/import-gm-kit',req);
+ const entry={kit:r.kit,lq:r.ladder_quality_definition,mq:null,policy:'forward_fill'};kitCache.set(key,entry);return entry}
+const sampleKit=s=>kitCache.get(s.panelKey)?.kit||null;
+function panelSelect(value,onChange){const sel=el('select');sel.append(new Option(T('noPanelChoice'),''));
+ const ch=panelChoices();for(const c of ch){const o=new Option(c.label,c.key);o.title=`${c.kit} / ${c.binSet}`;sel.append(o)}
+ if(value===EXAMPLE_KEY)sel.append(new Option(state.kit?.name||'example',EXAMPLE_KEY));
+ sel.value=value||'';sel.addEventListener('change',()=>onChange(sel.value));sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 
 async function jsonPost(url,data){
  const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -61,6 +79,8 @@ function renderTabs(){const t=$('tabs');t.replaceChildren();
 function showTab(id){state.tab=id;renderTabs();render()}
 
 // ---------- navigator ----------
+function currentKit(){const sel=state.project.samples.find(s=>state.selected.has(s.id)&&sampleKit(s));
+ return sel?sampleKit(sel):(state.project.samples.map(sampleKit).find(Boolean)||null)}
 function renderNavigator(){
  const nav=$('navigator');nav.classList.toggle('hidden',!state.showNavigator);nav.replaceChildren();
  const root=el('ul',{class:'tree root'});const li=el('li');
@@ -68,7 +88,7 @@ function renderNavigator(){
  pnode.addEventListener('click',()=>{state.filter=null;render()});li.append(pnode);
  const ul=el('ul',{class:'tree'});
  if(state.tab==='genotypes'){
-  for(const m of (state.kit?.markers||[])){const n=el('span',{class:'tnode'});n.innerHTML=icon('marker');n.append(document.createTextNode(m.name));ul.append(el('li',{},n))}
+  for(const m of (currentKit()?.markers||[])){const n=el('span',{class:'tnode'});n.innerHTML=icon('marker');n.append(document.createTextNode(m.name));ul.append(el('li',{},n))}
  }else for(const rf of state.project.runFolders){
   const f=el('li');const fn=el('span',{class:'tnode'+(state.filter?.run===rf?' sel':'')});fn.innerHTML=icon('folder');fn.append(document.createTextNode(rf));
   fn.addEventListener('click',()=>{state.filter={run:rf};render()});f.append(fn);
@@ -95,7 +115,7 @@ function statusIcon(s){
 function renderSamples(){
  const grid=$('samplesGrid');grid.replaceChildren();
  const cols=[['',28],[T('colStatus'),48],[T('colSampleFile'),170],[T('colSampleName'),130],[T('colSampleType'),160],[T('colAnalysisMethod'),130],
-  [T('colPanel'),120],[T('colSizeStandard'),130],['SOS',38],['SQ',38],['SSPK',42],['MIX',38],['OMR',42],['CGQ',42]];
+  [T('colPanel'),170],[T('colSizeStandard'),130],['SOS',38],['SQ',38],['SSPK',42],['MIX',38],['OMR',42],['CGQ',42]];
  const t=el('table',{class:'g'});const cg=el('colgroup');for(const [,w] of cols)cg.append(el('col',{style:`width:${w}px`}));t.append(cg);
  const hr=el('tr');for(const [h] of cols)hr.append(el('th',{text:h,title:h}));t.append(el('thead',{},hr));
  const tb=el('tbody');const list=visibleSamples();
@@ -107,7 +127,9 @@ function renderSamples(){
   const tsel=el('select');for(const k of ['sample','ladder','positive','negative'])tsel.append(new Option(T(TYPE_KEYS[k]),k));tsel.value=s.type;
   tsel.addEventListener('change',()=>{s.type=tsel.value;if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
   tsel.addEventListener('mousedown',e=>e.stopPropagation());
-  tr.append(el('td',{},tsel),el('td',{text:s.method}),el('td',{text:s.panel||''}));
+  const psel=panelSelect(s.panelKey,v=>{s.panelKey=v;s.panel=v?v.split('\u0001')[1]:'';if(v)s.sizeStd=fitStandard(v,s.sizeStd);
+   if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
+  tr.append(el('td',{},tsel),el('td',{text:s.method}),el('td',{},psel));
   const ssel=el('select');for(const k of Object.keys(SIZE_STANDARDS))ssel.append(new Option(k,k));ssel.value=s.sizeStd;
   ssel.addEventListener('change',()=>{s.sizeStd=ssel.value;if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
   ssel.addEventListener('mousedown',e=>e.stopPropagation());
@@ -186,7 +208,7 @@ function render(){
  const any=state.project.samples.length>0;
  for(const id of ['tbAnalyze','tbPlots','tbExport'])if($(id))$(id).disabled=!any||state.busy;
  $('stopBtn').disabled=!state.busy;
- if(!state.busy)$('statusText').textContent=`${state.project.samples.length} ${T('samples').toLowerCase()}`;
+ if(!state.busy)$('statusText').textContent=state.lastMessage||`${state.project.samples.length} ${T('samples').toLowerCase()}`;
 }
 function progress(done,total,text){const pct=total?Math.round(100*done/total):0;$('progressBar').style.width=pct+'%';$('progressText').textContent=pct+'%';if(text)$('statusText').textContent=text}
 
@@ -196,6 +218,12 @@ function newProject(){
  dialog(T('newProjectTitle'),b=>{b.append(el('div',{class:'field'},el('label',{text:T('projectName'),for:'npName'}),el('input',{type:'text',id:'npName',value:''})))},
   [[T('ok'),body=>{const v=body.querySelector('#npName').value.trim();if(!v)return false;
     Object.assign(state.project,{name:v,runFolders:[],samples:[],dirty:true});state.selected.clear();state.filter=null;render()},true],[T('cancel'),()=>true]])}
+// File-name heuristics for sample type; the user can change the type in the table.
+function sampleTypeFromName(n){
+ if(/ladder|allelic|_al_|(^|[_-])lad([_-]|$)|^L\d*[_-]/i.test(n))return 'ladder';
+ if(/neg|^NC\d*[_-]|[_-]NC\d*[_-]|blank/i.test(n))return 'negative';
+ if(/pos|^PC\d*[_-]|[_-]PC\d*[_-]|control|9947|2800M|(^|[_-])007([_-]|$)/i.test(n))return 'positive';
+ return 'sample'}
 function addSamples(){
  if(!state.project.name)Object.assign(state.project,{name:T('untitled'),dirty:true});
  let files=[];
@@ -206,22 +234,28 @@ function addSamples(){
   const choose=el('button',{class:'btn',text:T('addChoose'),type:'button'});choose.addEventListener('click',()=>input.click());
   const clear=el('button',{class:'btn',text:T('addClear'),type:'button'});clear.addEventListener('click',()=>{files=[];redraw()});
   const ss=el('select',{id:'addStd'});for(const k of Object.keys(SIZE_STANDARDS))ss.append(new Option(k,k));
+  let lastKey='';try{lastKey=localStorage.getItem('opentrace.lastPanel')||''}catch(e){}
+  if(!panelChoices().some(c=>c.key===lastKey))lastKey='';
+  const ps=panelSelect(lastKey,v=>{if(v)ss.value=fitStandard(v,ss.value)});ps.id='addPanel';if(lastKey)ss.value=fitStandard(lastKey,ss.value);
   const fs=el('fieldset',{},el('legend',{text:T('addSettings')}),
    el('div',{class:'field'},el('label',{text:T('runFolderName')}),el('input',{type:'text',id:'addRun',value:'Run '+(state.project.runFolders.length+1)})),
    el('div',{class:'field'},el('label',{text:T('colAnalysisMethod')}),el('input',{type:'text',value:ANALYSIS_METHOD,disabled:''})),
+   el('div',{class:'field'},el('label',{text:T('colPanel')}),ps),
    el('div',{class:'field'},el('label',{text:T('colSizeStandard')}),ss));
+  if(!panelChoices().length)fs.append(el('div',{class:'note',text:T('noPanelsYet')}));
   b.append(el('div',{text:T('addFiles')}),list,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,clear,input),fs)},
-  [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;
+  [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;
+    try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
     if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
     for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
-     state.project.samples.push({id:state.nextId++,file:f.name,name,type:/ladder|lad\b|_al_|allelic/i.test(f.name)?'ladder':/neg/i.test(f.name)?'negative':/pos|ctrl|control/i.test(f.name)?'positive':'sample',
-      runFolder:run,method:ANALYSIS_METHOD,panel:state.kit?.name||'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
+     state.project.samples.push({id:state.nextId++,file:f.name,name,type:sampleTypeFromName(f.name),
+      runFolder:run,method:ANALYSIS_METHOD,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
     state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
 
 async function analyze(scope){
  const targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;
- state.busy=true;state.stop=false;render();
+ state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;render();
  const order=[...targets].sort((a,b)=>(a.type==='ladder'?0:1)-(b.type==='ladder'?0:1)); // ladders first
  let i=0;
  try{
@@ -233,21 +267,28 @@ async function analyze(scope){
     const j=await r.json();if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=j}
    s.status='analyzed';i++;progress(i,order.length)}
   await genotype();
-  $('statusText').textContent=state.kit?T('analysisDone'):T('noKit');
+  const any=state.project.samples.some(s=>s.panelKey);
+  state.lastMessage=state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone'):T('noKit');
  }catch(err){message(err.message)}
  finally{state.busy=false;state.project.dirty=true;render()}}
 
 async function genotype(){
- if(!state.kit)return;
  for(const rf of state.project.runFolders){
-  const inRun=state.project.samples.filter(s=>s.runFolder===rf&&s.analysis&&s.status==='analyzed');
-  const ladders=inRun.filter(s=>s.type==='ladder').map(s=>({ladder_id:s.file,analysis:s.compact||compactAnalysis(s.analysis)}));
-  if(!ladders.length)continue;
-  for(const s of inRun.filter(x=>x.type!=='ladder')){
-   let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders,kit:state.kit,ladder_quality_definition:state.ladderQuality});
-   if(state.markerQuality)rep=await jsonPost('/api/marker-quality',{report:rep,definition:state.markerQuality});
-   s.report=rep;
-   for(const l of rep.quality?.run_ladders||[]){const ls=inRun.find(x=>x.file===l.ladder_id);if(ls)ls.ladderQuality=l.quality_code}}}}
+  const inRun=state.project.samples.filter(s=>s.runFolder===rf&&s.analysis&&s.status==='analyzed'&&s.panelKey);
+  for(const key of [...new Set(inRun.map(s=>s.panelKey))]){
+   if(state.stop)return;
+   const group=inRun.filter(s=>s.panelKey===key);
+   const ladders=group.filter(s=>s.type==='ladder').map(s=>({ladder_id:s.file,analysis:s.compact||compactAnalysis(s.analysis)}));
+   if(!ladders.length){for(const s of group)s.report=null;state.noLadder=rf;continue}
+   const k=await kitFor(key);
+   for(const s of group)if(s.type==='ladder')s.ladderQuality=null;
+   for(const s of group.filter(x=>x.type!=='ladder')){
+    if(state.stop)return;
+    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
+    let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
+    if(k.mq)rep=await jsonPost('/api/marker-quality',{report:rep,definition:k.mq});
+    s.report=rep;
+    for(const l of rep.quality?.run_ladders||[]){const ls=group.find(x=>x.file===l.ladder_id);if(ls)ls.ladderQuality=l.quality_code}}}}}
 
 async function loadExample(){
  if(state.busy)return;state.busy=true;render();progress(0,1,T('loadExample'));
@@ -257,18 +298,20 @@ async function loadExample(){
   const rf='Example run';
   Object.assign(state.project,{name:'OpenTrace example',runFolders:[rf],samples:[],dirty:false});
   state.kit=d.kit;state.ladderQuality=d.ladder_quality_definition;state.markerQuality=d.marker_quality_definition;
+  kitCache.set(EXAMPLE_KEY,{kit:d.kit,lq:d.ladder_quality_definition,mq:d.marker_quality_definition,policy:'reject'});
   for(const l of d.ladders){const lq=(rep.quality?.run_ladders||[]).find(x=>x.ladder_id===l.ladder_id);
-   state.project.samples.push({id:state.nextId++,file:l.ladder_id,name:l.ladder_id.replace(/\.fsa$/,''),type:'ladder',runFolder:rf,method:ANALYSIS_METHOD,panel:d.kit.name,
+   state.project.samples.push({id:state.nextId++,file:l.ladder_id,name:l.ladder_id.replace(/\.fsa$/,''),type:'ladder',runFolder:rf,method:ANALYSIS_METHOD,panelKey:EXAMPLE_KEY,panel:d.kit.name,
     sizeStd:'GS600_LIZ',status:'analyzed',analysis:l.analysis,compact:l.analysis,report:null,ladderQuality:lq?.quality_code})}
   state.project.samples.push({id:state.nextId++,file:d.sample.filename||'example-sample.fsa',name:d.sample.sample||'Example sample',type:'sample',runFolder:rf,
-   method:ANALYSIS_METHOD,panel:d.kit.name,sizeStd:'GS600_LIZ',status:'analyzed',analysis:d.sample,report:rep});
+   method:ANALYSIS_METHOD,panelKey:EXAMPLE_KEY,panel:d.kit.name,sizeStd:'GS600_LIZ',status:'analyzed',analysis:d.sample,report:rep});
   state.selected.clear();state.filter=null;progress(1,1,T('ready'));
  }catch(err){message(err.message)}finally{state.busy=false;render()}}
 
 function plotPayload(){
  const samples=state.project.samples.filter(s=>state.selected.has(s.id));
- return {lang:I18N.lang,kit:state.kit,samples:samples.map(s=>({id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report,pqv:samplePqv(s),
+ return {lang:I18N.lang,kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>({id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report,kit:sampleKit(s),pqv:samplePqv(s),
   markers:markerRows(s).map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.gqCat,calls:r.calls}))}))}}
+function openPanelManager(){const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
  if(!state.selected.size)return message(T('selectSamplesFirst'));
  const w=window.open('/idx/plot.html','opentrace-plot','width=1100,height=760');
@@ -313,7 +356,7 @@ function buildChrome(){
    {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),run:notYet},{label:T('rawData'),run:notYet},{label:T('eptData'),run:notYet},'-',
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
-  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:notYet},{label:T('panelManager'),sc:'Ctrl+J',run:notYet},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:notYet},
+  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:notYet},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:notYet},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:notYet},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
@@ -324,7 +367,7 @@ function buildChrome(){
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),notYet),tbutton('saveProject',T('saveProject'),notYet),tsep(),
   tbutton('addSamples',T('addSamples'),addSamples),tbutton('exportTable',T('exportTable'),exportTable,{id:'tbExport'}),tsep(),
   tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),notYet),tbutton('labelEditViewer',T('labelEditViewer'),notYet),
-  tbutton('sizeMatchEditor',T('sizeMatchEditor'),notYet),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),notYet),tbutton('panelManager',T('panelManager'),notYet),
+  tbutton('sizeMatchEditor',T('sizeMatchEditor'),notYet),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),notYet),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
   tbutton('manager',T('manager'),notYet),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
   tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));
  const ts=el('select',{class:'combo',title:T('tableSetting')});ts.append(new Option(T('dataInterpretation'),'default'));
@@ -340,7 +383,7 @@ document.addEventListener('keydown',e=>{
  const k=e.key.toLowerCase();
  if(e.key==='F1'){e.preventDefault();notYet();return}
  if(!e.ctrlKey&&!e.metaKey)return;
- const map={n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
+ const map={j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 

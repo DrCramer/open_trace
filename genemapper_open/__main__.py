@@ -293,8 +293,33 @@ def main(argv=None):
         command.add_argument("--standard-end", type=int, default=None)
         command.add_argument("--calibration-model", default="linear",
                              choices=("linear", "lsq2", "lsq3", "natural_cubic", "local_rational"))
+    import_kit=commands.add_parser('import-kit',help='Convert GeneMapper Panels/Bins/Stutter text files to an OpenTrace kit JSON')
+    import_kit.add_argument('panels',type=Path)
+    import_kit.add_argument('bins',type=Path,nargs='?')
+    import_kit.add_argument('--stutter',type=Path)
+    import_kit.add_argument('--panel',help='Panel name when the file holds several panels')
+    import_kit.add_argument('--list',action='store_true',help='Only list kits and panels in the Panels file')
+    import_kit.add_argument('--ladder-quality',type=Path,help='Also write the default ladder QC definition JSON here')
+    import_kit.add_argument('--output','-o',type=Path)
     args = parser.parse_args(argv)
     try:
+        if args.command=='import-kit':
+            from .gm_kit_import import parse_panels,list_panels,import_request
+            if args.list or not args.bins:
+                print(json.dumps(list_panels(parse_panels(args.panels.read_bytes())),ensure_ascii=False,indent=2))
+                return 0
+            out=import_request({'panels':args.panels.read_bytes(),'bins':args.bins.read_bytes(),
+                'stutter':args.stutter.read_bytes() if args.stutter else None,
+                'panel':args.panel if args.panel else (list_panels(parse_panels(args.panels.read_bytes()))[0]['panel']
+                    if len(list_panels(parse_panels(args.panels.read_bytes())))==1 else None)})
+            if out['kit'] is None:
+                raise ValueError('Several panels are present; choose one with --panel')
+            text=json.dumps(out['kit'],ensure_ascii=False,allow_nan=False,indent=2)+'\n'
+            if args.output:args.output.write_text(text,encoding='utf-8')
+            else:sys.stdout.write(text)
+            if args.ladder_quality:
+                args.ladder_quality.write_text(json.dumps(out['ladder_quality_definition'],indent=2)+'\n',encoding='utf-8')
+            return 0
         if args.command in ('controls','marker-quality','pullup-quality'):
             if args.command=='controls':
                 from .control_workflow import attach_control_result as annotate

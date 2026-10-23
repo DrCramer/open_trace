@@ -16,7 +16,9 @@ MAX_JSON_BYTES = 1_048_576
 MAX_MARKERS = 128
 MAX_BINS_PER_MARKER = 128
 MAX_TOTAL_BINS = 4096
-MAX_LADDER_LABELS = 32
+MAX_LADDER_LABELS = 64
+MARKER_OPTIONAL = ('dye', 'control_alleles', 'y_marker', 'internal_qc')
+DYE_COLORS = ('blue', 'green', 'yellow', 'red', 'purple', 'orange')
 MAX_RANGES = 64
 MAX_TEXT_LENGTH = 128
 MAX_BP = 1_000_000
@@ -135,7 +137,7 @@ def load_kit_definition(source):
     for index, row in enumerate(rows):
         where = f'kit.markers[{index}]'
         _object(row, ('name', 'channel', 'min_bp', 'max_bp', 'repeat', 'bins',
-                      'ladder_labels', 'parameters'), path=where)
+                      'ladder_labels', 'parameters'), MARKER_OPTIONAL, path=where)
         marker_name = _text(row['name'], where+'.name')
         if marker_name.casefold() in marker_names:
             raise ValueError(f'{where}: marker names must be unique ignoring case')
@@ -159,7 +161,7 @@ def load_kit_definition(source):
         normalized_bins, labels = [], {}
         for bin_index, item in enumerate(bins):
             at = f'{where}.bins[{bin_index}]'
-            _object(item, ('label', 'center_bp', 'left_bp', 'right_bp'), ('confidence_weight',), at)
+            _object(item, ('label', 'center_bp', 'left_bp', 'right_bp'), ('confidence_weight', 'virtual'), at)
             label = _text(item['label'], at+'.label')
             if label.casefold() in labels:
                 raise ValueError(f'{at}: bin labels must be unique ignoring case')
@@ -172,11 +174,15 @@ def load_kit_definition(source):
                 raise ValueError(f'{at}: bin edges must be in [0, 1000000] bp')
             normalized = {'label': label, 'center_bp': center, 'left_bp': left, 'right_bp': right,
                           'confidence_weight': _number(item.get('confidence_weight', 1), at+'.confidence_weight', high=1)}
+            if 'virtual' in item:
+                if type(item['virtual']) is not bool:
+                    raise ValueError(f'{at}.virtual: boolean required')
+                normalized['virtual'] = item['virtual']
             labels[label.casefold()] = normalized
             normalized_bins.append(normalized)
         ladder = row['ladder_labels']
         if not isinstance(ladder, list) or len(ladder) > MAX_LADDER_LABELS:
-            raise ValueError(f'{where}.ladder_labels: explicit list of at most 32 labels required')
+            raise ValueError(f'{where}.ladder_labels: explicit list of at most {MAX_LADDER_LABELS} labels required')
         canonical_ladder, used, centers = [], set(), []
         for label in ladder:
             _text(label, where+'.ladder_labels')
@@ -199,9 +205,25 @@ def load_kit_definition(source):
             diagnostics.append({'code': 'overlapping_bins', 'marker': marker_name,
                                 'pair_count': overlap_count, 'examples': examples,
                                 'policy': 'allowed; multiple inclusive bin hits are ambiguous'})
-        markers.append({'name': marker_name, 'channel': channel, 'min_bp': low, 'max_bp': high,
-                        'repeat': repeat, 'bins': normalized_bins, 'ladder_labels': canonical_ladder,
-                        'parameters': _parameters(row['parameters'], where+'.parameters')})
+        marker = {'name': marker_name, 'channel': channel, 'min_bp': low, 'max_bp': high,
+                  'repeat': repeat, 'bins': normalized_bins, 'ladder_labels': canonical_ladder,
+                  'parameters': _parameters(row['parameters'], where+'.parameters')}
+        # Optional descriptive panel fields; absent fields keep older output unchanged.
+        if 'dye' in row:
+            if row['dye'] not in DYE_COLORS:
+                raise ValueError(f'{where}.dye: one of {", ".join(DYE_COLORS)} required')
+            marker['dye'] = row['dye']
+        if 'control_alleles' in row:
+            controls = row['control_alleles']
+            if not isinstance(controls, list) or len(controls) > 8:
+                raise ValueError(f'{where}.control_alleles: list of at most 8 labels required')
+            marker['control_alleles'] = [_text(label, where+'.control_alleles') for label in controls]
+        for flag in ('y_marker', 'internal_qc'):
+            if flag in row:
+                if type(row[flag]) is not bool:
+                    raise ValueError(f'{where}.{flag}: boolean required')
+                marker[flag] = row[flag]
+        markers.append(marker)
     return {'schema_version': 1, 'name': name, 'markers': markers, 'diagnostics': diagnostics}
 
 
