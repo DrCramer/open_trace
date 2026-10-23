@@ -390,7 +390,9 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
     return output
 
 
-def serve(port=8765, open_browser=False):
+def serve(port=8765, open_browser=False, projects_dir=None):
+    from .idx_projects import ProjectLibrary
+    library = ProjectLibrary(projects_dir)
     token = secrets.token_urlsafe(24)
     page = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
     page = page.replace("__SESSION_TOKEN__", token).encode("utf-8")
@@ -448,7 +450,7 @@ def serve(port=8765, open_browser=False):
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
                                    "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit",
-                                   "/api/analysis-method"):
+                                   "/api/analysis-method", "/api/idx-project"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -472,6 +474,8 @@ def serve(port=8765, open_browser=False):
                     request=json.loads(raw)
                     if not isinstance(request,dict):raise ValueError('Marker quality request must be an object')
                     return self.respond(200,attach_marker_quality(request.get('report'),request.get('definition')))
+                if parsed.path == '/api/idx-project':
+                    return self.respond(200,library.request(json.loads(raw)))
                 if parsed.path == '/api/analysis-method':
                     from .analysis_method import method_request
                     return self.respond(200,method_request(json.loads(raw)))
@@ -596,7 +600,8 @@ def serve(port=8765, open_browser=False):
     server.daemon_threads = True
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"OpenTrace research UI: {url}\nDesktop-style workspace: {url}idx/\n"
-          "Ctrl+C to stop. No uploaded files are saved.", flush=True)
+          f"Projects saved from the workspace go to: {library.root}\n"
+          "Ctrl+C to stop.", flush=True)
     if open_browser:
         webbrowser.open(url)
     try:

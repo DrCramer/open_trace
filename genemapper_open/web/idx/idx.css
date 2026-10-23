@@ -190,3 +190,6 @@ table.amgrid th{background:linear-gradient(#fff,#ebeadb);font-weight:normal}
 .colgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:0 10px}
 .colgrid .chk{margin:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #samplesGrid th,#genotypesGrid th{cursor:pointer}
+.dlg .body.opendlg{width:760px;max-width:94vw}
+table.g td input[type=text]{width:100%;border:none;background:transparent;height:17px;padding:0 2px}
+table.g tr.sel td input[type=text]{color:#fff}

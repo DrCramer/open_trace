@@ -229,6 +229,7 @@ def main(argv=None):
     ui = commands.add_parser("serve", help="Start loopback-only browser UI")
     ui.add_argument("--port", type=int, default=8765)
     ui.add_argument("--open", action="store_true", help="Open browser")
+    ui.add_argument("--projects-dir", type=Path, help="Folder for /idx/ projects (default ~/OpenTrace/projects or OPENTRACE_PROJECTS)")
     demo = commands.add_parser("demo", help="Write original synthetic six-channel FSA")
     demo.add_argument("output", type=Path)
     demo_kind = demo.add_mutually_exclusive_group()
@@ -408,7 +409,7 @@ def main(argv=None):
         elif args.command == "project":
             print(json.dumps(_project_command(args), ensure_ascii=False, indent=2, allow_nan=False))
         elif args.command == "serve":
-            serve(args.port, args.open)
+            serve(args.port, args.open, args.projects_dir)
         elif args.command == "demo":
             args.output.write_bytes(pipeline_demo_bytes() if args.pipeline else sizing_demo_bytes() if args.sizing else demo_bytes())
             print(args.output.resolve())

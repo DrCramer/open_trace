@@ -122,6 +122,11 @@ en:{
  colT_runName:'Run Name',colT_well:'Well',colT_lane:'Capillary',colT_runDate:'Run Date',colT_instrumentType:'Instrument Type',colT_instrumentID:'Instrument ID',
  colT_plate:'Plate Name',colT_sampleID:'Sample ID',colT_comments:'Comment',colT_status:'Status',colT_customControl:'Custom Control',colT_profileId:'Profile ID',
  colT_aeReason:'AE Reason For Change',colT_matrix:'Matrix',
+ saving:'Saving',projectSaved:'Project saved',projectComment:'Comment',projectOverwrite:'Project {0} already exists. Replace it?',
+ discardChanges:'The project has unsaved changes. Discard them?',open:'Open',confirmDeleteProject:'Delete project {0} from the projects folder? This cannot be undone.',
+ created:'Created',projectsFolder:'Projects folder:',opening:'Opening',projectOpened:'Project opened',
+ projectAddedObjects:'Objects saved with the project were added to your library:',copied:'Rows copied',
+ fillDownHint:'Click a Sample ID, Comment, Profile ID or UD cell, select two or more rows, then use Fill Down.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -249,6 +254,11 @@ ru:{
  colT_dataPoint:'Точка данных',colT_runName:'Имя запуска',colT_well:'Лунка',colT_lane:'Капилляр',colT_runDate:'Дата запуска',colT_instrumentType:'Тип прибора',
  colT_instrumentID:'Номер прибора',colT_plate:'Имя планшета',colT_sampleID:'ID образца',colT_comments:'Комментарий',colT_status:'Статус',
  colT_customControl:'Пользовательский контроль',colT_profileId:'ID профиля',colT_aeReason:'Причина правки (AE)',colT_matrix:'Матрица',
+ saving:'Сохранение',projectSaved:'Проект сохранён',projectComment:'Комментарий',projectOverwrite:'Проект {0} уже существует. Заменить его?',
+ discardChanges:'В проекте есть несохранённые изменения. Отбросить их?',open:'Открыть',confirmDeleteProject:'Удалить проект {0} из папки проектов? Это нельзя отменить.',
+ created:'Создан',projectsFolder:'Папка проектов:',opening:'Открытие',projectOpened:'Проект открыт',
+ projectAddedObjects:'Объекты, сохранённые с проектом, добавлены в вашу библиотеку:',copied:'Скопировано строк',
+ fillDownHint:'Щёлкните ячейку ID образца, комментария, ID профиля или UD, выделите две или более строк и выполните «Заполнить вниз».',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}
