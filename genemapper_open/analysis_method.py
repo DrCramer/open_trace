@@ -598,6 +598,9 @@ def method_request(request):
     if action == 'export_xml':
         return {'xml': to_gm_xml(request.get('method'))}
     if action == 'analyze_settings':
+        dye = request.get('standard_dye') or 'orange'
+        if dye not in DYES:
+            raise ValueError('standard_dye must be one of ' + ', '.join(DYES))
         return {'settings': analyze_settings(request.get('method'), request.get('standard_bp') or [],
-                                             request.get('dye_channels'))}
+                                             request.get('dye_channels'), standard_dye=dye)}
     raise ValueError('action must be factory, validate, import_xml, export_xml or analyze_settings')

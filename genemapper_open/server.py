@@ -119,6 +119,43 @@ def _apply_analysis_range(channel, analysis_range):
     channel['analysis_range'] = [start, stop]
 
 
+def _apply_sizing_override(sizing, override, mode, analysis_engine):
+    """Override SQ: accept explicit size-standard anchors chosen in the Size Match Editor.
+
+    Mirrors the original SQ override: the sample is sized with the reviewed
+    matches, SQ is reported as 1.0 with an SQO flag, and the automatic result and
+    its reasons are kept in ``sizing['sq_override']`` for review.
+    """
+    from .analysis import Calibration
+    if isinstance(override, str):
+        override = json.loads(override)
+    if mode != 'auto' or analysis_engine != 'morphology_ratio':
+        raise ValueError('SQ override requires automatic morphology sizing')
+    if not isinstance(override, dict) or set(override) - {'anchors', 'reason'} or 'anchors' not in override:
+        raise ValueError('SQ override needs anchors and an optional reason')
+    anchors = override['anchors']
+    if not isinstance(anchors, list) or not 3 <= len(anchors) <= 64:
+        raise ValueError('SQ override needs 3..64 [scan, bp] anchors')
+    pairs = []
+    for item in anchors:
+        if (not isinstance(item, list) or len(item) != 2 or any(isinstance(v, bool) or not isinstance(v, Real)
+                or not math.isfinite(v) for v in item)):
+            raise ValueError('Each SQ override anchor must be [scan, bp]')
+        pairs.append((float(item[0]), float(item[1])))
+    pairs.sort()
+    if any(b[0] <= a[0] or b[1] <= a[1] for a, b in zip(pairs, pairs[1:])):
+        raise ValueError('SQ override anchors must increase in both scan and bp')
+    reason = override.get('reason', '')
+    if not isinstance(reason, str) or len(reason) > 500:
+        raise ValueError('SQ override reason must be text up to 500 characters')
+    sizing['sq_override'] = {'anchors': [list(p) for p in pairs], 'reason': reason, 'sq': 1.0,
+                             'automatic_status': sizing.get('status'), 'automatic_reasons': list(sizing.get('reasons', [])),
+                             'automatic_base_quality': sizing.get('base_quality')}
+    sizing['status'] = 'accepted'
+    sizing['reasons'] = []
+    return Calibration(pairs)
+
+
 def _measure_morphology_channel(channel, threshold,spike_definition=None,detector=None):
     detector = detector or DETECTOR_DEFAULTS
     from .preprocessing import prepare_trace
@@ -153,7 +190,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
             standard_start=0, standard_end=None, calibration_model="linear",
             analysis_engine="residual", height_mode="explicit", quality_threshold=0.75,
             num_extra_peaks=25,spike_definition=None,sizing_quality_definition=None,pullup_definition=None,
-            channel_thresholds=None,detector=None,analysis_range=None):
+            channel_thresholds=None,detector=None,analysis_range=None,sizing_override=None):
     from .calibration import MODEL_IDS, build_calibration, CalibrationError
     detector = _detector_settings(detector)
     channel_thresholds = _channel_thresholds(channel_thresholds)
@@ -279,6 +316,8 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
         sizing.update(mode='auto', reference_channel=standard_channel,
                       scan_range=[standard_start, end], expected_bp=list(expected),
                       max_residual_bp=max_residual_bp)
+    if sizing_override is not None:
+        calibration = _apply_sizing_override(sizing, sizing_override, mode, analysis_engine)
     sizing['analysis_engine'] = analysis_engine
     sizing["calibration_model"] = calibration_model
     sizing["calibration_diagnostics"] = {}
@@ -402,7 +441,7 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js")}
+                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js")}
     for page_name in ("project.html", "panels.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
@@ -587,7 +626,8 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                                  pullup_definition=params.get('pullup_definition',[None])[0],
                                  channel_thresholds=params.get('channel_thresholds',[None])[0],
                                  detector=params.get('detector',[None])[0],
-                                 analysis_range=_parse_analysis_range(params.get('analysis_range',[None])[0]))
+                                 analysis_range=_parse_analysis_range(params.get('analysis_range',[None])[0]),
+                                 sizing_override=params.get('sizing_override',[None])[0])
                 return self.respond(200, result)
             except (AbifError, ValueError, OverflowError, TimeoutError, TypeError, KeyError, RecursionError) as exc:
                 return self.respond(400, {"error": str(exc)})

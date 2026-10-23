@@ -127,6 +127,13 @@ en:{
  created:'Created',projectsFolder:'Projects folder:',opening:'Opening',projectOpened:'Project opened',
  projectAddedObjects:'Objects saved with the project were added to your library:',copied:'Rows copied',
  fillDownHint:'Click a Sample ID, Comment, Profile ID or UD cell, select two or more rows, then use Fill Down.',
+ stdDyeRequired:'Choose the size standard dye.',stdSizesInvalid:'Enter 4..128 positive fragment sizes.',stdSizesOrder:'Fragment sizes must increase.',stdDye:'Dye:',
+ stdSizes:'Sizes (bp):',mgrSizeStandards:'Size Standards',stdUntitled:'Size standard',stdImported:'Size standard imported.',confirmDeleteStd:'Delete size standard {0}?',
+ selectAnalyzedSample:'Select an analyzed sample first.',noStandardChannel:'The size-standard channel is not in this sample\'s analysis.',smOverride:'Override SQ',
+ smRestore:'Restore automatic sizing',smNeedThree:'Assign at least three fragments.',smOrder:'Assigned peaks must increase with fragment size.',smStatus:'Status',
+ smOverridden:'SQ overridden',smMatched:'Matched',smOverrideReason:'Reason for override',
+ smHint:'Click a fragment in the table, then click a peak to assign it; Unassign removes a match. Override SQ sizes the sample with these matches (SQ = 1.0, SQO flag).',
+ smScan:'Data Point',smUnassign:'Unassign',smCurve:'Sizing curve',reasonForChange:'Reason for change:',reasonRequired:'Enter a reason for the change.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -259,6 +266,14 @@ ru:{
  created:'Создан',projectsFolder:'Папка проектов:',opening:'Открытие',projectOpened:'Проект открыт',
  projectAddedObjects:'Объекты, сохранённые с проектом, добавлены в вашу библиотеку:',copied:'Скопировано строк',
  fillDownHint:'Щёлкните ячейку ID образца, комментария, ID профиля или UD, выделите две или более строк и выполните «Заполнить вниз».',
+ stdDyeRequired:'Выберите краситель размерного стандарта.',stdSizesInvalid:'Введите от 4 до 128 положительных размеров фрагментов.',
+ stdSizesOrder:'Размеры фрагментов должны возрастать.',stdDye:'Краситель:',stdSizes:'Размеры (п.о.):',mgrSizeStandards:'Размерные стандарты',stdUntitled:'Размерный стандарт',
+ stdImported:'Размерный стандарт импортирован.',confirmDeleteStd:'Удалить размерный стандарт {0}?',selectAnalyzedSample:'Сначала выберите проанализированный образец.',
+ noStandardChannel:'В анализе образца нет канала размерного стандарта.',smOverride:'Утвердить SQ',smRestore:'Вернуть автоматическую калибровку',
+ smNeedThree:'Назначьте не менее трёх фрагментов.',smOrder:'Назначенные пики должны идти по возрастанию размера.',smStatus:'Статус',smOverridden:'SQ утверждено',
+ smMatched:'Сопоставлено',smOverrideReason:'Причина утверждения',
+ smHint:'Щёлкните фрагмент в таблице, затем пик на графике, чтобы назначить его; «Снять» убирает назначение. «Утвердить SQ» калибрует образец по этим назначениям (SQ = 1,0, флаг SQO).',
+ smScan:'Точка данных',smUnassign:'Снять',smCurve:'Калибровочная кривая',reasonForChange:'Причина изменения:',reasonRequired:'Укажите причину изменения.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

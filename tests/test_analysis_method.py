@@ -177,3 +177,26 @@ class EngineSettingsTests(unittest.TestCase):
         for bad in ('[5]', '[9,3]', '["a",4]'):
             with self.assertRaises(ValueError):
                 _parse_analysis_range(bad)
+
+
+class SizingOverrideTests(unittest.TestCase):
+    def test_sq_override_uses_reviewed_anchors(self):
+        from genemapper_open.demo import pipeline_demo_bytes, SYNTHETIC_PIPELINE_STANDARD_BP
+        from genemapper_open.server import analyze
+        run = lambda **kw: analyze(pipeline_demo_bytes(), 'p.fsa', analysis_engine='morphology_ratio', sizing_mode='auto',
+                                   standard_channel='DATA106', standard_bp=list(SYNTHETIC_PIPELINE_STANDARD_BP), **kw)
+        base = run()
+        anchors = [list(a) for a in base['sizing']['anchors']]
+        over = run(sizing_override={'anchors': anchors[1:], 'reason': 'reviewed'})
+        self.assertEqual(over['sizing']['status'], 'accepted')
+        self.assertEqual(over['sizing']['sq_override']['reason'], 'reviewed')
+        self.assertEqual(over['sizing']['sq_override']['automatic_status'], base['sizing']['status'])
+        self.assertEqual(len(over['sizing']['anchors']), len(anchors) - 1)
+        self.assertNotIn('sq_override', base['sizing'])
+        for bad in ({'anchors': anchors[:2]}, {'anchors': [[1, 'x']] * 3}, {'anchors': [[100, 50], [200, 50], [300, 60]]},
+                    {'anchors': anchors, 'extra': 1}, {'anchors': anchors, 'reason': 'x' * 501}):
+            with self.subTest(bad=str(bad)[:40]), self.assertRaises(ValueError):
+                run(sizing_override=bad)
+        with self.assertRaises(ValueError):
+            analyze(pipeline_demo_bytes(), 'p.fsa', analysis_engine='residual', sizing_mode='auto', standard_channel='DATA106',
+                    standard_bp=list(SYNTHETIC_PIPELINE_STANDARD_BP), sizing_override={'anchors': anchors})
