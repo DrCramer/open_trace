@@ -20,7 +20,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,kitsChanged:()=>{dropCaches();render()}};
+window.OT={state,plotPayload,edit:(id,spec)=>applyEdit(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
  for(const s of state.project.samples)if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))s.method=defaultMethod();render()});
@@ -144,7 +144,8 @@ function arnmReasons(s){const r=[];
  if(s.type!=='ladder'&&s.panelKey&&!state.project.samples.some(x=>x.runFolder===s.runFolder&&x.type==='ladder'&&x.panelKey===s.panelKey))r.push(T('arnmLadder'));
  return r}
 function sampleFlags(s){const q=samplePqv(s);
- return {...q,SE:'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
+ const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';
+ return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
 // Inline text cell (Sample ID, Comment, Profile ID, UD1-UD9): edits mark the project dirty.
@@ -184,16 +185,64 @@ function sampleCell(id,s,flags){
    if(/^UD\d$/.test(id))return textEdit(s,'ud.'+id,(s.ud||{})[id]||'');
    const v=flags[id]??'na';const out={value:v,html:pqv(v),cls:'ic'};
    if(id==='ARNM'&&v==='low')out.title=arnmReasons(s).join('; ');return out}}
+// ---------- label edits (overlay on the machine result; the report itself is never changed) ----------
+const activeEdits=s=>(s.edits||[]).filter(e=>!e.undone);
+function effective(s){
+ const rep=s.report;const calls=(rep?.calls||[]).map(c=>({...c}));const byId=new Map(calls.map(c=>[c.id,c]));
+ const out={calls,edited:new Set(),gqOverride:new Set(),cgqOverride:false,reasons:{}};
+ for(const e of activeEdits(s)){
+  if(e.action==='override_cgq'){out.cgqOverride=true;continue}
+  out.edited.add(e.marker);out.reasons[e.marker]=e.reason;
+  if(e.action==='override_gq')out.gqOverride.add(e.marker);
+  else if(e.action==='rename'){const c=byId.get(e.callId);if(c){c.label=e.new;c.user_edited=true}}
+  else if(e.action==='delete'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0)calls.splice(i,1)}
+  else if(e.action==='add'){const c={...e.peak,id:'u'+e.id,marker:e.marker,label:e.new,flags:['user_added'],user_edited:true};calls.push(c);byId.set(c.id,c)}}
+ calls.sort((a,b)=>a.size_bp-b.size_bp);return out}
+async function askReasonUser(title){let user='';try{user=localStorage.getItem('opentrace.user')||''}catch(e){}
+ return new Promise(res=>{dialog(title,b=>b.append(el('div',{class:'field'},el('label',{text:T('userName')}),el('input',{type:'text',id:'edUser',value:user})),
+  el('div',{class:'field'},el('label',{text:T('reasonForChange')}),el('input',{type:'text',id:'edReason'}))),
+  [[T('ok'),b=>{const u=b.querySelector('#edUser').value.trim(),r=b.querySelector('#edReason').value.trim();if(!u||!r){message(T('reasonRequired'));return false}
+    try{localStorage.setItem('opentrace.user',u)}catch(e){}res({user:u,reason:r});return true},true],[T('cancel'),()=>{res(null);return true}]])})}
+// spec: {action:'rename'|'delete'|'add'|'override_gq'|'override_cgq', marker, callId?, peak?, new?}
+async function applyEdit(sampleId,spec){
+ const s=state.project.samples.find(x=>x.id===sampleId);if(!s||!s.report)return false;
+ let label=spec.new;
+ if(!spec.reason&&(spec.action==='rename'||spec.action==='add')){label=await promptLabel(spec.action==='add'?T('addAlleleLabel'):T('renameAllele'),spec.new||'');if(label==null)return false}
+ const who=spec.reason&&spec.user?{user:spec.user,reason:spec.reason}:await askReasonUser(T('reasonTitle'));if(!who)return false;
+ if(typeof who.reason!=='string'||who.reason.length>500||typeof who.user!=='string'||who.user.length>120)return false;
+ const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):null;
+ s.edits=s.edits||[];const id=(s.edits.reduce((m,e)=>Math.max(m,e.id),0)||0)+1;
+ s.edits.push({id,at:new Date().toISOString(),user:who.user,reason:who.reason,action:spec.action,marker:spec.marker||null,callId:spec.callId||null,
+  peak:spec.peak||null,old:old?old.label:null,new:spec.action==='delete'?null:label??null,size_bp:old?.size_bp??spec.peak?.size_bp??null});
+ s.rev=(s.rev||0)+1;state.project.dirty=true;render();return true}
+function promptLabel(title,value){return new Promise(res=>{dialog(title,b=>b.append(el('div',{class:'field'},el('label',{text:T('colAllele')}),el('input',{type:'text',id:'edLabel',value}))),
+ [[T('ok'),b=>{const v=b.querySelector('#edLabel').value.trim();if(!v||v.length>40){message(T('badBinName'));return false}res(v);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
+function labelEditViewer(){
+ const rows=[];for(const s of state.project.samples)for(const e of s.edits||[])rows.push({s,e});
+ rows.sort((a,b)=>a.e.at<b.e.at?1:-1);let sel=null;
+ const d=dialog(T('labelEditViewer'),()=>{},[[T('undoEdit'),()=>{if(!sel)return message(T('selectRow')),false;if(sel.e.undone)return false;
+    sel.e.undone=true;sel.e.undoneAt=new Date().toISOString();sel.s.rev=(sel.s.rev||0)+1;state.project.dirty=true;render();draw();return false}],
+  [T('exportTable'),()=>{const head=['Sample File','Sample Name','Marker','Size','Old Label','New Label','Action','Reason For Change','User','Date','Undone'];
+    const text=[head,...rows.map(({s,e})=>[s.file,s.name,e.marker||'',e.size_bp!=null?e.size_bp.toFixed(2):'',e.old??'',e.new??'',e.action,e.reason,e.user,e.at,e.undone?'yes':''])]
+     .map(r=>r.join('\t')).join('\r\n')+'\r\n';Methods.download(`${state.project.name||'project'}_label_edits.txt`,text,'text/plain');return false}],[T('closeWin'),()=>true,true]]);
+ const draw=()=>{const b=d.body;b.replaceChildren();b.classList.add('levdlg');
+  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...[T('colSampleFile'),T('colMarker'),T('colSize'),T('levOld'),T('levNew'),T('levAction'),T('reasonForChange').replace(':',''),T('userName').replace(':',''),T('levDate')].map(h=>el('th',{text:h})))));
+  const tb=el('tbody');for(const r of rows){const e=r.e;const tr=el('tr',{class:(sel===r?'sel ':'')+(e.undone?'undone':'')},
+   el('td',{text:r.s.file}),el('td',{text:e.marker||''}),el('td',{class:'num',text:e.size_bp!=null?e.size_bp.toFixed(2):''}),el('td',{text:e.old??''}),el('td',{text:e.new??''}),
+   el('td',{text:T('act_'+e.action)+(e.undone?' ('+T('undone')+')':'')}),el('td',{text:e.reason}),el('td',{text:e.user}),el('td',{text:e.at.replace('T',' ').slice(0,19)}));
+   tr.addEventListener('mousedown',()=>{sel=r;draw()});tb.append(tr)}
+  t.append(tb);b.append(el('div',{class:'grid mgrgrid'},t));if(!rows.length)b.append(el('div',{class:'note',text:T('noEdits')}))};
+ draw()}
 function genoRows(s){
  const rep=s.report;if(!rep||!rep.allele_calling)return [];
- const gq=Object.fromEntries((rep.quality?.marker_gq?.markers||[]).map(m=>[m.marker,m]));
- return (rep.allele_calling.markers||[]).map(m=>{const calls=(rep.calls||[]).filter(c=>c.marker===m.name);
+ const gq=Object.fromEntries((rep.quality?.marker_gq?.markers||[]).map(m=>[m.marker,m]));const eff=effective(s);
+ return (rep.allele_calling.markers||[]).map(m=>{const calls=eff.calls.filter(c=>c.marker===m.name);
   const g=gq[m.name];const metrics=g?.score?.metrics||{};
   const f=k=>metrics[k]===1?'check':metrics[k]===0?'pass':'na';
   const flags={OS:f('offscale'),BIN:f('binning'),PHR:f('ratio'),LPH:f('absolute_height'),MPH:f('high_height'),SPK:f('spike'),
-   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:'na',CC:'na',MEC:'na',ADO:'na',ME:'na',
-   GQ:g?code(g.category?.code):'na'};
-  return {sample:s,marker:m.name,channel:m.channel,calls,gq:g?.score?.gq,flags,peaks:rep.peaks||[]}})}
+   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:'na',CC:'na',MEC:'na',ADO:'na',ME:eff.edited.has(m.name)?'check':'pass',
+   GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
+  return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||''}})}
 function genoCell(id,r,i){
  const s=r.sample,c=r.calls[i];const info=s.analysis?.run_info||{};
  switch(id){
@@ -205,7 +254,8 @@ function genoCell(id,r,i){
   case 'height':return {value:c?Math.round(c.height):'',cls:'num'};
   case 'area':{const p=c&&r.peaks[c.peak_index];return {value:p&&p.area!=null?Math.round(p.area):'',cls:'num'}}
   case 'dataPoint':return {value:c?Math.round(c.scan):'',cls:'num'};
-  case 'aeReason':case 'PLI':return {value:''};
+  case 'aeReason':return {value:r.reason||''};
+  case 'PLI':return {value:''};
   case 'profileId':return {value:s.profileId||''};
   default:
    if(/^UD\d$/.test(id))return {value:''};
@@ -315,7 +365,7 @@ function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.leng
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
  return {comment:state.project.comment||'',run_folders:state.project.runFolders,
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
-   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,sqOverride:s.sqOverride||null})),
+   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
   snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
@@ -373,7 +423,7 @@ async function loadProject(name){
   const samples=[];let i=0;state.nextId=1;
   for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
    const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
-    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,ud:m.ud||{},ladderQuality:m.ladderQuality,sqOverride:m.sqOverride||undefined,
+    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,ud:m.ud||{},ladderQuality:m.ladderQuality,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:data.analysis||null,compact:data.compact||null,report:data.report||null,rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
@@ -445,6 +495,9 @@ function addSamples(){
 async function analyze(scope){
  const targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;
+ const edited=targets.filter(s=>activeEdits(s).length);
+ if(edited.length){if(!(await Methods.ask(T('reanalyzeDropsEdits').replace('{0}',edited.length))))return;
+  for(const s of edited)for(const e of s.edits)if(!e.undone){e.undone=true;e.undoneAt=new Date().toISOString();e.undoneBy='reanalysis'}}
  state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;state.binSetNote=null;render();
  const order=[...targets].sort((a,b)=>(a.type==='ladder'?0:1)-(b.type==='ladder'?0:1)); // ladders first
  let i=0;
@@ -502,8 +555,9 @@ async function loadExample(){
 
 function plotPayload(){
  const samples=state.project.samples.filter(s=>state.selected.has(s.id));
- return {lang:I18N.lang,kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>({id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report,kit:sampleKit(s),pqv:samplePqv(s),
-  markers:markerRows(s).map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.gqCat,calls:r.calls}))}))}}
+ return {lang:I18N.lang,kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
+  return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls}:null,kit:sampleKit(s),pqv:sampleFlags(s),
+   markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check'})),editable:!!s.report}})}}
 function openPanelManager(){const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
  if(!state.selected.size)return message(T('selectSamplesFirst'));
@@ -571,7 +625,7 @@ function buildChrome(){
    {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),run:notYet},{label:T('rawData'),run:notYet},{label:T('eptData'),run:notYet},'-',
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
-  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:notYet},
+  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:labelEditViewer},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
@@ -581,7 +635,7 @@ function buildChrome(){
  const tb=$('toolbar');tb.replaceChildren(
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),openProject,{id:'tbOpen'}),tbutton('saveProject',T('saveProject'),saveProject,{id:'tbSave'}),tsep(),
   tbutton('addSamples',T('addSamples'),addSamples),tbutton('exportTable',T('exportTable'),exportTable,{id:'tbExport'}),tsep(),
-  tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),notYet),tbutton('labelEditViewer',T('labelEditViewer'),notYet),
+  tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),notYet),tbutton('labelEditViewer',T('labelEditViewer'),labelEditViewer,{id:'tbLabelEdits'}),
   tbutton('sizeMatchEditor',T('sizeMatchEditor'),openSizeMatch,{id:'tbSizeMatch'}),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method),{id:'tbMethodEditor'}),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
   tbutton('manager',T('manager'),()=>Methods.openManager(),{id:'tbManager'}),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
   tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));

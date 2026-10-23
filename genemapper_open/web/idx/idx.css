@@ -202,3 +202,6 @@ table.g tr.sel td input[type=text]{color:#fff}
 .smcols{display:flex;gap:10px;align-items:flex-start}
 .smgrid{height:250px;flex:none;width:420px}
 .btn.small{padding:0 6px;height:18px;font-size:11px}
+.menu.ctx{position:fixed;z-index:200}
+.dlg .body.levdlg{width:980px;max-width:96vw}
+table.g tr.undone td{color:#999;text-decoration:line-through}

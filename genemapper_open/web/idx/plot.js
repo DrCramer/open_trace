@@ -49,7 +49,7 @@ function draw(){
    const head=el('div',{class:'phead'});
    head.append(el('div',{class:'c',style:'width:250px',text:p.overlay?'':s.file}),el('div',{class:'c',style:'width:150px',text:p.overlay?'':s.name}));
    for(const k of PQV_KEYS){const c=el('div',{class:'c',style:'width:46px;justify-content:center'});c.innerHTML=p.overlay?'':pqv(s.pqv?.[k]);head.append(c)}
-   if(!p.overlay){const lab=el('label',{class:'c',style:'gap:4px'});lab.append(el('input',{type:'checkbox'}),T('markSample'));head.append(lab)}
+   if(!p.overlay){const lab=el('label',{class:'c',style:'gap:4px'});lab.append(el('input',{type:'checkbox'}),T('markSample'));head.append(lab);head._sample=s;head.title=T('headerMenuHint')}
    pane.append(head)}
   const canvas=el('canvas');canvas.height=h;pane.append(canvas);area.append(pane);
   requestAnimationFrame(()=>paint(canvas,items,x0,x1))}
@@ -87,13 +87,16 @@ function paint(cv,items,x0,x1){
  for(const t of traces){g.strokeStyle=DYE_COLORS[t.tag]||'#333';g.lineWidth=1;g.beginPath();t.pts.forEach(([bp,v],i)=>i?g.lineTo(X(bp),Y(v)):g.moveTo(X(bp),Y(v)));g.stroke()}
  g.restore();
  // allele labels in boxes under the axis
+ const labelBoxes=[];
  if(view.labels!=='none'){g.textAlign='center';const placed=[];
   for(const t of traces){const calls=(t.sample.report?.calls||[]).filter(c=>c.channel===t.tag&&c.size_bp>=x0&&c.size_bp<=x1);
    for(const c of calls){const x=X(c.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<26))row++;placed.push({x,row});
     const y=bottom+6+row*16;const w=Math.max(18,g.measureText(c.label).width+8);
     g.strokeStyle=(c.flags||[]).length?'#e040a0':'#000';g.fillStyle='#fff';g.fillRect(x-w/2,y,w,14);g.strokeRect(x-w/2+.5,y+.5,w-1,13);
-    g.fillStyle='#000';g.fillText(c.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#999';g.stroke()}}}
- cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s};
+    g.fillStyle=c.user_edited?'#b00060':'#000';g.fillText(c.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#999';g.stroke();
+    labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,call:c,sample:t.sample})}}}
+ const peakPts=[];for(const t of traces)for(const pk of t.peaks)if(pk.size_bp!=null&&pk.size_bp>=x0&&pk.size_bp<=x1)peakPts.push({x:X(pk.size_bp),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample});
+ cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }
 function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw||1)));const n=raw/p;return (n<1.5?1:n<3.5?2:n<7.5?5:10)*p}
 
@@ -111,6 +114,41 @@ document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');
  const bp=G.x0+(x-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),v=(G.bottom-y)/(G.bottom-G.top)*G.ymax;
  $('xy').textContent=`[X ${bp.toFixed(2)}  Y ${Math.round(v)}]`;
  const m=G.markers.find(m=>bp>=m.min_bp&&bp<=m.max_bp);$('markerInfo').textContent=m?`[${T('colMarker')}: ${m.name} (${m.min_bp.toFixed(2)}-${m.max_bp.toFixed(2)})]`:''});
+// ---------- allele label editing (context menu) ----------
+function ctxMenu(x,y,items){document.querySelectorAll('.menu.ctx').forEach(m=>m.remove());
+ const m=el('div',{class:'menu ctx show',style:`left:${x}px;top:${y}px`});
+ for(const it of items){const r=el('div',{class:'mi'+(it.disabled?' dis':''),text:it.label});if(!it.disabled)r.addEventListener('click',()=>{m.remove();it.run()});m.append(r)}
+ document.body.append(m);setTimeout(()=>document.addEventListener('mousedown',function h(e){if(!m.contains(e.target)){m.remove();document.removeEventListener('mousedown',h)}}),0)}
+function ask(title,fields){return new Promise(res=>{dialog(title,b=>{for(const f of fields)b.append(el('div',{class:'field'},el('label',{text:f.label}),el('input',{type:'text',id:f.id,value:f.value||''})))},
+ [[T('ok'),b=>{const out={};for(const f of fields){out[f.id]=b.querySelector('#'+f.id).value.trim();if(!out[f.id]){message(T('reasonRequired'));return false}}
+   res(out);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
+async function edit(sample,spec){
+ let user='';try{user=localStorage.getItem('opentrace.user')||''}catch(e){}
+ const fields=[];if(spec.action==='rename'||spec.action==='add')fields.push({id:'edLabel',label:T('colAllele'),value:spec.new});
+ fields.push({id:'edUser',label:T('userName'),value:user},{id:'edReason',label:T('reasonForChange')});
+ const v=await ask(T('act_'+spec.action),fields);if(!v)return;
+ if(v.edLabel&&v.edLabel.length>40)return message(T('badBinName'));
+ try{localStorage.setItem('opentrace.user',v.edUser)}catch(e){}
+ spec={...spec,new:v.edLabel??spec.new,user:v.edUser,reason:v.edReason};
+ let ok=false;try{ok=await window.opener.OT.edit(sample.id,spec)}catch(e){message(String(e.message||e))}
+ if(ok){try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}}
+function binLabel(marker,bp){const b=(marker.bins||[]).find(b=>bp>=b.center_bp-(b.left_bp??.5)&&bp<=b.center_bp+(b.right_bp??.5));return b?b.label:'OL'}
+document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');const head=e.target.closest('.phead');
+ if(head&&head._sample){e.preventDefault();const s=head._sample;if(!s.editable)return;
+  ctxMenu(e.clientX,e.clientY,[{label:T('overrideCgq'),run:()=>edit(s,{action:'override_cgq'})}]);return}
+ if(!cv?._geom)return;e.preventDefault();const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+ const s=G.sample;if(!s.editable)return;
+ const box=G.labelBoxes.find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);
+ if(box){const c=box.call;ctxMenu(e.clientX,e.clientY,[{label:T('renameAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'rename',marker:c.marker,callId:c.id,new:c.label})},
+   {label:T('deleteAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'delete',marker:c.marker,callId:c.id})}]);return}
+ const mk=G.markers.find(m=>m._hit&&x>=m._hit.x0&&x<=m._hit.x1&&y>=m._hit.y0&&y<=m._hit.y1);
+ if(mk){ctxMenu(e.clientX,e.clientY,[{label:T('overrideGq')+' ('+mk.name+')',run:()=>edit(s,{action:'override_gq',marker:mk.name})}]);return}
+ const near=G.peakPts.filter(p=>Math.abs(p.x-x)<=6).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0];
+ if(near){const calls=near.sample.report?.calls||[];const bp=near.peak.size_bp;
+  const called=calls.some(c=>c.channel===near.tag&&Math.abs(c.size_bp-bp)<0.05);
+  const marker=G.markers.find(m=>m.channel===near.tag&&bp>=m.min_bp&&bp<=m.max_bp);
+  ctxMenu(e.clientX,e.clientY,[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,disabled:called||!marker,
+   run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak:{scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag}})}])}});
 function zoom(f){const [d0,d1]=bpRange();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
@@ -160,7 +198,7 @@ function build(){
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),checked:view.markerRange,run:set('markerRange',!view.markerRange)},{label:T('showBins'),checked:view.bins,run:set('bins',!view.bins)},'-',
    {label:T('table'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]}]},
   {label:T('tools'),items:[{label:T('manager'),disabled:true}]},
-  {label:T('alleles'),items:[{label:T('addAlleleLabel'),sc:'Ctrl+L',disabled:true},{label:T('addArtifactLabel'),sc:'Ctrl+I',disabled:true},{label:T('renameAllele'),disabled:true},{label:T('deleteLabels'),disabled:true},'-',{label:T('history'),disabled:true}]},
+  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
  const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>window.print()),tbutton('printPreview',T('printPreview'),null,{disabled:true}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
  const ps=el('select',{class:'combo'});ps.append(new Option(T('dataInterpretation'),'di'),new Option(T('sizingData'),'sd'));ps.value=view.table==='sizing'?'sd':'di';

@@ -134,6 +134,11 @@ en:{
  smOverridden:'SQ overridden',smMatched:'Matched',smOverrideReason:'Reason for override',
  smHint:'Click a fragment in the table, then click a peak to assign it; Unassign removes a match. Override SQ sizes the sample with these matches (SQ = 1.0, SQO flag).',
  smScan:'Data Point',smUnassign:'Unassign',smCurve:'Sizing curve',reasonForChange:'Reason for change:',reasonRequired:'Enter a reason for the change.',
+ userName:'User:',reasonTitle:'Reason for change',undoEdit:'Undo selected edit',levOld:'Old label',levNew:'New label',levAction:'Action',levDate:'Date',act_rename:'Rename allele',
+ act_delete:'Delete allele label',act_add:'Add allele label',act_override_gq:'Override GQ',act_override_cgq:'Override CGQ',undone:'undone',
+ noEdits:'No label edits in this project.',reanalyzeDropsEdits:'Re-analysis removes the allele edits of {0} sample(s); they stay in the Label Edit Viewer as undone. Continue?',
+ overrideCgq:'Override CGQ',overrideGq:'Override GQ',deleteAllele:'Delete allele label',headerMenuHint:'Right-click: Override CGQ',editHowTo:'How to edit labels...',
+ editHint:'Right-click an allele label to rename or delete it, a peak without a label to add an allele, a marker header to override GQ, the sample header to override CGQ. Every edit needs a user and a reason and is listed in the Label Edit Viewer.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -274,6 +279,12 @@ ru:{
  smMatched:'Сопоставлено',smOverrideReason:'Причина утверждения',
  smHint:'Щёлкните фрагмент в таблице, затем пик на графике, чтобы назначить его; «Снять» убирает назначение. «Утвердить SQ» калибрует образец по этим назначениям (SQ = 1,0, флаг SQO).',
  smScan:'Точка данных',smUnassign:'Снять',smCurve:'Калибровочная кривая',reasonForChange:'Причина изменения:',reasonRequired:'Укажите причину изменения.',
+ userName:'Пользователь:',reasonTitle:'Причина изменения',undoEdit:'Отменить выбранную правку',levOld:'Старое обозначение',levNew:'Новое обозначение',levAction:'Действие',
+ levDate:'Дата',act_rename:'Переименование аллеля',act_delete:'Удаление обозначения',act_add:'Добавление обозначения',act_override_gq:'Утверждение GQ',
+ act_override_cgq:'Утверждение CGQ',undone:'отменено',noEdits:'В проекте нет правок обозначений.',
+ reanalyzeDropsEdits:'Повторный анализ отменит правки аллелей у {0} образцов; в обозревателе правок они останутся как отменённые. Продолжить?',overrideCgq:'Утвердить CGQ',
+ overrideGq:'Утвердить GQ',deleteAllele:'Удалить обозначение аллеля',headerMenuHint:'Правый щелчок: утвердить CGQ',editHowTo:'Как править обозначения...',
+ editHint:'Правый щелчок по обозначению аллеля — переименовать или удалить; по пику без обозначения — добавить аллель; по заголовку маркера — утвердить GQ; по шапке образца — утвердить CGQ. Каждая правка требует пользователя и причину и попадает в обозреватель правок.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}
