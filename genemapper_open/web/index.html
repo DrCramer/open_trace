@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenTrace · Исследование электрофореграмм</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+:root{font:15px/1.5 system-ui,sans-serif;color:#173047;background:#edf2f5}*{box-sizing:border-box}body{margin:0}header{background:#102b3a;color:white;padding:22px 32px;display:flex;align-items:center;justify-content:space-between}h1{font-size:24px;margin:0;font-weight:650;letter-spacing:-.5px}header p{margin:3px 0 0;color:#abc2cf;font-size:13px}.badge{font-size:11px;letter-spacing:1.4px;border:1px solid #63816d;color:#cef2d8;padding:6px 10px;border-radius:30px}main{max-width:1450px;margin:auto;padding:24px 30px}.notice{background:#fff8e8;border:1px solid #ead6a1;border-radius:8px;padding:10px 16px;font-size:13px;color:#6b5319;margin-bottom:20px}.workspace{display:grid;grid-template-columns:280px minmax(0,1fr);gap:20px}.panel{background:white;border:1px solid #dbe4e9;border-radius:10px;padding:20px;box-shadow:0 3px 12px #18364705}h2{font-size:16px;margin:0 0 15px}h3{font-size:13px;margin:20px 0 9px;text-transform:uppercase;color:#587384;letter-spacing:.7px}label{display:block;font-size:13px;margin:12px 0 5px}input,textarea,select,button{font:inherit}input[type=number],textarea,select{width:100%;padding:7px 9px;border:1px solid #cddae2;border-radius:5px;background:#fcfdff;color:inherit}textarea{resize:vertical}button,.upload{border:0;border-radius:5px;background:#137e79;color:white;padding:9px 13px;cursor:pointer;font-size:13px;display:inline-block;text-align:center}button.secondary{background:#e9f1f4;color:#23495c}button:hover,.upload:hover{filter:brightness(.95)}button:disabled{opacity:.45;cursor:wait}.upload{display:block;margin:0 0 9px}input[type=file]{position:absolute;width:1px;height:1px;opacity:0}.row{display:flex;gap:9px;align-items:center}.row>*{flex:1}small,.muted{color:#658092;font-size:12px}.meta{font-size:13px;word-break:break-word}.meta strong{display:block;font-size:17px;color:#173c4d}.meta dl{display:grid;grid-template-columns:1fr 1fr;gap:7px}.meta dt{color:#738b99}.meta dd{margin:0;text-align:right}.channels label{margin:6px 0;display:flex;align-items:center;gap:7px}.channels input{accent-color:#137e79}.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}.plothead{display:flex;justify-content:space-between;align-items:start;gap:10px}.plothead h2{margin-bottom:2px}.plotwrap{position:relative;height:400px;margin-top:15px}.plotwrap canvas{width:100%;height:100%;display:block}.empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;pointer-events:none;color:#8296a3}.ranges{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:8px 0}.ranges label{display:flex;justify-content:space-between}.ranges input{width:100%;accent-color:#137e79}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.status{min-height:22px;margin:12px 0;font-size:13px;color:#416879}.error{color:#b13c38}.results{margin-top:20px}.tabs{display:flex;gap:8px;margin-bottom:15px}.tabs button.active{background:#137e79;color:white}.tablewrap{max-height:340px;overflow:auto}table{border-collapse:collapse;width:100%;font-size:12px;text-align:right}th{position:sticky;top:0;background:#f0f5f7;color:#52717f;font-weight:600}th,td{padding:8px 10px;border-bottom:1px solid #e8eef2}th:first-child,td:first-child{text-align:left}footer{font-size:12px;color:#78909e;margin-top:22px}.busy{opacity:.6}details{margin-top:20px;font-size:12px}summary{cursor:pointer}.plotreadout{font-size:12px;color:#587384;min-height:18px}@media(max-width:900px){.workspace{grid-template-columns:1fr}aside{display:grid;grid-template-columns:1fr 1fr;gap:20px}main{padding:15px}.plotwrap{height:320px}header{padding:16px}.badge{display:none}}@media(max-width:600px){aside{display:block}.plothead{display:block}.toolbar{margin-top:12px}}
+input:not([type]){width:100%;padding:7px 9px;border:1px solid #cddae2;border-radius:5px;background:#fcfdff;color:inherit}
+</style>
+<header><div><h1>OpenTrace <span style="color:#65c6b8">/</span></h1><p>Открытая лаборатория электрофореграмм</p></div><span class="badge">RESEARCH PREVIEW · 0.21</span></header>
+<main>
+<div class="notice">Исследовательский прототип. Пики — кандидаты, размеры требуют проверки стандарта. Не предназначен для судебной идентификации или диагностических заключений.</div>
+<div class="workspace">
+<aside>
+<section class="panel">
+<h2>Образец</h2>
+<label class="upload" for="file">Открыть FSA / AB1</label><input type="file" id="file" accept=".fsa,.ab1,.hid">
+<button class="secondary" id="demo" style="width:100%">Синтетический пример</button>
+<button class="secondary" id="sizingDemo" style="width:100%;margin-top:8px">Пример со стандартом</button>
+<p class="muted">ABIF v1 · до 64 MiB · обработка на этом компьютере</p>
+<div id="metadata" class="meta"><strong>Данные не загружены</strong><p>Выберите файл или откройте пример из шести каналов.</p></div>
+<h3>Каналы</h3><select id="group" aria-label="Группа каналов"><option value="raw">Исходные / raw</option><option value="analyzed">Обработанные / analyzed</option><option value="all">Все DATA</option></select>
+<div id="channels" class="channels"></div>
+</section>
+<section class="panel" style="margin-top:20px">
+<h2>Исследование пиков</h2>
+<h3>Первичное определение spike</h3>
+<label class="upload" for="spikeFile">Параметры spike → JSON</label><input type="file" id="spikeFile" accept=".json">
+<div class="toolbar"><button id="clearSpike" class="secondary" disabled>Без классификатора</button><button id="spikeDemoDefinition" class="secondary" disabled>Параметры примера → JSON</button></div>
+<p id="spikeStatus" class="muted" role="status" aria-live="polite">Классификатор не запрошен.</p>
+<h3>Pull-up и качество профиля</h3>
+<label class="upload" for="pullupFile">Параметры pull-up → JSON</label><input type="file" id="pullupFile" accept=".json">
+<div class="toolbar"><button id="clearPullup" class="secondary" disabled>Убрать pull-up</button><button id="pullupDemoDefinition" class="secondary" disabled>Параметры примера → JSON</button></div>
+<p id="pullupInputStatus" class="muted" role="status" aria-live="polite">Проверка не запрошена.</p>
+<p class="muted">Каналы и пороги задаются явно. Порядок сравнения — экспериментальный; автоматический вызов детектора ID-X пока не подтверждён.</p>
+<p class="muted">Пороги задаются явно. Параметры применяются при пересчёте исходного FSA; лестницу затем загрузите заново. Стандарт не изменяется.</p>
+<label for="analysisEngine">Обработка сигнала</label><select id="analysisEngine"><option value="morphology_ratio">Морфологический фон и SG</option><option value="residual">Блочная медиана · прежний метод</option></select>
+<label for="threshold" id="thresholdLabel">Порог высоты, RFU</label><input type="number" id="threshold" value="100" min="0" step="10">
+<label for="distance">Мин. расстояние, сканы</label><input type="number" id="distance" value="8" min="1" step="1">
+<small id="engineNote">SG-детектор измеряет границы и FWHM без подавления близких пиков. Стандарт проходит отдельный контроль качества.</small>
+<label for="sizingMode">Расчёт размеров</label><select id="sizingMode"><option value="none">Без калибровки</option><option value="manual">Ручные опорные точки</option><option value="auto">Автоматический стандарт</option></select>
+<div id="manualInputs" hidden><label for="anchors">Ручная калибровка: скан:bp</label><textarea id="anchors" rows="3" placeholder="500:75, 2000:400"></textarea><small>Две и более опорные точки в порядке сканов.</small></div>
+<div id="autoInputs" hidden>
+<label for="standardChannel">Канал размерного стандарта</label><select id="standardChannel"><option value="">Выберите канал после загрузки</option></select>
+<label for="standardBp">Ожидаемые фрагменты, bp</label><textarea id="standardBp" rows="3" placeholder="Введите размеры своего стандарта через запятую"></textarea>
+<small>3–32 возрастающих размера для SG, 4–32 для прежнего метода. Каждый фрагмент обязателен; лишние пики допустимы. Определений коммерческих наборов нет.</small>
+<label class="upload" for="standardDefinition" style="margin-top:10px;background:#e9f1f4;color:#23495c">Загрузить определение XML / JSON</label><input id="standardDefinition" type="file" accept=".xml,.json"><small id="definitionNote">Импортируется только список размеров; расчёт запускается кнопкой «Пересчитать».</small>
+<div id="morphologySettings"><label for="heightMode">Порог размерного стандарта</label><select id="heightMode"><option value="explicit">Заданный порог RFU</option><option value="basic_standard_auto">Автоматический по оценке фона</option></select>
+<label for="qualityThreshold">Минимальное базовое качество стандарта</label><input id="qualityThreshold" type="number" value="0.75" min="0.0001" max="1" step="0.05">
+<label for="extraPeaks">Дополнительные кандидаты стандарта</label><input id="extraPeaks" type="number" value="25" min="0" max="32" step="1">
+<small>При отказе matching или качества размеры не применяются. Эта оценка не является полным GeneMapper SQ.</small></div>
+<div class="row"><div><label for="standardStart">От скана</label><input id="standardStart" type="number" min="0" step="1" value="0"></div><div><label for="standardEnd">До скана</label><input id="standardEnd" type="number" min="1" step="1" placeholder="конец"></div></div>
+<label for="maxResidual" id="maxResidualLabel">Макс. ошибка кривой на опорах, bp</label><input id="maxResidual" type="number" value="5" min="0.01" max="100" step="0.5">
+</div>
+<label for="calibrationModel">Модель размерной кривой</label><select id="calibrationModel"><option value="linear">Линейная между опорами</option><option value="local_rational">Локальная рациональная (3 опоры)</option><option value="lsq2">Полином 2-й степени</option><option value="lsq3">Полином 3-й степени</option><option value="natural_cubic">Натуральный кубический сплайн</option></select>
+<p><small>Вне диапазона опор размер не вычисляется. Калибровка применяется ко всем каналам; внутреннее согласование не подтверждает правильность выбора стандарта.</small></p>
+<button id="recalculate" style="width:100%;margin-top:12px" disabled>Пересчитать</button>
+<details><summary>Как вычисляется</summary><p id="methodDescription">Морфологическая базовая линия и два прохода целочисленного сглаживания подготавливают сигнал. SG-производная задаёт кандидаты и границы; стандарт сопоставляется по высотам и отношениям интервалов. Проверяются неоднозначность и базовое качество. Автоматический порог стандарта рассчитывается отдельно; RFU-порог остальных каналов остаётся заданным. Выбранная размерная кривая проходит проверку монотонности и ошибки на опорах. Экстраполяции нет. Это независимый исследовательский алгоритм, не подтверждённая копия ID-X.</p></details>
+</section>
+</aside>
+<div>
+<section class="panel">
+<div class="plothead"><div><h2>Электрофореграмма</h2><span class="muted" id="plotSubtitle">Интенсивность сигнала / скан</span></div><div class="toolbar"><button class="secondary" id="reset">Весь диапазон</button><label style="margin:0;font-size:12px"><input type="checkbox" id="markers" checked> Пики</label></div></div>
+<div class="plotwrap"><canvas id="plot" aria-label="Электрофореграмма"></canvas><div class="empty" id="empty">Откройте образец, чтобы увидеть сигнал</div></div>
+<div class="plotreadout" id="readout"></div>
+<div class="ranges"><div><label for="start">Начало <span id="startValue">0</span></label><input type="range" id="start" value="0" min="0" max="3000"></div><div><label for="end">Конец <span id="endValue">3000</span></label><input type="range" id="end" value="3000" min="0" max="3000"></div></div>
+<div class="status" id="status" role="status" aria-live="polite">Готов к загрузке. Внешние сервисы не используются.</div>
+<div id="sizingReport" class="notice" hidden role="status" aria-live="polite"></div>
+<div id="postSizingPanel"><h3>SQ после проверки ширин стандарта</h3>
+<p class="muted">Необязательные явные порог ширины, вес штрафа и границы SQ. Проверяются все сопоставленные пики стандарта, включая крайние; низкая оценка сохраняет размерную кривую.</p>
+<div class="toolbar"><label class="upload" for="sizingQualityFile">Параметры SQ → JSON</label><input type="file" id="sizingQualityFile" accept=".json"><button id="clearSizingQuality" class="secondary" disabled>Убрать проверку SQ</button><button id="sizingQualityDemoDefinition" class="secondary" disabled>Параметры примера SQ → JSON</button></div>
+<p id="sizingQualityStatus" class="status" role="status" aria-live="polite">Проверка ширин стандарта не запрошена.</p>
+<details><summary>Ширины стандарта и расчёт SQ</summary><pre id="sizingQualityDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details></div>
+<div class="toolbar"><button class="secondary" id="exportTraces" disabled>Сигнал → CSV</button><button class="secondary" id="exportPeaks" disabled>Пики → CSV</button><button class="secondary" id="exportSizing" disabled>Калибровка → JSON</button></div>
+</section>
+<section class="panel results"><div class="tabs"><button class="secondary active" id="peaksTab">Кандидаты пиков</button><button class="secondary" id="tagsTab">Каталог ABIF</button><button class="secondary" id="standardTab">Сопоставление стандарта</button></div><div class="tablewrap"><table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table></div><p class="muted" id="tableNote">Здесь появятся результаты исследования.</p></section>
+<section class="panel results" id="strPanel">
+<h2>Лестница и назначения по бинам</h2>
+<p class="muted">Явное описание набора JSON и отдельный FSA лестницы. Сначала требуется принятая автоматическая калибровка обоих файлов. Метки остаются предварительными.</p>
+<div class="toolbar"><label class="upload" for="kitFile">Описание набора → JSON</label><input type="file" id="kitFile" accept=".json"><label class="upload" for="ladderFile">Лестница → FSA</label><input type="file" id="ladderFile" accept=".fsa,.ab1"></div>
+<label for="strDemoKind">Вымышленный пример</label><div class="row"><select id="strDemoKind"><option value="ordinary">Образец + лестница</option><option value="negative">Отрицательный контроль с пиками</option><option value="amel">AMEL / Y cross-check</option><option value="ladder">Лестница: QC пройден</option><option value="ladder-rejected">Лестница: строгий порог QC</option><option value="spike">Узкий пик: классификатор включён</option><option value="spike-unrequested">Тот же FSA: без классификатора</option><option value="spike-low-initial">Низкий spike: только первичный флаг</option><option value="spike-low-adjusted">Низкий spike: корректировка флага</option><option value="sq-pass">sq-pass</option><option value="sq-check">sq-check</option><option value="sq-fail">sq-fail</option><option value="sq-ladder-fail">sq-ladder-fail</option><option value="ladder-calls">Ladder calls</option><option value="ladder-sample-filters">Legacy comparison</option></select><button id="strDemo" class="secondary">Открыть пример</button></div>
+<p id="strInputsNote" class="muted">Набор и лестница не загружены.</p>
+<details id="runPanel"><summary>Несколько лестниц одного запуска</summary>
+<p class="muted">Лестницы обрабатываются в указанном порядке. Повторное имя заменяет прежний вклад. Требуются явные параметры QC; неподходящие лестницы остаются в отчёте.</p>
+<div class="toolbar"><label class="upload" for="runLadderFiles">Добавить лестницы → FSA</label><input id="runLadderFiles" type="file" accept=".fsa,.ab1" multiple><button id="clearRunLadders" class="secondary">Очистить список</button><button id="strRunDemo" class="secondary">Вымышленный запуск: три лестницы</button><button id="runStrRun" disabled>Рассчитать по запуску</button></div>
+<p id="runStatus" class="muted" role="status" aria-live="polite">Список лестниц пуст.</p>
+<div class="tablewrap"><table><thead><tr><th>Порядок</th><th>Лестница</th><th>Контроль качества</th><th>Состояние</th></tr></thead><tbody id="runLadderRows"></tbody></table></div>
+<label for="runLadderSelect">Подробности лестницы</label><select id="runLadderSelect" disabled></select>
+<div class="tablewrap"><table><thead><tr><th>Маркер</th><th>Бин / граница</th><th>Среднее смещение, bp</th><th>Допущенные лестницы</th><th>Исключено</th></tr></thead><tbody id="runOffsetRows"></tbody></table></div>
+</details>
+<div id="artifactPanel"><h3>Классификация и текущие флаги артефактов</h3>
+<p id="artifactStatus" class="muted" role="status" aria-live="polite">Классификатор не запрошен.</p>
+<div class="tablewrap"><table><thead><tr><th>Пик</th><th>Скан</th><th>Spike detected</th><th>Overlap</th><th>Первичный spike</th><th>Текущий spike</th><th>Jag count</th><th>FitScore</th><th>Форма пика</th><th>Причина</th></tr></thead><tbody id="spikeRows"></tbody></table></div>
+<details><summary>Измерения и история корректировок</summary><pre id="spikeDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details></div>
+<div id="truePeakPanel" hidden><h3>Восстановление перекрытых пиков</h3>
+<p class="muted">Исходные измерения сохранены. Дробный центр и использованный целый скан показаны отдельно; результат требует проверки.</p>
+<div class="tablewrap"><table><thead><tr><th>Пик</th><th>Результат</th><th>Высота: до → после</th><th>Дробный центр</th><th>Скан: до → после</th><th>Площадь: до → после</th><th>Площадь, bp</th></tr></thead><tbody id="truePeakRows"></tbody></table></div></div>
+<h3>Контроль качества лестницы</h3>
+<div id="pullupPanel" hidden><h4>Pull-up: измерения и QC</h4>
+<p id="pullupStatus" class="muted" role="status" aria-live="polite"></p>
+<div class="tablewrap"><table><thead><tr><th>Пик</th><th>Pull-up</th><th>Опорный пик</th><th>Отношение высот</th><th>Порог</th><th>Сравнения</th></tr></thead><tbody id="pullupRows"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Маркер</th><th>Bleed-through</th><th>Триггеры</th></tr></thead><tbody id="pullupQcRows"></tbody></table></div>
+<details><summary>История pull-up и показатели качества</summary><pre id="pullupDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details></div>
+<div id="ladderCallingPanel"><h4>Назначения лестницы до QC</h4>
+<p id="ladderCallingStatus" class="muted" role="status" aria-live="polite">Сопоставление лестницы ещё не рассчитано.</p>
+<div class="tablewrap"><table><thead><tr><th>Маркер</th><th>Канал</th><th>Пик</th><th>Метка</th><th>Исходный confidence</th><th>После GQ / SQ</th></tr></thead><tbody id="ladderCallRows"></tbody></table></div>
+<details><summary>Связанные пики и причины исключения</summary><pre id="ladderCallingDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details></div>
+<p class="muted">Дополнительный QC использует явно заданные пороги, веса и состояния артефактов. При отказе или недоступных проверках смещения всей лестницы и назначения образца удерживаются.</p>
+<div class="toolbar"><label class="upload" for="ladderQcFile">Параметры QC лестницы → JSON</label><input type="file" id="ladderQcFile" accept=".json"><button id="clearLadderQc" class="secondary" disabled>Убрать дополнительный QC</button><button id="ladderQcDemoDefinition" class="secondary" disabled>Параметры примера → JSON</button></div>
+<p id="ladderQcDefinitionNote" class="muted">Дополнительный QC лестницы не задан.</p>
+<p id="ladderQcStatus" class="status" role="status" aria-live="polite">QC лестницы не рассчитан.</p>
+<div class="tablewrap"><table><thead><tr><th>Маркер лестницы</th><th>GQ</th><th>Состояние</th><th>Причина</th></tr></thead><tbody id="ladderQcRows"></tbody></table></div>
+<details><summary>Измерения и причины QC лестницы</summary><pre id="ladderQcDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+<label for="offsetPolicy">Если для бина нет собственной опоры</label><select id="offsetPolicy"><option value="reject">Отклонить маркер</option><option value="forward_fill">Перенести предыдущее смещение; отметить происхождение</option></select>
+<div class="toolbar" style="margin-top:12px"><button id="runStr">Рассчитать назначения</button><button id="exportStr" class="secondary" disabled>Назначения → JSON</button></div>
+<p id="strStatus" role="status" aria-live="polite" class="status">Ожидаются входные данные.</p>
+<div class="tablewrap"><table><thead><tr><th>Маркер</th><th>Канал</th><th>Скан</th><th>bp</th><th>Метка</th><th>Примечания</th></tr></thead><tbody id="strCalls"></tbody></table></div>
+<details><summary>Причины и промежуточные результаты</summary><pre id="strDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+<h3>Контрольный образец</h3><p class="muted">Тип контроля и ожидаемые метки задаются отдельным JSON. У положительного контроля пустой ожидаемый профиль отмечается как пропущенная проверка.</p>
+<div class="toolbar"><label class="upload" for="controlFile">Определение контроля → JSON</label><input type="file" id="controlFile" accept=".json"><button class="secondary" id="applyControls">Проверить контроль</button></div>
+<p id="controlStatus" class="status" role="status" aria-live="polite">Контроль не рассчитан.</p>
+<h3>Качество маркеров</h3>
+<p class="muted">Явные пороги, веса и состояния артефактов задаются отдельным JSON. Это исследовательская часть GQ; полный GeneMapper PQV ещё не воспроизведён.</p>
+<div class="toolbar"><label class="upload" for="gqFile">Параметры GQ → JSON</label><input type="file" id="gqFile" accept=".json"><button id="applyGq" class="secondary">Рассчитать GQ</button><button id="gqDemoDefinition" class="secondary" disabled>Параметры вымышленного примера → JSON</button></div>
+<p id="gqStatus" class="status" role="status" aria-live="polite">GQ не рассчитан.</p>
+<p id="amelCcStatus" class="muted" role="status" aria-live="polite"></p>
+<div class="tablewrap"><table><thead><tr><th>Маркер</th><th>GQ</th><th>Категория</th><th>Confidence после SQ</th><th>Состояние</th></tr></thead><tbody id="gqRows"></tbody></table></div>
+<details><summary>Параметры и причины GQ</summary><pre id="gqDetails" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+</section>
+<section class="panel results" id="projectPanel">
+<h2>Проект и ручная проверка</h2>
+<p class="muted">Проект хранится в памяти страницы. Скачайте JSON перед закрытием; CLI может перенести его в SQLite. Автор правки указывается пользователем.</p>
+<label for="projectName">Название проекта</label><input id="projectName" value="Исследовательский проект" maxlength="128">
+<div class="toolbar" style="margin-top:12px"><button id="newProject">Новый проект</button><label class="upload" for="projectFile">Открыть проект JSON</label><input type="file" id="projectFile" accept=".json"><button class="secondary" id="exportProject" disabled>Проект → JSON</button><button id="saveAnalysis" disabled>Сохранить расчёт в проект</button></div>
+<label for="projectAnalysis">Сохранённый расчёт</label><select id="projectAnalysis"><option value="">Нет расчётов</option></select>
+<p id="projectStatus" class="status" role="status" aria-live="polite">Проект не создан.</p>
+<details id="projectRunsPanel"><summary>Запуски и повторный анализ образцов</summary>
+<p class="muted">Каждое действие создаёт новую ревизию и новые расчёты всех образцов запуска. Прежние результаты и ручные правки сохраняются отдельно. Повторяются назначения и заданные проверки качества по сохранённым пикам; размерная калибровка не повторяется.</p>
+<div class="row"><div><label for="projectRunName">Название запуска</label><input id="projectRunName" value="Мой запуск" maxlength="128"></div><div><label for="projectRunSampleKey">Имя образца в запуске</label><input id="projectRunSampleKey" value="Sample-1" maxlength="128"></div></div>
+<div class="row"><div><label for="projectRunActor">Автор действия</label><input id="projectRunActor" maxlength="128"></div><div><label for="projectRunReason">Причина новой ревизии</label><input id="projectRunReason" maxlength="1024"></div></div>
+<div class="toolbar"><button id="projectRunCreate" disabled>Создать запуск из загруженных данных</button><label class="upload" for="projectRunInputsFile">Новый запуск из JSON исходных данных</label><input id="projectRunInputsFile" type="file" accept=".json"></div>
+<label for="projectRunSelect">Сохранённый запуск</label><select id="projectRunSelect" disabled></select>
+<label for="projectRunRevision">Ревизия запуска</label><select id="projectRunRevision" disabled></select>
+<p id="projectRunStatus" class="muted" role="status" aria-live="polite">Сохранённых запусков нет.</p>
+<div class="toolbar"><button id="projectRunAddSample" disabled>Добавить / обновить загруженный образец</button><button id="projectRunRecalculate" disabled>Пересчитать все образцы</button><button id="projectRunRestore" class="secondary" disabled>Восстановить выбранные данные новой ревизией</button><button id="projectRunExportInputs" class="secondary" disabled>Исходные данные запуска → JSON</button></div>
+<label for="projectRunLadder">Лестница для замены или удаления</label><select id="projectRunLadder" disabled></select>
+<div class="toolbar"><label class="upload" for="projectRunReplacement">Заменить лестницу и пересчитать → FSA</label><input id="projectRunReplacement" type="file" accept=".fsa,.ab1"><button id="projectRunRemove" class="secondary" disabled>Удалить лестницу и пересчитать</button></div>
+<div class="tablewrap"><table><thead><tr><th>Образец</th><th>Результат</th><th>Расчёт</th></tr></thead><tbody id="projectRunSampleRows"></tbody></table></div>
+</details>
+<p id="projectRunDependencyStatus" class="status" role="status" aria-live="polite"></p>
+<div class="row"><div><label for="reviewActor">Автор</label><input id="reviewActor" maxlength="128"></div><div><label for="reviewReason">Причина</label><input id="reviewReason" maxlength="512"></div></div>
+<label for="reviewTarget">Назначение для проверки</label><select id="reviewTarget"><option value="">Весь расчёт (заметка)</option></select>
+<div class="row"><div><label for="reviewAction">Действие</label><select id="reviewAction"><option value="note">Добавить заметку</option><option value="accept">Принять назначение</option><option value="exclude">Исключить назначение</option><option value="change-label">Изменить метку</option><option value="add-allele">Назначить аллель пику (USER)</option><option value="delete-artifact-label">Скрыть метку артефакта</option><option value="override-gq">Переопределить GQ маркера (=1.0)</option><option value="override-cgq">Переопределить CGQ образца (override pass)</option></select></div><div><label for="reviewValue">Текст заметки / новая метка</label><input id="reviewValue" maxlength="512"></div></div>
+<button id="appendReview" style="margin-top:12px" disabled>Записать правку</button>
+<div id="reviewResult" class="meta"></div>
+<p id="projectControlStatus" class="muted"></p>
+<p id="projectGqStatus" class="muted"></p>
+<p id="projectLadderCallingStatus" class="muted"></p>
+<p id="projectReviewQualityStatus" class="muted" role="status" aria-live="polite"></p>
+<p id="projectLadderQcStatus" class="muted"></p>
+<p id="projectSpikeStatus" class="muted"></p>
+<p id="projectPullupStatus" class="muted" role="status" aria-live="polite"></p>
+<div id="projectGqValues" class="meta"></div>
+<label for="undoEvent">Отменить ранее записанную правку</label><select id="undoEvent"><option value="">Нет правок</option></select><button id="undoReview" class="secondary" style="margin-top:8px" disabled>Записать отмену</button>
+<details><summary>История событий</summary><pre id="reviewHistory" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
+</section>
+</div>
+</div><footer>MIT License · Независимый открытый исходный код · Без алгоритмов, библиотек и графики GeneMapper ID-X</footer>
+</main>
+<script>
+'use strict';
+const TOKEN='__SESSION_TOKEN__';
+const $=id=>document.getElementById(id), colors=['#1976d2','#239251','#b59000','#cb3444','#904db5','#df7b22','#496479','#d26791'];
+let sample=null, source=null, selected=new Set(), tableMode='peaks', plotGeometry=null, loadSerial=0,definitionContext=null;
+let strKit=null,ladderAnalysis=null,strReport=null,strSerial=0,projectState=null;
+let runLadders=[];
+let strKitRaw=null,controlDefinitionRaw=null,controlSerial=0;
+let gqDefinitionRaw=null,gqSerial=0,demoGqDefinition=null,annotationBusy=false;
+let ladderQualityRaw=null,demoLadderQualityDefinition=null;
+let spikeDefinitionRaw=null,demoSpikeDefinition=null,analysisDefinitionPending=false;
+let pullupDefinitionRaw=null,demoPullupDefinition=null;
+let sizingQualityRaw=null,demoSizingQualityDefinition=null;
+let gqDefinitionPending=false,controlDefinitionPending=false;
+const format=(x,n=1)=>x==null?'—':Number(x).toLocaleString('ru-RU',{maximumFractionDigits:n});
+const modelNames={linear:'Линейная между опорами',lsq2:'Полином 2-й степени',lsq3:'Полином 3-й степени',natural_cubic:'Натуральный кубический сплайн',local_rational:'Локальная рациональная (3 опоры)'};
+function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('error',error)}
+function visibleChannels(){if(!sample)return [];return sample.channels.filter(c=>($('group').value==='all'||c.group===$('group').value)&&selected.has(c.tag))}
+function channelColor(c){return colors[((c.dye_index||c.number)-1)%colors.length]}
+function sizingInputs(){const mode=$('sizingMode').value;$('manualInputs').hidden=mode!=='manual';$('autoInputs').hidden=mode!=='auto';engineInputs()}
+function engineInputs(){const modern=$('analysisEngine').value==='morphology_ratio';$('distance').disabled=modern;$('morphologySettings').hidden=!modern;$('standardStart').disabled=modern;$('standardEnd').disabled=modern;$('thresholdLabel').textContent=modern?'Порог высоты пиков, RFU':'Высота над блочной медианой';$('maxResidualLabel').textContent=modern?'Макс. ошибка кривой на опорах, bp':'Макс. ошибка проверки, bp';$('engineNote').textContent=modern?'SG измеряет границы и FWHM без подавления близких пиков. Стандарт обрабатывается по всему каналу.':'Прежний метод: блочная медиана и отбор локальных максимумов по расстоянию.';if(modern){$('standardStart').value='0';$('standardEnd').value=''}$('methodDescription').textContent=modern?'Морфологическая базовая линия и два прохода сглаживания подготавливают сигнал. SG-производная задаёт кандидаты и границы. Стандарт сопоставляется по высотам и отношениям интервалов; проверяются неоднозначность и базовое качество. Автоматический порог стандарта рассчитывается отдельно. Кривая проходит проверку монотонности и ошибки на опорах. Вне опор размеры не вычисляются.':'Медианы блоков101 задают фон. Локальные максимумы проходят порог высоты и расстояния. Сопоставление стандарта проверяет внутренние фрагменты по соседям; неоднозначные варианты отклоняются. Размерная кривая должна быть монотонной, без экстраполяции. Метрики не являются GeneMapper SQ.'}
+function resetSizingInputs(){definitionContext=null;$('definitionNote').textContent='Импортируется только список размеров; расчёт запускается кнопкой «Пересчитать».';$('sizingMode').value='none';$('anchors').value='';$('standardBp').value='';$('standardStart').value='0';$('standardEnd').value='';$('maxResidual').value='5';$('calibrationModel').value='linear';sizingInputs()}
+function sizingChannels(){const chosen=$('standardChannel').value;$('standardChannel').replaceChildren(new Option('Выберите канал',''));if(!sample)return;for(const c of sample.channels.filter(c=>c.group!=='auxiliary'))$('standardChannel').add(new Option(c.tag+(c.dye?' · '+c.dye:''),c.tag));$('standardChannel').value=chosen}
+function sizingReason(reason){
+ if(reason.startsWith('Ambiguous ordered'))return 'Найдены почти равноценные соответствия. Калибровка не применяется; уточните диапазон или параметры.';
+ if(reason.startsWith('No complete ordered'))return 'Нет полного соответствия с допустимой ошибкой. Возможны пропущенные фрагменты, искажённые интервалы или неподходящие кандидаты.';
+ if(reason.startsWith('Fewer candidate'))return 'Кандидатов меньше, чем ожидаемых фрагментов. Проверьте диапазон сканов и порог высоты.';
+ if(reason.startsWith('More than 64'))return 'Более 64 кандидатов. Уточните диапазон сканов или порог высоты.';
+ if(reason.startsWith('Calibration model rejected:'))return 'Выбранная кривая не прошла проверку монотонности, устойчивости или ошибки на опорах. Размеры не применяются. Подробности сохранены в JSON-отчёте.';
+ if(reason.startsWith('Ambiguous ratio'))return 'Найдены почти равноценные соответствия стандарта. Калибровка не применяется.';
+ if(reason.startsWith('Base sizing quality below'))return 'Базовое качество стандарта ниже заданного порога. Калибровка не применяется.';
+ if(reason.startsWith('Only an incomplete expected prefix'))return 'Сопоставлена только часть стандарта. Калибровка не применяется.';
+ return reason;
+}
+function renderSizing(){
+ const report=$('sizingReport');report.replaceChildren();report.hidden=!sample||sample.sizing.mode==='none';if(report.hidden)return;
+ const s=sample.sizing,title=document.createElement('strong');title.textContent=s.mode==='manual'?'Ручная калибровка':s.status==='accepted'?'Соответствие принято · исследовательский расчёт':'Соответствие отклонено · размеры не рассчитаны';report.classList.toggle('error',s.status==='rejected');report.append(title);
+ if(sample.standard_definition_context?.hypothesis_only){const note=document.createElement('p');note.textContent='Профиль-гипотеза: принадлежность этого определения реагенту данного запуска не подтверждена.';report.append(note)}
+ const modern=sample.peak_settings?.analysis_engine==='morphology_ratio',details=document.createElement('p');if(s.mode==='manual')details.textContent=sample.calibration.length+' опорных точек. Правильность опор определяется пользователем.';else if(modern){const q=s.base_quality;details.textContent=(s.matched?.length||0)+' из '+(s.expected_count||s.expected_bp?.length||0)+' фрагментов; базовое качество '+format(q?.score,4)+' при пороге '+format(s.quality_threshold??s.settings?.quality_threshold,4)+'. '+(s.autoheight?'Автоматический порог стандарта: '+format(s.autoheight.threshold)+' RFU. ':'')+'Это внутренние проверки, не полный GeneMapper SQ.'}else{const d=s.diagnostics||{};details.textContent=(s.matched.length||0)+' из '+(s.expected_count||s.expected_bp?.length||0)+' фрагментов; '+(s.candidate_count??'—')+' кандидатов. '+(d.rms_error_bp==null?'':('Ошибка по соседним фрагментам: RMS '+format(d.rms_error_bp,3)+' bp; максимум '+format(d.max_abs_error_bp,3)+' bp. '))+'Это внутренняя проверка, не GeneMapper SQ.'}report.append(details);
+ if(modern&&s.base_quality?.reasons?.length){const quality=document.createElement('p');quality.textContent='Причины качества: '+s.base_quality.reasons.map(r=>({directed_neighbor_height_ratio_above10:'резкий перепад высот соседних опор',unmatched_between_anchors_above5_mean:'высокий лишний пик между опорами',global_migration_rate_above0_25:'слишком высокая скорость bp/scan',incomplete_standard:'неполное соответствие стандарта'})[r]||r).join('; ');report.append(quality)}
+ const curve=document.createElement('p'),cd=s.calibration_diagnostics;curve.textContent='Модель: '+(modelNames[s.calibration_model]||s.calibration_model)+(cd&&cd.rms_anchor_error_bp!=null?' · RMS на опорах '+format(cd.rms_anchor_error_bp,4)+' bp; максимум '+format(cd.max_abs_anchor_error_bp,4)+' bp.':'');report.append(curve);
+ if(s.reasons.length){const reasons=document.createElement('p');reasons.textContent=s.reasons.map(sizingReason).join('; ');report.append(reasons)}
+}
+async function load(demo=false){
+ const file=$('file').files[0];if(!demo&&!file&&!source)return;
+ if(file&&file.size>64*1024*1024){status('Файл превышает 64 MiB',true);return}
+ if(demo)source={demo:['sizing','pipeline'].includes(demo)?demo:true,filename:demo==='pipeline'?'synthetic-pipeline.fsa':demo==='sizing'?'synthetic-sizing.fsa':'synthetic.fsa',body:null};else if(file)source={demo:false,filename:file.name,body:file};
+ const threshold=Number($('threshold').value),distance=Number($('distance').value);
+ if(!Number.isFinite(threshold)||threshold<0||!Number.isInteger(distance)||distance<1){status('Проверьте порог и расстояние',true);return}
+ const requestId=++loadSerial;
+ $('recalculate').disabled=true;$('demo').disabled=true;$('sizingDemo').disabled=true;status('Чтение и поиск пиков…');
+ try{
+  const mode=$('sizingMode').value;
+  const requestDefinition=mode==='auto'&&definitionContext?JSON.parse(JSON.stringify(definitionContext)):null;
+  const params=new URLSearchParams({filename:source.filename,threshold:String(threshold),distance:String(distance),sizing_mode:mode,anchors:mode==='manual'?$('anchors').value:'',calibration_model:$('calibrationModel').value,analysis_engine:$('analysisEngine').value,height_mode:$('heightMode').value,quality_threshold:$('qualityThreshold').value,num_extra_peaks:$('extraPeaks').value});
+  if(spikeDefinitionRaw&&mode==='auto')params.set('spike_definition',spikeDefinitionRaw);
+  if(pullupDefinitionRaw&&mode==='auto')params.set('pullup_definition',pullupDefinitionRaw);
+  if(sizingQualityRaw&&mode==='auto')params.set('sizing_quality_definition',sizingQualityRaw);
+  if(mode==='auto'){params.set('standard_channel',$('standardChannel').value);params.set('standard_bp',$('standardBp').value);params.set('max_residual_bp',$('maxResidual').value);params.set('standard_start',$('standardStart').value);if($('standardEnd').value!=='')params.set('standard_end',$('standardEnd').value)}
+  const endpoint=source.demo==='pipeline'?'/api/demo-pipeline?':source.demo==='sizing'?'/api/demo-sizing?':source.demo?'/api/demo?':'/api/analyze?';
+  const response=await fetch(endpoint+params,{method:'POST',headers:{'X-Session-Token':TOKEN,'Content-Type':'application/octet-stream'},body:source.body});
+  const result=await response.json();if(requestId!==loadSerial)return;if(!response.ok)throw Error(result.error||'Ошибка обработки');sample=result;runLadders=[];demoSpikeDefinition=null;demoPullupDefinition=null;if(analysisDefinitionPending)ladderAnalysis=null;analysisDefinitionPending=(!!spikeDefinitionRaw&&!sample.peak_settings.spike_definition)||(!!sizingQualityRaw&&!sample.peak_settings.sizing_quality_definition)||(!!pullupDefinitionRaw&&!sample.peak_settings.pullup_definition);$('runStr').disabled=analysisDefinitionPending;invalidateStr();renderSpikes();if(requestDefinition&&JSON.stringify(requestDefinition.expected_bp)===JSON.stringify(sample.sizing.expected_bp))sample.standard_definition_context=requestDefinition;
+  selected=new Set(sample.channels.map(c=>c.tag));
+  $('metadata').replaceChildren();const name=document.createElement('strong');name.textContent=sample.sample||sample.filename;$('metadata').append(name);
+  const filename=document.createElement('p');filename.textContent=sample.filename;$('metadata').append(filename);
+  const dl=document.createElement('dl');for(const [key,value] of [['Формат','ABIF '+(sample.version/100).toFixed(2)],['DATA-каналов',sample.channels.length],['Тегов',sample.tag_count],['Прибор',sample.instrument||'—']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value;dl.append(dt,dd)}$('metadata').append(dl);
+  if(!sample.channels.some(c=>c.group===$('group').value))$('group').value='all';
+  $('empty').style.display='none';$('exportTraces').disabled=false;$('exportPeaks').disabled=false;$('exportSizing').disabled=false;
+  sizingChannels();renderSizing();refreshChannels();resetRange();renderTable();status('Загружено '+sample.channels.length+' DATA-каналов. CSV содержит все каналы; таблица и график — выбранные.'+(sample.warnings.length?' Предупреждения: '+sample.warnings.join('; '):''));
+ }catch(error){if(requestId===loadSerial)status(error.message+(sample?' · Отображается предыдущий успешно загруженный образец.':''),true)}
+ finally{if(requestId===loadSerial){$('recalculate').disabled=!source;$('demo').disabled=false;$('sizingDemo').disabled=false}}
+}
+function refreshChannels(){
+ $('channels').replaceChildren();if(!sample)return;
+ for(const channel of sample.channels.filter(c=>$('group').value==='all'||c.group===$('group').value)){
+  const label=document.createElement('label'),check=document.createElement('input'),dot=document.createElement('span'),text=document.createElement('span');check.type='checkbox';check.checked=selected.has(channel.tag);dot.className='dot';dot.style.background=channelColor(channel);text.textContent=channel.tag+(channel.dye?' · '+channel.dye:'')+' ('+channel.values.length+')';check.onchange=()=>{if(check.checked)selected.add(channel.tag);else selected.delete(channel.tag);draw();renderTable()};label.append(check,dot,text);$('channels').append(label);
+ }
+ draw();renderTable();
+}
+function resetRange(){const max=sample?Math.max(2,...sample.channels.map(c=>c.values.length-1)):3000;$('start').max=max;$('end').max=max;$('start').value=0;$('end').value=max;draw()}
+function draw(){
+ const canvas=$('plot'),box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1;canvas.width=Math.round(box.width*dpr);canvas.height=Math.round(box.height*dpr);const ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);const w=box.width,h=box.height,L=64,T=16,R=18,B=38,pw=Math.max(1,w-L-R),ph=h-T-B;
+ const start=Number($('start').value),end=Math.max(start+1,Number($('end').value));$('startValue').textContent=start;$('endValue').textContent=end;
+ const channels=visibleChannels();let min=0,max=1;for(const ch of channels){for(let i=start;i<=Math.min(end,ch.values.length-1);i++){min=Math.min(min,ch.values[i]);max=Math.max(max,ch.values[i])}}
+ const span=max-min||1;max+=span*.08;min-=span*.03;const x=scan=>L+(scan-start)/(end-start)*pw,y=value=>T+(max-value)/(max-min)*ph;
+ plotGeometry={L,T,pw,ph,start,end};ctx.font='11px system-ui';ctx.lineWidth=1;
+ for(let i=0;i<=4;i++){const yy=T+i*ph/4;ctx.strokeStyle='#e5edf1';ctx.beginPath();ctx.moveTo(L,yy);ctx.lineTo(w-R,yy);ctx.stroke();ctx.fillStyle='#77919f';ctx.textAlign='right';ctx.fillText(format(max-i*(max-min)/4,0),L-10,yy+4)}
+ for(let i=0;i<=5;i++){const scan=Math.round(start+i*(end-start)/5),xx=x(scan);ctx.fillStyle='#77919f';ctx.textAlign='center';ctx.fillText(scan,xx,h-13)}ctx.save();ctx.translate(13,T+ph/2);ctx.rotate(-Math.PI/2);ctx.fillText('Интенсивность',0,0);ctx.restore();
+ ctx.save();ctx.beginPath();ctx.rect(L,T,pw,ph);ctx.clip();
+ for(const ch of channels){ctx.strokeStyle=channelColor(ch);ctx.lineWidth=1.25;ctx.beginPath();let first=true;const stop=Math.min(end,ch.values.length-1),step=Math.max(1,Math.ceil((stop-start)/pw));
+  for(let i=start;i<=stop;i+=step){if(step===1){if(first)ctx.moveTo(x(i),y(ch.values[i]));else ctx.lineTo(x(i),y(ch.values[i]));first=false}else{let lo=Infinity,hi=-Infinity;for(let j=i;j<Math.min(i+step,stop+1);j++){lo=Math.min(lo,ch.values[j]);hi=Math.max(hi,ch.values[j])}ctx.moveTo(x(i),y(lo));ctx.lineTo(x(i),y(hi))}}
+  ctx.stroke();if($('markers').checked){ctx.fillStyle=channelColor(ch);for(const peak of ch.peaks){if(peak.scan<start||peak.scan>end)continue;const xx=x(peak.scan),yy=y(peak.raw_height);ctx.beginPath();ctx.moveTo(xx,yy-4);ctx.lineTo(xx-3,yy-10);ctx.lineTo(xx+3,yy-10);ctx.closePath();ctx.fill()}}
+ }
+ ctx.restore();$('plotSubtitle').textContent='Интенсивность сигнала / скан · '+channels.length+' выбранных каналов';
+}
+function renderTable(){
+ const head=$('tableHead'),body=$('tableBody');head.replaceChildren();body.replaceChildren();
+ const modern=sample?.peak_settings?.analysis_engine==='morphology_ratio',columns=tableMode==='tags'?['Тег','Тип','Элементы','Байты','Inline / offset']:tableMode==='standard'?['Ожидаемый bp','Скан','Высота',modern?'Назначение':'Ошибка по соседям, bp']:['Канал','Скан','Высота','Площадь',modern?'FWHM, сканы':'Ширина','bp'];const tr=document.createElement('tr');for(const column of columns){const th=document.createElement('th');th.textContent=column;tr.append(th)}head.append(tr);if(!sample)return;
+ let rows=[];if(tableMode==='tags')rows=sample.directory.map(t=>[t.tag,t.type,t.count,t.bytes,t.inline?'inline':t.offset]);else if(tableMode==='standard')rows=sample.sizing.matched.map(p=>[format(p.expected_bp,3),format(p.scan,1),format(p.height),modern?(sample.sizing.status==='accepted'?'Принято':'Предварительное'):format(p.holdout_error_bp,3)]);else for(const channel of visibleChannels())for(const p of channel.peaks)rows.push([channel.tag,p.scan,format(p.height),format(p.area),format(p.width_scans,2),format(p.size_bp,2)]);
+ for(const row of rows.slice(0,2500)){const tr=document.createElement('tr');for(const value of row){const td=document.createElement('td');td.textContent=value;tr.append(td)}body.append(tr)}$('tableNote').textContent=rows.length+' строк'+(rows.length>2500?' · Показаны первые 2500. Полные результаты доступны в CSV.':'')+(tableMode==='peaks'?(modern?' · Высота после подготовки сигнала; ширина — FWHM.':' · Высота над медианой.')+' bp только в пределах принятой калибровки.':tableMode==='standard'?(sample.sizing.status==='accepted'?' · Принято по внутренним критериям; независимой проверки точности нет.':' · Предварительное соответствие: калибровка не применяется.'):' · Неизвестные типы сохранены непрозрачными байтами.');
+}
+function download(kind){if(!sample)return;let rows=[];if(kind==='traces'){rows.push(['scan',...sample.channels.map(c=>c.tag)]);const max=Math.max(...sample.channels.map(c=>c.values.length));for(let i=0;i<max;i++)rows.push([i,...sample.channels.map(c=>c.values[i]??'')])}else{rows.push(['channel','scan','height','raw_height','area','width_scans','size_bp']);for(const c of sample.channels)for(const p of c.peaks)rows.push([c.tag,p.scan,p.height,p.raw_height,p.area,p.width_scans,p.size_bp??''])}const blob=new Blob([rows.map(r=>r.join(',')).join('\r\n')+'\r\n'],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=sample.filename.replace(/\.[^.]*$/,'')+'_'+kind+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+$('file').onchange=()=>{resetSizingInputs();load(false)};$('demo').onclick=()=>{$('file').value='';resetSizingInputs();load(true)};$('sizingDemo').onclick=()=>{const modern=$('analysisEngine').value==='morphology_ratio';$('file').value='';resetSizingInputs();$('sizingMode').value='auto';$('threshold').value='100';$('heightMode').value='explicit';$('qualityThreshold').value='0.75';$('extraPeaks').value='25';$('calibrationModel').value='local_rational';$('standardBp').value=modern?'40,70,110,145,195,260':'75,105,155,205,275,335,425,505,605';$('standardChannel').replaceChildren(new Option('DATA106 · синтетический стандарт','DATA106'));sizingInputs();load(modern?'pipeline':'sizing')};$('recalculate').onclick=()=>load(false);$('group').onchange=refreshChannels;$('reset').onclick=resetRange;$('markers').onchange=draw;$('sizingMode').onchange=sizingInputs;
+$('start').oninput=()=>{if(Number($('start').value)>=Number($('end').value))$('end').value=Math.min(Number($('end').max),Number($('start').value)+1);draw()};$('end').oninput=()=>{if(Number($('end').value)<=Number($('start').value))$('start').value=Math.max(0,Number($('end').value)-1);draw()};
+$('exportTraces').onclick=()=>download('traces');$('exportPeaks').onclick=()=>download('peaks');
+$('analysisEngine').onchange=engineInputs;
+$('standardDefinition').onchange=async()=>{const file=$('standardDefinition').files[0];if(!file)return;try{if(file.size>1024*1024)throw Error('Определение превышает 1 MiB');const text=await file.text();let values,metadata={};if(file.name.toLowerCase().endsWith('.json')){const parsed=JSON.parse(text);values=Array.isArray(parsed)?parsed:parsed.expected_bp;if(!Array.isArray(parsed)&&parsed&&typeof parsed==='object')metadata=parsed}else{const xml=new DOMParser().parseFromString(text,'application/xml');if(xml.getElementsByTagName('parsererror').length)throw Error('XML не удалось разобрать');values=Array.from(xml.getElementsByTagName('*')).filter(e=>e.localName==='sizeStdDefinition').map(e=>Number(e.textContent))}const minimum=$('analysisEngine').value==='morphology_ratio'?3:4;if(!Array.isArray(values)||values.length<minimum||values.length>32||values.some((v,i)=>typeof v!=='number'||!Number.isFinite(v)||v<=0||(i&&v<=values[i-1])))throw Error('Нужно '+minimum+'–32 положительных возрастающих размера');definitionContext={filename:file.name,expected_bp:values,hypothesis_only:metadata.hypothesis_only===true};for(const key of ['name','source_url','source_doi'])if(typeof metadata[key]==='string')definitionContext[key]=metadata[key].slice(0,4096);$('standardBp').value=values.join(', ');$('definitionNote').textContent=file.name+' · '+values.length+' фрагментов. '+(definitionContext.hypothesis_only?'Исследовательская гипотеза, реагент не подтверждён. ':'')+'Проверьте канал и нажмите «Пересчитать».';status('Определение стандарта загружено. Результаты ещё не пересчитаны.')}catch(error){status(error.message,true)}finally{$('standardDefinition').value=''}};
+$('standardBp').addEventListener('input',()=>{definitionContext=null;$('definitionNote').textContent='Список размеров изменён вручную; контекст импортированного определения снят.'});
+$('exportSizing').onclick=()=>{if(!sample)return;const report={};for(const key of ['filename','source_sha256','analysis_version','peak_settings','sizing','research_only','standard_definition_context'])if(sample[key]!==undefined)report[key]=sample[key];const blob=new Blob([JSON.stringify(report,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=sample.filename.replace(/\.[^.]*$/,'')+'_sizing.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+for(const [id,mode] of [['peaksTab','peaks'],['tagsTab','tags'],['standardTab','standard']])$(id).onclick=()=>{tableMode=mode;for(const [tab,value] of [['peaksTab','peaks'],['tagsTab','tags'],['standardTab','standard']])$(tab).classList.toggle('active',mode===value);renderTable()};
+$('plot').onmousemove=event=>{if(!sample||!plotGeometry)return;const g=plotGeometry,box=$('plot').getBoundingClientRect(),scan=Math.round(g.start+(event.clientX-box.left-g.L)/g.pw*(g.end-g.start));if(scan<g.start||scan>g.end)return;$('readout').textContent='Скан '+scan+' · '+visibleChannels().map(c=>c.tag+': '+format(c.values[scan],0)).join(' · ')};
+for(const id of ['analysisEngine','heightMode','qualityThreshold','extraPeaks','threshold','distance','sizingMode','anchors','standardChannel','standardBp','standardStart','standardEnd','maxResidual','calibrationModel'])$(id).addEventListener('input',()=>{if(sample)status('Настройки изменены. Нажмите «Пересчитать»; результаты и экспорт пока относятся к предыдущему расчёту.')});
+async function jsonPost(url,data){const response=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw Error(result.error||'Ошибка обработки');return result}
+function saveJson(value,name){const url=URL.createObjectURL(new Blob([typeof value==='string'?value:JSON.stringify(value,null,2)+'\n'],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+function compactAnalysis(report){const out={};for(const key of ['source_sha256','analysis_version','peak_settings','sizing','standard_definition_context','pullup_detection'])if(report[key]!==undefined)out[key]=report[key];out.channels=report.channels.map(c=>({tag:c.tag,group:c.group,peaks:c.peaks}));return out}
+function strMessage(text,error=false){$('strStatus').textContent=text;$('strStatus').classList.toggle('error',error)}
+function invalidateStr(){strSerial++;strReport=null;demoLadderQualityDefinition=null;$('ladderQcDemoDefinition').disabled=true;demoGqDefinition=null;$('gqDemoDefinition').disabled=true;renderMarkerQuality();renderLadderQuality();renderSpikes();$('controlStatus').textContent='Контроль не рассчитан для нового результата.';$('strCalls').replaceChildren();$('strDetails').textContent='';$('exportStr').disabled=true;$('saveAnalysis').disabled=true;renderRunState();strMessage('Входные данные изменены. Рассчитайте назначения заново.')}
+function renderStr(){renderRunState();const report=strReport;$('strCalls').replaceChildren();if(!report)return;for(const c of report.calls||[]){const row=document.createElement('tr');for(const value of [c.marker,c.channel,c.scan,format(c.size_bp,3),c.label,(c.flags||[]).join(', ')||'Требует проверки']){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}$('strCalls').append(row)}const markers=report.allele_calling?.markers||[];strMessage(({tentative:'Предварительные назначения',partial:'Частичный результат',rejected:'Расчёт отклонён'})[report.status]+' · '+(report.calls?.length||0)+' меток. '+(report.reasons||[]).join('; '),report.status==='rejected');$('strDetails').textContent=JSON.stringify({kit:report.kit_identity,ladder:report.ladder,sample_markers:markers,reasons:report.reasons,provenance:report.provenance},null,2).slice(0,60000);$('exportStr').disabled=false;$('saveAnalysis').disabled=!projectState;renderMarkerQuality();renderLadderQuality();renderSpikes();$('controlStatus').textContent=controlText(report.quality?.controls)+(controlDefinitionPending?' Загружено другое определение; оно ещё не применено.':'');}
+$('kitFile').onchange=async()=>{const file=$('kitFile').files[0];if(!file)return;try{if(file.size>1024*1024)throw Error('Описание набора превышает 1 MiB');const text=await file.text(),parsed=JSON.parse(text);if(!parsed||parsed.schema_version!==1||!Array.isArray(parsed.markers))throw Error('Требуется описание набора schema_version1');strKit=parsed;strKitRaw=text;invalidateStr();$('strInputsNote').textContent='Набор: '+file.name+'. Полная проверка схемы выполняется при расчёте.'}catch(error){strMessage(error.message,true)}finally{$('kitFile').value=''}};
+$('ladderFile').onchange=async()=>{const file=$('ladderFile').files[0];if(!file)return;try{if(analysisDefinitionPending)throw Error('Сначала пересчитайте образец с новыми параметрами spike / SQ');if(!sample||sample.sizing.mode!=='auto')throw Error('Сначала рассчитайте образец с явным размерным стандартом');if(file.size>64*1024*1024)throw Error('FSA превышает 64 MiB');invalidateStr();const serial=strSerial,s=sample.sizing,p=sample.peak_settings,params=new URLSearchParams({filename:file.name,sizing_mode:'auto',threshold:p.threshold,distance:'8',standard_channel:s.reference_channel,standard_bp:s.expected_bp.join(','),calibration_model:s.calibration_model,analysis_engine:p.analysis_engine,height_mode:p.height_mode,quality_threshold:s.settings?.quality_threshold??0.75,num_extra_peaks:s.settings?.num_extra_peaks??25,max_residual_bp:s.max_residual_bp});if(p.spike_definition)params.set('spike_definition',JSON.stringify(p.spike_definition));if(p.pullup_definition)params.set('pullup_definition',JSON.stringify(p.pullup_definition));if(p.sizing_quality_definition)params.set('sizing_quality_definition',JSON.stringify(p.sizing_quality_definition));strMessage('Обработка лестницы с настройками текущего расчёта…');const response=await fetch('/api/analyze?'+params,{method:'POST',headers:{'X-Session-Token':TOKEN},body:file});const result=await response.json();if(serial!==strSerial)return;if(!response.ok)throw Error(result.error);if(sample.standard_definition_context)result.standard_definition_context=sample.standard_definition_context;ladderAnalysis=compactAnalysis(result);$('strInputsNote').textContent='Набор: '+(strKit?.name||'не загружен')+' · Лестница: '+file.name+' · sizing '+result.sizing.status;strMessage('Лестница обработана. Можно рассчитать назначения.')}catch(error){strMessage(error.message,true)}finally{$('ladderFile').value=''}};
+$('offsetPolicy').onchange=invalidateStr;
+$('runStr').onclick=async()=>{try{if(analysisDefinitionPending)throw Error('Пересчитайте образец с новыми параметрами spike / SQ');if(!sample||!strKit||!ladderAnalysis)throw Error('Нужны образец, описание набора и лестница');const serial=++strSerial;$('runStr').disabled=true;strMessage('Сопоставление лестницы и назначение по бинам…');const result=await jsonPost('/api/str',{sample:compactAnalysis(sample),ladder:ladderAnalysis,kit:strKitRaw||strKit,missing_offset_policy:$('offsetPolicy').value,ladder_quality_definition:ladderQualityRaw});if(serial!==strSerial)return;strReport=result;renderStr()}catch(error){strMessage(error.message,true)}finally{$('runStr').disabled=analysisDefinitionPending}};
+$('strDemo').onclick=async()=>{try{++loadSerial;const serial=++strSerial;$('strDemo').disabled=true;strMessage('Генерация и анализ двух синтетических FSA…');const variant=$('strDemoKind').value;const result=await jsonPost('/api/demo-str?variant='+variant,{});if(serial!==strSerial)return;sample=result.sample;runLadders=[];analysisDefinitionPending=false;pullupDefinitionRaw=sample.peak_settings.pullup_definition?JSON.stringify(sample.peak_settings.pullup_definition):null;demoPullupDefinition=result.pullup_definition||null;spikeDefinitionRaw=sample.peak_settings.spike_definition?JSON.stringify(sample.peak_settings.spike_definition):null;sizingQualityRaw=sample.peak_settings.sizing_quality_definition?JSON.stringify(sample.peak_settings.sizing_quality_definition):null;demoSizingQualityDefinition=result.sizing_quality_definition||null;demoSpikeDefinition=result.spike_definition||null;$('runStr').disabled=false;source=null;definitionContext=null;strKit=result.kit;strKitRaw=null;ladderAnalysis=result.ladder;strReport=result.report;demoLadderQualityDefinition=result.ladder_quality_definition;ladderQualityRaw=demoLadderQualityDefinition?JSON.stringify(demoLadderQualityDefinition):null;ladderQcDefinitionNote();demoGqDefinition=result.marker_quality_definition;gqDefinitionRaw=JSON.stringify(demoGqDefinition);gqSerial++;gqDefinitionPending=false;controlDefinitionRaw=result.control_definition?JSON.stringify(result.control_definition):null;controlSerial++;controlDefinitionPending=false;$('gqDemoDefinition').disabled=!demoGqDefinition;selected=new Set(sample.channels.map(c=>c.tag));$('analysisEngine').value='morphology_ratio';$('sizingMode').value='auto';$('standardBp').value='40,70,110,145,195,260';$('calibrationModel').value='local_rational';$('standardChannel').replaceChildren(new Option('DATA106','DATA106'));sizingInputs();sizingChannels();$('recalculate').disabled=true;$('empty').style.display='none';$('metadata').replaceChildren();const label=document.createElement('strong');label.textContent='Синтетический STR-образец';$('metadata').append(label);for(const id of ['exportTraces','exportPeaks','exportSizing'])$(id).disabled=false;renderSizing();refreshChannels();resetRange();renderTable();renderStr();$('strInputsNote').textContent=variant.startsWith('pullup')?pullupDemoNote(variant):variant.startsWith('true-peak')?truePeakDemoNote(variant):variant.startsWith('morphology')?morphologyDemoNote(variant):['ladder-calls','ladder-sample-filters'].includes(variant)?ladderCallingDemoNote(variant):variant.startsWith('sq-')?sizingQualityDemoNote(variant):variant==='spike'?'Вымышленный узкий пик исключён до назначения: B/C. Флаг может отличаться от окончательного ID-X после корректировок.':variant==='spike-unrequested'?'Те же вымышленные байты без классификатора: предварительные A/B/C.':variant==='ladder-rejected'?'Вымышленная лестница: порог min/max=1 отклоняет QC, смещения и метки образца удержаны.':variant==='ladder'?'Вымышленная лестница: заданный QC пройден, ожидаются B/C.':variant==='amel'?'Вымышленные AMEL=X и ExampleY=1: cross-check снижает GQ, confidence сохраняется до этой проверки.':variant==='negative'?'Вымышленный отрицательный контроль содержит B/C: GQ=0, исходные confidence сохраняются до умножения на SQ.':'Полностью вымышленный набор ExampleM; ожидаются B и C, смещение лестницы −0,3 bp.';status('Загружен вымышленный пример: два FSA → sizing → ladder → предварительные метки.')}catch(error){strMessage(error.message,true)}finally{$('strDemo').disabled=false}};
+$('exportStr').onclick=()=>{if(strReport)saveJson(strReport,'opentrace-str.json')};
+let projectBusy=false;
+function renderProject(){renderPersistentRuns();const state=projectState;renderProjectPullup(state?.effective?.machine_result);$('exportProject').disabled=!state;$('saveAnalysis').disabled=!state||!strReport;$('appendReview').disabled=!state?.selected_analysis_id;$('projectAnalysis').replaceChildren();$('reviewTarget').replaceChildren(new Option('Весь расчёт (заметка)',''));$('undoEvent').replaceChildren(new Option('Выберите событие',''));$('reviewResult').replaceChildren();if(!state)return;$('projectName').value=state.project.name;for(const a of state.analyses)$('projectAnalysis').add(new Option(a.analysis_id.slice(0,8)+' · '+a.status+' · '+a.created_at,a.analysis_id));$('projectAnalysis').value=state.selected_analysis_id||'';const effective=state.effective;for(const call of effective?.machine_result?.calls||[]){$('reviewTarget').add(new Option(call.marker+' · '+call.label+' · '+format(call.size_bp,3)+' bp',call.id));const overlay=effective.review_targets.find(t=>t.target_kind==='call'&&t.target_id===call.id),line=document.createElement('p');line.textContent=call.marker+': '+call.label+' → '+(overlay?.label??call.label)+' · '+(overlay?.accepted===true?'принято вручную':overlay?.accepted===false?'исключено вручную':'не проверено');$('reviewResult').append(line)}const called=new Set((effective?.machine_result?.calls||[]).map(c=>c.source_peak_id));for(const target of effective?.review_targets||[]){if(target.target_kind!=='peak'||!target.marker||called.has(target.target_id))continue;const flags=Object.entries(target.machine_artifact_flags||{}).filter(([,v])=>v).map(([k])=>k);$('reviewTarget').add(new Option('Пик '+target.target_id+' · '+target.marker+(flags.length?' · '+flags.join(', '):'')+(target.machine_artifact_label?' · '+target.machine_artifact_label:''),'peak:'+target.target_id));const now=Object.entries(target.artifact_flags||{}).filter(([,v])=>v).map(([k])=>k);if(target.user_allele||target.artifact_label!==target.machine_artifact_label){const line=document.createElement('p');line.textContent='Пик '+target.target_id+' ('+target.marker+'): '+(target.user_allele?'аллель '+target.user_allele.label+' (USER)':'метка артефакта скрыта')+' · флаги: '+(now.join(', ')||'сняты')+' (машинные: '+(flags.join(', ')||'нет')+')';$('reviewResult').append(line)}}for(const row of effective?.machine_result?.quality?.marker_gq?.markers||[])$('reviewTarget').add(new Option('Маркер '+row.marker+' · GQ '+format(row.score?.gq,4),'marker:'+row.marker));for(const row of effective?.review_quality?.markers||[])if(row.gq_override){const line=document.createElement('p');line.textContent='Маркер '+row.marker+': GQ переопределён вручную → '+format(row.gq_override.gq,4)+' (машинный '+format(row.gq_override.machine_gq,4)+')';$('reviewResult').append(line)}const cgq=effective?.review_quality?.sample_summary?.cgq_override;if(cgq){const line=document.createElement('p');line.textContent='CGQ образца переопределён вручную: '+cgq.cgq+' · override pass (машинная категория '+cgq.machine_category+')';$('reviewResult').append(line)}if(effective?.review_quality?.pullup_profile?.freshness==='stale'){const line=document.createElement('p');line.textContent='Оценка pull-up профиля устарела: ручной аллель снял флаг pull-up. Пересчёт не выполнялся.';$('reviewResult').append(line)}for(const note of effective?.review_notes||[]){const line=document.createElement('p');line.textContent='Заметка: '+note.text;$('reviewResult').append(line)}const reversed=new Set(state.events.filter(e=>e.action==='undo').map(e=>e.reverses_event_id));for(const event of state.events)if(event.action!=='undo'&&event.action!=='delete-artifact-label'&&!reversed.has(event.event_id))$('undoEvent').add(new Option(event.sequence+' · '+event.action+' · '+event.actor,event.event_id));$('undoReview').disabled=$('undoEvent').options.length<2;$('reviewHistory').textContent=JSON.stringify(state.events,null,2);$('projectStatus').textContent=state.project.name+' · '+state.analyses.length+' расчётов · '+state.events.length+' событий для выбранного расчёта. Машинный результат не изменяется.';}
+async function projectRequest(data){if(projectBusy)throw Error('Дождитесь завершения действия с проектом');projectBusy=true;try{const context=['new','import'].includes(data.action)?{}:{run_id:projectState?.selected_run_id,revision_id:projectState?.selected_run_revision?.revision_id};const next=await jsonPost('/api/project',{document:projectState?.document,analysis_id:projectState?.selected_analysis_id,...context,...data});projectState=next;$('projectStatus').classList.remove('error');renderProject();renderProjectQuality()}finally{projectBusy=false}}
+function projectError(error){$('projectStatus').textContent=error.message;$('projectStatus').classList.add('error')}
+function runAttribution(){return {actor:$('projectRunActor').value,reason:$('projectRunReason').value}}
+function currentProjectRun(){return projectState?.selected_run_revision}
+function projectRunIsLatest(){const revision=currentProjectRun(),history=projectState?.run_revisions||[];return !!revision&&revision.revision_id===history.at(-1)?.revision_id}
+function projectRunSample(){
+ if(analysisDefinitionPending||!sample)throw Error('Сначала пересчитайте загруженный образец');
+ return {sample_key:$('projectRunSampleKey').value,analysis:compactAnalysis(sample),
+  marker_quality_definition:gqDefinitionRaw?JSON.parse(gqDefinitionRaw):null,
+  control_definition:controlDefinitionRaw?JSON.parse(controlDefinitionRaw):null};
+}
+function renderPersistentRuns(){
+ const state=projectState,revision=state?.selected_run_revision,latest=projectRunIsLatest();
+ $('projectRunCreate').disabled=!state||!sample||!strKit||!ladderQualityRaw||!runLadders.length||analysisDefinitionPending;
+ $('projectRunAddSample').disabled=!latest||!sample||analysisDefinitionPending;
+ $('projectRunRecalculate').disabled=!latest;$('projectRunRestore').disabled=!revision||latest;
+ $('projectRunExportInputs').disabled=!revision;$('projectRunRemove').disabled=!latest||!revision?.inputs?.ladders?.length;
+ $('projectRunSelect').replaceChildren();$('projectRunRevision').replaceChildren();$('projectRunLadder').replaceChildren();$('projectRunSampleRows').replaceChildren();
+ for(const run of state?.runs||[])$('projectRunSelect').append(new Option(run.name,run.run_id));
+ $('projectRunSelect').value=state?.selected_run_id||'';$('projectRunSelect').disabled=!state?.runs?.length;
+ for(const row of (state?.run_revisions||[]).slice().reverse())$('projectRunRevision').append(new Option(row.sequence+' · '+row.actor+' · '+row.reason,row.revision_id));
+ $('projectRunRevision').value=revision?.revision_id||'';$('projectRunRevision').disabled=!revision;
+ for(const row of revision?.inputs?.ladders||[])$('projectRunLadder').append(new Option(row.ladder_id,row.ladder_id));
+ $('projectRunLadder').disabled=!revision?.inputs?.ladders?.length;
+ $('projectRunStatus').textContent=revision?'Ревизия '+revision.sequence+' · '+(latest?'Текущая':'Историческая')+' · '+revision.outputs.length+' образцов · '+revision.inputs.ladders.length+' лестниц. '+revision.actor+': '+revision.reason:'Сохранённых запусков нет.';
+ for(const output of revision?.outputs||[]){
+  const row=document.createElement('tr'),record=state.analyses.find(a=>a.analysis_id===output.analysis_id);
+  for(const value of [output.sample_key,record?.status||'—']){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}
+  const cell=document.createElement('td'),button=document.createElement('button');button.className='secondary';button.textContent='Открыть '+output.analysis_id.slice(0,8);
+  button.onclick=()=>projectRequest({action:'select',analysis_id:output.analysis_id}).catch(projectError);cell.append(button);row.append(cell);$('projectRunSampleRows').append(row);
+ }
+ const contexts=state?.effective?.run_contexts||[];
+ $('projectRunDependencyStatus').textContent=contexts.map(c=>c.freshness==='current'?'Выбранный расчёт относится к текущей ревизии запуска.':c.freshness==='removed'?'Исторический расчёт: образец удалён из текущего состава запуска.':'Исторический расчёт: новая ревизия запуска содержит другой результат этого образца.').join(' ');
+}
+$('projectRunCreate').onclick=()=>{
+ try{
+  if(!strKit||!ladderQualityRaw||!runLadders.length)throw Error('Загрузите набор, параметры QC и лестницы запуска');
+  const inputs={schema_version:1,kit:strKitRaw?JSON.parse(strKitRaw):strKit,ladder_quality_definition:JSON.parse(ladderQualityRaw),
+   missing_offset_policy:$('offsetPolicy').value,ladders:runLadders,samples:[projectRunSample()]};
+  projectRequest({action:'run-create',name:$('projectRunName').value,inputs,...runAttribution()}).catch(projectError);
+ }catch(error){projectError(error)}
+};
+$('projectRunInputsFile').onchange=async()=>{
+ const file=$('projectRunInputsFile').files[0];if(!file)return;
+ try{if(file.size>16*1024*1024)throw Error('Данные запуска превышают16MiB');await projectRequest({action:'run-create',name:$('projectRunName').value,inputs:await file.text(),...runAttribution()})}
+ catch(error){projectError(error)}finally{$('projectRunInputsFile').value=''}
+};
+$('projectRunSelect').onchange=()=>projectRequest({action:'run-select',run_id:$('projectRunSelect').value,revision_id:null}).catch(projectError);
+$('projectRunRevision').onchange=()=>projectRequest({action:'run-select',revision_id:$('projectRunRevision').value}).catch(projectError);
+$('projectRunExportInputs').onclick=()=>{if(currentProjectRun())saveJson(currentProjectRun().inputs,'opentrace-run-inputs.json')};
+async function reviseProjectRun(inputs){
+ const revision=currentProjectRun(),latest=projectState.run_revisions.at(-1);
+ if(!revision||!latest)throw Error('Выберите запуск');
+ await projectRequest({action:'run-revise',parent_revision_id:latest.revision_id,inputs,...runAttribution()});
+}
+$('projectRunRecalculate').onclick=()=>reviseProjectRun(currentProjectRun()?.inputs).catch(projectError);
+$('projectRunRestore').onclick=()=>reviseProjectRun(currentProjectRun()?.inputs).catch(projectError);
+$('projectRunAddSample').onclick=()=>{
+ try{
+  if(!projectRunIsLatest())throw Error('Выберите текущую ревизию');
+  const inputs=structuredClone(currentProjectRun().inputs),entry=projectRunSample(),index=inputs.samples.findIndex(s=>s.sample_key===entry.sample_key);
+  if(index<0)inputs.samples.push(entry);else inputs.samples[index]=entry;
+  reviseProjectRun(inputs).catch(projectError);
+ }catch(error){projectError(error)}
+};
+$('projectRunRemove').onclick=()=>projectRequest({action:'run-remove-ladder',parent_revision_id:currentProjectRun()?.revision_id,
+ ladder_id:$('projectRunLadder').value,...runAttribution()}).catch(projectError);
+$('projectRunReplacement').onchange=async()=>{
+ const file=$('projectRunReplacement').files[0];if(!file)return;
+ try{
+  if(!projectRunIsLatest())throw Error('Выберите текущую ревизию');
+  if(file.size>64*1024*1024)throw Error('FSA превышает64MiB');
+  const revision=currentProjectRun(),id=$('projectRunLadder').value,prior=revision.inputs.ladders.find(r=>r.ladder_id===id)?.analysis;
+  if(!prior)throw Error('Выберите лестницу');
+  const s=prior.sizing,p=prior.peak_settings,params=new URLSearchParams({filename:file.name,sizing_mode:'auto',threshold:p.threshold,distance:'8',
+   standard_channel:s.reference_channel,standard_bp:s.expected_bp.join(','),calibration_model:s.calibration_model,analysis_engine:p.analysis_engine,
+   height_mode:p.height_mode,quality_threshold:s.settings?.quality_threshold??.75,num_extra_peaks:s.settings?.num_extra_peaks??25,max_residual_bp:s.max_residual_bp});
+  if(p.spike_definition)params.set('spike_definition',JSON.stringify(p.spike_definition));if(p.pullup_definition)params.set('pullup_definition',JSON.stringify(p.pullup_definition));
+  if(p.sizing_quality_definition)params.set('sizing_quality_definition',JSON.stringify(p.sizing_quality_definition));
+  const response=await fetch('/api/analyze?'+params,{method:'POST',headers:{'X-Session-Token':TOKEN},body:file}),analysis=await response.json();
+  if(!response.ok)throw Error(analysis.error);if(prior.standard_definition_context)analysis.standard_definition_context=prior.standard_definition_context;
+  await projectRequest({action:'run-replace-ladder',run_id:revision.run_id,parent_revision_id:revision.revision_id,ladder_id:id,
+   analysis:compactAnalysis(analysis),...runAttribution()});
+ }catch(error){projectError(error)}finally{$('projectRunReplacement').value=''}
+};
+$('newProject').onclick=()=>projectRequest({action:'new',name:$('projectName').value}).catch(projectError);
+$('saveAnalysis').onclick=()=>projectRequest({action:'save',report:strReport}).catch(projectError);
+$('projectAnalysis').onchange=()=>projectRequest({action:'select',analysis_id:$('projectAnalysis').value}).catch(projectError);
+$('projectFile').onchange=async()=>{const file=$('projectFile').files[0];if(!file)return;try{if(file.size>60*1024*1024)throw Error('Проект превышает 60 MiB');await projectRequest({action:'import',document:await file.text(),analysis_id:null})}catch(error){projectError(error)}finally{$('projectFile').value=''}};
+$('exportProject').onclick=()=>{if(projectState)saveJson(projectState.document,'opentrace-project.json')};
+$('appendReview').onclick=()=>projectRequest({action:'review',review_action:$('reviewAction').value,actor:$('reviewActor').value,reason:$('reviewReason').value,target_kind:$('reviewTarget').value?($('reviewTarget').value.startsWith('peak:')?'peak':$('reviewTarget').value.startsWith('marker:')?'marker':'call'):'analysis',target_id:$('reviewTarget').value?$('reviewTarget').value.replace(/^(peak|marker):/,''):null,value:['note','change-label','add-allele'].includes($('reviewAction').value)?$('reviewValue').value:null}).catch(projectError);
+$('undoReview').onclick=()=>projectRequest({action:'undo',event_id:$('undoEvent').value,actor:$('reviewActor').value,reason:$('reviewReason').value}).catch(projectError);
+function controlText(quality){if(!quality)return 'Контроль не рассчитан.';const code=quality.composite_control.code;return quality.sample_type+' · CCC '+code+' · '+(!quality.all_control_comparisons_performed?'Есть пропущенные сравнения; успешная проверка не установлена.':code===0?'Ожидаемые условия совпали по внутренним правилам.':code===2?'Выявлено несоответствие контроля.':'Контроль неприменим.')+' '+quality.markers.map(m=>m.marker+': CC '+m.cc+' ('+m.reason+')').join('; ')}
+function renderProjectQuality(){
+ const effect=projectState?.effective,machine=effect?.machine_result,review=effect?.review_quality;
+ const stale=review?.sample_summary?.freshness==='stale';
+ $('projectSpikeStatus').textContent=spikeSummary(machine);
+ $('projectLadderQcStatus').textContent=ladderQcSummary(machine?.quality?.ladder_gq);
+ $('projectLadderCallingStatus').textContent=ladderCallingSummary(machine);
+ $('projectControlStatus').textContent=controlText(machine?.quality?.controls)+(stale&&machine?.quality?.controls?' После ручных исправлений эта оценка контроля устарела.':'');
+ const gq=machine?.quality?.marker_gq;
+ $('projectGqStatus').textContent=gqSummary(stale&&gq?{...gq,status:'stale'}:gq);
+ $('projectReviewQualityStatus').textContent=stale?'После ручных исправлений прежние GQ, confidence и оценки образца устарели. Показаны исходные машинные значения; пересчёт не выполнялся.':'';
+ $('projectGqValues').replaceChildren();
+ for(const row of gq?.markers||[]){
+  const markerStale=gq.status==='stale'||review?.markers?.some(m=>m.marker===row.marker&&m.freshness==='stale');
+  const text=document.createElement('p');
+  const override=review?.markers?.find(m=>m.marker===row.marker)?.gq_override;
+  text.textContent=override?row.marker+' · GQ '+format(override.gq,4)+' · Переопределено вручную (машинный GQ '+format(row.score?.gq,4)+')':row.marker+' · GQ '+format(row.score?.gq,4)+' · '+(markerStale?'Устарело':row.category?['Пройдено','Проверить','Не пройдено'][row.category.code]:'Нет оценки')+' · Confidence после SQ: '+((row.call_scores||[]).map(c=>format(c.after_sample_sq,4)).join(', ')||'—');
+  $('projectGqValues').append(text);
+ }
+}
+$('controlFile').onchange=async()=>{const file=$('controlFile').files[0];if(!file)return;try{if(file.size>1024*1024)throw Error('Определение контроля превышает1MiB');const text=await file.text(),parsed=JSON.parse(text);if(parsed?.schema_version!==1)throw Error('Требуется schema_version1');controlDefinitionRaw=text;controlSerial++;controlDefinitionPending=true;$('controlStatus').textContent=file.name+' · ещё не применено к расчёту.'}catch(error){$('controlStatus').textContent=error.message}finally{$('controlFile').value=''}};
+$('applyControls').onclick=()=>annotateQuality('controls');
+for(const id of ['runStr','strDemo'])$(id).addEventListener('click',()=>{$('controlStatus').textContent='Контроль не рассчитан для нового результата.'});
+$('file').addEventListener('change',()=>{$('controlStatus').textContent='Контроль не рассчитан для нового результата.'});
+function gqSummary(gq){
+ if(!gq)return 'GQ не рассчитан.';
+ if(gq.status==='stale')return 'GQ устарел: исходные условия или интерпретация изменены. Требуется пересчёт.';
+ const count=gq.markers.filter(m=>m.status==='evaluated_subset').length;
+ return 'Исследовательский GQ · '+count+' из '+gq.markers.length+' маркеров. '+
+  (gq.complete_for_requested_subset?'Заданные проверки выполнены.':'Есть недоступные или пропущенные проверки.')+' Confidence использует '+({base_quality:'исходный SQ',post_sizing_quality:'итоговый SQ',explicit:'явно заданный SQ'}[gq.sample_sq_source]||'заданный SQ')+'. Полный PQV не рассчитан.';
+}
+function spikeSummary(report){
+ if(!report?.peaks?.some(p=>p.spike_classification))return 'Первичный классификатор spike не запрошен.';
+ const peaks=report.peaks||[],count=peaks.filter(p=>p.spike_classification?.current_spike===true).length;
+ const adjusted=report.quality?.spike_adjustments?.sample;
+ if(adjusted?.status==='evaluated_subset')return 'Первичный spike: '+adjusted.initial_spikes+' → текущий: '+adjusted.current_spikes+'; снято: '+adjusted.cleared_spikes+'. Причины исключения и метки уже обработанных маркеров сохранены.';
+ if(adjusted)return 'Корректировки spike недоступны: назначения отклонены. См. причины расчёта.';
+ return 'Первичный spike: '+count+' из '+peaks.length+' пиков в каналах набора. Последующие корректировки spike не запрошены.';
+}
+for(const [value,label] of [['pullup','Pull-up: явное сравнение каналов'],['pullup-flags-only','Тот же FSA: только QC флагов'],['pullup-unrequested','Тот же FSA: без pull-up']])$('strDemoKind').append(new Option(label,value));
+function pullupDemoNote(kind){return kind==='pullup'?'Вымышленный FSA: явный проход DATA1 → DATA2 исключает B, остаётся C. Bleed-through=1, категория профиля=2; GQ отдельно. Автоматический маршрут ID-X не подтверждён.':kind==='pullup-flags-only'?'Те же байты: новые флаги не выставляются, предварительные B/C. QC читает сохранённые флаги; bleed-through=0, категория профиля=0.':'Те же байты без параметров pull-up: предварительные B/C, показатель pull-up не рассчитан.'}
+function pullupQualityText(q){
+ if(!q)return 'Показатель pull-up не рассчитан.';
+ const p=q.profile;
+ return 'Pull-up профиля: '+(p?String(p.code):'недоступен')+' · '+(p?format(p.positive_markers,0)+' / '+format(p.denominator,0)+' маркеров':'нет обработанных наблюдений')+'. GQ, confidence и допуск лестницы этим показателем не изменяются.';
+}
+function renderProjectPullup(machine){$('projectPullupStatus').textContent=machine?pullupQualityText(machine.quality?.pullup)+' Показаны машинные флаги; ручные правки назначений их не пересчитывают.':''}
+function renderPullups(){
+ $('clearPullup').disabled=!pullupDefinitionRaw;$('pullupDemoDefinition').disabled=!demoPullupDefinition;
+ const requested=sample?.peak_settings?.pullup_definition,detection=sample?.pullup_detection,q=strReport?.quality?.pullup;
+ $('pullupInputStatus').textContent=analysisDefinitionPending?'Параметры анализа изменены. Пересчитайте исходный FSA и загрузите лестницу заново.':!requested?'Проверка не запрошена.':requested.detector?'Задан экспериментальный порядок сравнения каналов.':'Только QC сохранённых флагов; детектор не запрошен.';
+ $('pullupPanel').hidden=!requested&&!q;
+ $('pullupStatus').textContent=pullupQualityText(q)+(detection?.status==='evaluated_explicit_passes'?' Сравнений: '+detection.attempted_pairs+'. Автоматический маршрут ID-X не подтверждён.':'');
+ $('pullupRows').replaceChildren();$('pullupQcRows').replaceChildren();
+ const peaks=strReport?.peaks||sample?.channels?.filter(c=>c.tag!==sample.sizing?.reference_channel).flatMap(c=>c.peaks.map((p,i)=>({...p,id:c.tag+':'+i})))||[];
+ for(const p of peaks){const h=p.pullup_classification;if(!h)continue;const tr=document.createElement('tr');
+  for(const value of [p.id,h.state.pullup?'Да':'Нет',h.matched_reference_id||'—',h.state.ratio>=0?format(h.state.ratio,6):'Не измерено',h.state.ratio_threshold>=0?format(h.state.ratio_threshold,6):'—',h.events.length]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('pullupRows').append(tr)}
+ for(const m of q?.markers||[]){const tr=document.createElement('tr');for(const value of [m.marker,m.metric??'Недоступно',m.triggers.map(t=>t.source_peak_id+' · '+(t.ratio_available?format(t.ratio,6):'отношение не измерено')).join('; ')||'—']){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('pullupQcRows').append(tr)}
+ $('pullupDetails').textContent=requested||q?JSON.stringify({detection,quality:q,peaks:peaks.filter(p=>p.pullup_classification).map(p=>({id:p.id,history:p.pullup_classification}))},null,2):'';
+}
+$('pullupFile').onchange=async()=>{const file=$('pullupFile').files[0];if(!file)return;try{if(file.size>16384)throw Error('Параметры pull-up превышают 16 KiB');const text=await file.text();if(JSON.parse(text)?.schema_version!==1)throw Error('Требуется schema_version 1');pullupDefinitionRaw=text;demoPullupDefinition=null;spikeParametersChanged()}catch(error){$('pullupInputStatus').textContent=error.message}finally{$('pullupFile').value=''}};
+$('clearPullup').onclick=()=>{pullupDefinitionRaw=null;demoPullupDefinition=null;spikeParametersChanged()};
+$('pullupDemoDefinition').onclick=()=>{if(demoPullupDefinition)saveJson(demoPullupDefinition,'invented-pullup.json')};
+function morphologyDemoNote(kind){return kind==='morphology'?'Вымышленный широкий пик B с резким компонентом: jag count=1, отмечен overlap и плохое соответствие Gaussian; предварительная метка C. Параметры заданы только для примера. Восстановление формы пика ещё не реализовано.':'Те же вымышленные байты без классификатора: предварительные B/C.'}
+for(const [value,label] of [['morphology','Форма пика: jag и FitScore'],['morphology-unrequested','Тот же FSA: без оценки формы']])$('strDemoKind').append(new Option(label,value));
+for(const [value,label] of [['true-peak','Перекрытый пик: восстановление'],['true-peak-excluded','Тот же FSA: исключение overlap']])$('strDemoKind').append(new Option(label,value));
+function truePeakDemoNote(kind){return kind==='true-peak'?'Тот же вымышленный FSA: скрытый широкий пик B восстановлен по боковым точкам. Предварительные B/C. Дробный центр и целый скан проверяйте по таблице истории.':'Те же вымышленные байты и измеренная модель: overlap исключён, остаётся C. Восстановление не применяется при выбранной политике исключения.'}
+function renderTruePeaks(peaks){
+ const rows=peaks.filter(p=>p.true_peak_restoration);$('truePeakPanel').hidden=!rows.length;$('truePeakRows').replaceChildren();
+ const labels={not_applicable:'Не требуется',height_only:'Только высота',restored:'Восстановлен',unavailable:'Модель недоступна'};
+ for(const p of rows){const h=p.true_peak_restoration,m=p.spike_features?.morphology?.true_peak,tr=document.createElement('tr');
+  for(const value of [p.id,labels[h.status]||h.status,format(h.before.height,3)+' → '+format(h.after.height,3),m?.center>=0?String(m.center):'—',format(h.before.scan,0)+' → '+format(h.after.scan,0),format(h.before.area,3)+' → '+format(h.after.area,3),format(h.after.area_bp,4)]){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('truePeakRows').append(tr)}
+}
+function renderSpikes(){
+ renderSizingQuality();renderPullups();
+ $('clearSpike').disabled=!spikeDefinitionRaw;$('spikeDemoDefinition').disabled=!demoSpikeDefinition;
+ const a=sample?.artifacts;
+ $('spikeStatus').textContent=analysisDefinitionPending?(source?'Выберите автоматический стандарт, пересчитайте образец и загрузите лестницу заново.':'Параметры изменены. Для их применения откройте исходный FSA или заново откройте вымышленный пример.'):
+  a?'Классифицировано '+a.classified+' пиков; текущих spike '+a.current_spikes+'; недоступных '+a.unavailable+'. Первичная классификация.':'Классификатор не запрошен.';
+ $('artifactStatus').textContent=spikeSummary(strReport);$('spikeRows').replaceChildren();
+ const peaks=(strReport?.peaks||[]).filter(p=>p.spike_classification);
+ renderTruePeaks(peaks);
+ const reasons={near_base_width_below_threshold:'Узкое основание',narrow_exhalf_with_area_ratio:'Узкая полуширина и отношение площадей',
+  narrow_exhalf_overlap:'Overlap по ширине и площади/offscale',positive_jag_count:'Положительный jag count',
+  height_or_base_width_gate:'Не пройден порог высоты или ширина недоступна',widths_not_narrow:'Порог узкой ширины не достигнут',
+  basic_spike_features_missing:'Нет базовых измерений',spike_units_or_features_unavailable:'Нет измерений в выбранных единицах'};
+ const state=v=>v==null?'—':v?'Да':'Нет';
+ for(const p of peaks){const c=p.spike_classification,tr=document.createElement('tr');
+  const cleared=p.spike_adjustment?.events?.[0];
+  const f=p.spike_features;
+  for(const value of [p.id,p.scan,state(c.spike_detected),state(c.overlap_spike),state(c.current_spike),state(p.spike_adjustment?.current_spike??c.current_spike),f?.jag_count??'—',Number.isFinite(f?.fit_score)?format(f.fit_score,4):'—',c.peak_deformity==='poor_fit'?'Плохое соответствие':c.peak_deformity==='none'?'Без отметки':'—',cleared?'Флаг снят: '+(cleared.reason==='sample_height_at_or_below_cutoff'?'высота не выше cutoff':'вне диапазона маркеров'):reasons[c.reason]||'См. подробности']){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('spikeRows').append(tr)}
+ $('spikeDetails').textContent=peaks.length?JSON.stringify(peaks.map(p=>({id:p.id,features:p.spike_features,classification:p.spike_classification,adjustment:p.spike_adjustment,restoration:p.true_peak_restoration})),null,2):'';
+}
+function spikeParametersChanged(){++loadSerial;$('demo').disabled=false;$('sizingDemo').disabled=false;$('recalculate').disabled=!source;analysisDefinitionPending=true;demoSpikeDefinition=null;invalidateStr();$('runStr').disabled=true;renderSpikes()}
+$('spikeFile').onchange=async()=>{const file=$('spikeFile').files[0];if(!file)return;try{if(file.size>16384)throw Error('Параметры spike превышают16KiB');const text=await file.text();if(![1,2,3,4].includes(JSON.parse(text)?.schema_version))throw Error('Требуется schema_version1,2,3 или4');spikeDefinitionRaw=text;spikeParametersChanged()}catch(error){$('spikeStatus').textContent=error.message}finally{$('spikeFile').value=''}};
+$('clearSpike').onclick=()=>{spikeDefinitionRaw=null;spikeParametersChanged()};
+$('spikeDemoDefinition').onclick=()=>{if(demoSpikeDefinition)saveJson(demoSpikeDefinition,'invented-spike.json')};
+function renderSizingQuality(){
+ $('clearSizingQuality').disabled=!sizingQualityRaw;
+ $('sizingQualityDemoDefinition').disabled=!demoSizingQualityDefinition;
+ const q=sample?.sizing?.post_quality;
+ $('sizingQualityStatus').textContent=analysisDefinitionPending?'Параметры анализа изменены. Пересчитайте исходный FSA в автоматическом режиме и загрузите лестницу заново.':
+  !q?'Проверка ширин стандарта не запрошена.':q.status!=='evaluated'?'SQ недоступен: '+({base_sizing_quality_unavailable:'нет исходной оценки',accepted_calibration_unavailable:'нет принятой кривой',matched_standard_dimensions_unavailable:'недоступны размеры пиков стандарта',matched_standard_measurements_missing:'нет сопоставленных пиков'}[q.reason]||'см. подробности'):
+  'Исходный SQ '+format(q.base_score,4)+' → итоговый '+format(q.score,4)+' · '+['Пройдено','Проверить','Не пройдено'][q.category.code]+' · Широкий пик: '+(q.broad_metric===1?'да':'нет')+'. Размерная кривая сохранена.';
+ $('sizingQualityDetails').textContent=q?JSON.stringify(q,null,2):'';
+}
+function sizingQualityDemoNote(kind){return kind==='sq-pass'?'Вымышленные пики стандарта уже порога: SQ=1, назначения B/C.':kind==='sq-check'?'Те же FSA с явным штрафом ширины: SQ=0,5, B/C и confidence=0,5.':kind==='sq-fail'?'Те же FSA: SQ=0,2, размерная кривая и предварительные B/C сохранены.':'SQ лестницы=0,2: её QC удерживает смещения и назначения образца; размерная кривая сохранена.'}
+for(const [value,label] of [['sq-pass','SQ: ширины в норме'],['sq-check','SQ: штраф ширины'],['sq-fail','SQ: низкая оценка с сохранённой кривой'],['sq-ladder-fail','SQ лестницы: смещения удержаны']])$('strDemoKind').querySelector('option[value="'+value+'"]').textContent=label;
+$('sizingQualityFile').onchange=async()=>{const file=$('sizingQualityFile').files[0];if(!file)return;try{if(file.size>16384)throw Error('Параметры SQ превышают16KiB');const text=await file.text();if(JSON.parse(text)?.schema_version!==1)throw Error('Требуется schema_version1');sizingQualityRaw=text;demoSizingQualityDefinition=null;spikeParametersChanged()}catch(error){$('sizingQualityStatus').textContent=error.message}finally{$('sizingQualityFile').value=''}};
+$('clearSizingQuality').onclick=()=>{sizingQualityRaw=null;demoSizingQualityDefinition=null;spikeParametersChanged()};
+$('sizingQualityDemoDefinition').onclick=()=>{if(demoSizingQualityDefinition)saveJson(demoSizingQualityDefinition,'invented-sizing-quality.json')};
+function ladderQcSummary(q){
+ if(!q)return 'Дополнительный QC лестницы не запрошен.';
+ const count=q.markers.filter(r=>r.status==='evaluated_subset').length;
+ return 'QC лестницы · '+count+' из '+q.markers.length+' маркеров · SQ '+format(q.ladder_sq,4)+' · '+
+  (q.gate_passed?'Заданные проверки пройдены; смещения допущены.':'Смещения и назначения удержаны.')+' Полный AL/PQV не рассчитан.';
+}
+function ladderQcDefinitionNote(){
+ renderRunState();
+ $('clearLadderQc').disabled=!ladderQualityRaw;
+ $('ladderQcDemoDefinition').disabled=!demoLadderQualityDefinition;
+ $('ladderQcDefinitionNote').textContent=ladderQualityRaw?'Параметры QC лестницы заданы. Применяются кнопкой «Рассчитать назначения».':'Дополнительный QC лестницы не задан.';
+}
+function ladderViewReport(){
+ const stages=strReport?.quality?.run_ladders;
+ return stages?stages[Number($('runLadderSelect').value)||0]:strReport;
+}
+function renderRunState(){
+ renderPersistentRuns();
+ const stages=strReport?.quality?.run_ladders,previous=$('runLadderSelect').value;
+ $('runLadderSelect').replaceChildren();
+ for(const [i,stage] of (stages||[]).entries())$('runLadderSelect').append(new Option(stage.ladder_id,String(i)));
+ if(previous&&Number(previous)<(stages?.length||0))$('runLadderSelect').value=previous;
+ $('runLadderSelect').disabled=!stages?.length;
+ $('runStrRun').disabled=analysisDefinitionPending||!sample||!strKit||!runLadders.length||!ladderQualityRaw;
+ $('clearRunLadders').disabled=!runLadders.length;
+ $('runLadderRows').replaceChildren();$('runOffsetRows').replaceChildren();
+ for(const [i,entry] of runLadders.entries()){
+  const stage=stages?.[i],row=document.createElement('tr');
+  for(const value of [i+1,entry.ladder_id,stage?(stage.quality_code===null?'Недоступно':stage.quality_code===0?'Пройдено':'Не пройдено'):'—',stage?(stage.reasons?.join('; ')||'См. QC выбранной лестницы'):'Загружена']){const td=document.createElement('td');td.textContent=value;row.append(td)}
+  $('runLadderRows').append(row);
+ }
+ for(const [name,marker] of Object.entries(stages?strReport.ladder?.markers||{}:{})){
+  const keys=marker.per_key||{};
+  for(const [label,key] of [...Object.entries(keys.bins||{}),['Нижняя граница',keys.virtual_min],['Верхняя граница',keys.virtual_max]]){
+   if(!key)continue;const row=document.createElement('tr');
+   for(const value of [name,label,format(key.offset_bp,6),(key.contributors||[]).map(c=>c.ladder_id).join(', ')||'Нет',(key.excluded||[]).map(c=>c.ladder_id).join(', ')||'Нет']){const td=document.createElement('td');td.textContent=value;row.append(td)}
+   $('runOffsetRows').append(row);
+  }
+ }
+ $('runStatus').textContent=stages?'Рассчитано '+stages.length+' этапов лестниц. Средние используют только допущенные вклады по каждому ключу.':runLadders.length?'Загружено '+runLadders.length+' лестниц. Параметры QC применятся при расчёте.':'Список лестниц пуст.';
+}
+$('runLadderSelect').onchange=()=>renderLadderQuality();
+$('clearRunLadders').onclick=()=>{runLadders=[];invalidateStr()};
+$('runLadderFiles').onchange=async()=>{
+ const files=Array.from($('runLadderFiles').files);if(!files.length)return;
+ try{
+  if(analysisDefinitionPending||!sample||sample.sizing.mode!=='auto')throw Error('Сначала пересчитайте образец с явным стандартом');
+  if(runLadders.length+files.length>128)throw Error('Не более128 лестниц');
+  invalidateStr();const serial=strSerial,loaded=[];
+  for(const file of files){
+   if(file.size>64*1024*1024)throw Error('FSA превышает64MiB');
+   const s=sample.sizing,p=sample.peak_settings,params=new URLSearchParams({filename:file.name,sizing_mode:'auto',threshold:p.threshold,distance:'8',standard_channel:s.reference_channel,standard_bp:s.expected_bp.join(','),calibration_model:s.calibration_model,analysis_engine:p.analysis_engine,height_mode:p.height_mode,quality_threshold:s.settings?.quality_threshold??.75,num_extra_peaks:s.settings?.num_extra_peaks??25,max_residual_bp:s.max_residual_bp});
+   if(p.spike_definition)params.set('spike_definition',JSON.stringify(p.spike_definition));if(p.pullup_definition)params.set('pullup_definition',JSON.stringify(p.pullup_definition));
+   if(p.sizing_quality_definition)params.set('sizing_quality_definition',JSON.stringify(p.sizing_quality_definition));
+   const response=await fetch('/api/analyze?'+params,{method:'POST',headers:{'X-Session-Token':TOKEN},body:file});const result=await response.json();
+   if(serial!==strSerial)return;if(!response.ok)throw Error(result.error);
+   if(sample.standard_definition_context)result.standard_definition_context=sample.standard_definition_context;
+   loaded.push({ladder_id:file.name,analysis:compactAnalysis(result)});
+  }
+  runLadders.push(...loaded);renderRunState();
+ }catch(error){$('runStatus').textContent=error.message}finally{$('runLadderFiles').value=''}
+};
+$('runStrRun').onclick=async()=>{
+ try{
+  if(analysisDefinitionPending||!sample||!strKit||!ladderQualityRaw)throw Error('Требуются образец, набор и параметры QC лестницы');
+  const serial=++strSerial;$('runStrRun').disabled=true;
+  const result=await jsonPost('/api/str-run',{sample:compactAnalysis(sample),ladders:runLadders,kit:strKitRaw||strKit,
+   ladder_quality_definition:ladderQualityRaw,missing_offset_policy:$('offsetPolicy').value});
+  if(serial!==strSerial)return;strReport=result;renderStr();
+ }catch(error){$('runStatus').textContent=error.message}finally{$('runStrRun').disabled=analysisDefinitionPending||!sample||!strKit||!runLadders.length||!ladderQualityRaw}
+};
+$('strRunDemo').onclick=async()=>{
+ try{
+  ++loadSerial;const serial=++strSerial;$('strRunDemo').disabled=true;
+  const data=await jsonPost('/api/demo-str-run',{});if(serial!==strSerial)return;
+  sample=data.sample;source=null;definitionContext=null;analysisDefinitionPending=false;
+  spikeDefinitionRaw=null;sizingQualityRaw=null;pullupDefinitionRaw=null;demoPullupDefinition=null;demoSpikeDefinition=null;demoSizingQualityDefinition=null;
+  strKit=data.kit;strKitRaw=null;ladderAnalysis=null;runLadders=data.ladders;strReport=data.report;
+  ladderQualityRaw=JSON.stringify(data.ladder_quality_definition);demoLadderQualityDefinition=data.ladder_quality_definition;
+  demoGqDefinition=data.marker_quality_definition;gqDefinitionRaw=JSON.stringify(demoGqDefinition);gqDefinitionPending=false;gqSerial++;
+  controlDefinitionRaw=null;controlDefinitionPending=false;controlSerial++;
+  selected=new Set(sample.channels.map(c=>c.tag));$('analysisEngine').value='morphology_ratio';$('sizingMode').value='auto';
+  $('standardBp').value='40,70,110,145,195,260';$('calibrationModel').value='local_rational';
+  $('standardChannel').replaceChildren(new Option('DATA106','DATA106'));sizingInputs();sizingChannels();
+  $('runStr').disabled=false;$('recalculate').disabled=true;$('empty').style.display='none';$('metadata').textContent='Вымышленный образец и запуск';
+  for(const id of ['exportTraces','exportPeaks','exportSizing'])$(id).disabled=false;
+  $('gqDemoDefinition').disabled=false;ladderQcDefinitionNote();renderSizing();refreshChannels();resetRange();renderTable();renderStr();
+  $('strInputsNote').textContent='Две лестницы допущены, третья имеет нарушенное соотношение высот и исключена. Ожидаются B/C; среднее смещение −0,3 bp.';
+ }catch(error){$('runStatus').textContent=error.message}finally{$('strRunDemo').disabled=false}
+};
+function ladderCallingSummary(report){
+ const observations=report?.quality?.ladder_calling;
+ if(!observations&&report?.quality?.run_ladders)return 'В результате сохранено '+report.quality.run_ladders.length+' этапов лестниц. Вклады и причины исключения доступны в машинном JSON.';
+ if(!observations)return report?'Отдельные наблюдения назначений лестницы не сохранены в этом результате.':'Сопоставление лестницы ещё не рассчитано.';
+ const count=(observations.markers||[]).reduce((n,m)=>n+(m.calls?.length||0),0);
+ const legacy=report.provenance?.ladder_call_observation_source==='kit_sample_parameters';
+ return (legacy?'Прежняя политика сравнения: повторно применены фильтры образца.':'Использованы сопоставленные пики лестницы; фильтры образца повторно не применяются.')+' Назначений лестницы: '+count+'. Confidence — коэффициент, не вероятность.';
+}
+function renderLadderCalling(){
+ const report=ladderViewReport(),observations=report?.quality?.ladder_calling,q=report?.quality?.ladder_gq;
+ $('ladderCallingStatus').textContent=ladderCallingSummary(report);$('ladderCallRows').replaceChildren();
+ for(const marker of observations?.markers||[]){
+  const quality=q?.markers?.find(m=>m.marker===marker.name);
+  for(const call of marker.calls||[]){
+   const score=quality?.call_scores?.find(c=>c.peak_index===call.peak_index&&c.label===call.label);
+   const row=document.createElement('tr');
+   for(const value of [marker.name,marker.channel,call.source_peak_id||call.peak_index,call.label,
+     format(call.confidence??call.confidence_weight,4),score?format(score.after_marker_gq,4)+' / '+format(score.after_sample_sq,4):'—']){
+    const cell=document.createElement('td');cell.textContent=value;row.append(cell);
+   }
+   $('ladderCallRows').append(row);
+  }
+ }
+ const detail=observations?JSON.stringify(observations,null,2):'';
+ $('ladderCallingDetails').textContent=detail.length>60000?detail.slice(0,60000)+'\nПолные данные — в JSON результата.':detail;
+}
+function ladderCallingDemoNote(kind){return kind==='ladder-calls'?'Вымышленная лестница имеет разные высоты: сохранены сопоставленные A/B/C/D, её QC допускает B/C образца.':'Те же FSA с прежними фильтрами образца на лестнице: −A удаляет ожидаемые метки, QC удерживает смещения и B/C.'}
+for(const [value,label] of [['ladder-calls','Лестница: сопоставленные пики'],['ladder-sample-filters','Лестница: сравнить с прежними фильтрами']])$('strDemoKind').querySelector('option[value="'+value+'"]').textContent=label;
+function renderLadderQuality(){
+ renderLadderCalling();
+ const q=ladderViewReport()?.quality?.ladder_gq;
+ $('ladderQcStatus').textContent=strReport?ladderQcSummary(q):'QC лестницы не рассчитан.';
+ $('ladderQcRows').replaceChildren();$('ladderQcDetails').textContent=q?JSON.stringify(q,null,2):'';
+ const reasons={no_called_alleles:'Нет назначенных аллелей',spike_gate:'Spike при ненулевом весе',offscale_gate:'Offscale при ненулевом весе',
+  expected_bin_missing:'Не найдены ожидаемые бины',first_two_height_ratio:'Баланс высот первых двух аллелей',min_max_height_ratio:'Баланс минимальной и максимальной высот',
+  pair_bin_missing:'Нет бина для пары аллелей',bin_spacing:'Расстояние между бинами вне допуска',ladder_matching_not_accepted:'Сопоставление лестницы отклонено',
+  ladder_call_observations_unavailable:'Нет назначений лестницы для проверки',explicit_ladder_quality_recipe_missing:'Не заданы параметры маркера',
+  accepted_ladder_base_quality_missing:'Нет принятой базовой оценки стандарта',ladder_offscale_state_missing:'Нет измеренного состояния offscale'};
+ for(const row of q?.markers||[]){const tr=document.createElement('tr'),events=row.score?.events||[];
+  const values=[row.marker,format(row.score?.gq,4),row.category?['Пройдено','Проверить','Не пройдено'][row.category.code]:'Недоступно',
+   row.reason?(reasons[row.reason]||'См. подробности'):events.map(e=>reasons[e.criterion]||'См. подробности').join('; ')||'Заданные проверки выполнены'];
+  for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('ladderQcRows').append(tr);
+ }
+}
+$('ladderQcFile').onchange=async()=>{const file=$('ladderQcFile').files[0];if(!file)return;try{if(file.size>1024*1024)throw Error('Параметры QC превышают1MiB');const text=await file.text();if(JSON.parse(text)?.schema_version!==1)throw Error('Требуется schema_version1');ladderQualityRaw=text;demoLadderQualityDefinition=null;invalidateStr();ladderQcDefinitionNote()}catch(error){$('ladderQcStatus').textContent=error.message}finally{$('ladderQcFile').value=''}};
+$('clearLadderQc').onclick=()=>{ladderQualityRaw=null;demoLadderQualityDefinition=null;invalidateStr();ladderQcDefinitionNote()};
+$('ladderQcDemoDefinition').onclick=()=>{if(demoLadderQualityDefinition)saveJson(demoLadderQualityDefinition,'invented-ladder-quality.json')};
+function renderMarkerQuality(){
+ const gq=strReport?.quality?.marker_gq;$('gqRows').replaceChildren();$('gqStatus').textContent=gqSummary(gq)+(gqDefinitionPending?' Загружены другие параметры; они ещё не применены.':'');$('gqDetails').textContent=gq?JSON.stringify(gq,null,2):'';
+ const cc=gq?.amel_cross_check;
+ const ccReasons={sample_type_excluded:'Этот тип образца исключён из cross-check',panel_markers_missing:'Нет списка маркеров',
+  validator_exact_amel_name_missing:'В наборе нет маркера AMEL или Amelogenin',validator_amel_quality_missing:'Нет оценки качества AMEL',
+  amel_quality_missing:'Нет оценки качества выбранного AMEL',no_y_markers:'В наборе нет Y-маркеров',y_marker_quality_missing:'Нет оценки качества одного из Y-маркеров',
+  invalid_amel_combination:'Набор меток AMEL не равен X или X/Y',consistent_amel_y_calls:'Наличие Y согласовано с AMEL',
+  amel_y_presence_mismatch:'Наличие Y не согласовано с AMEL',explicit_panel_marker_roles_missing:'Не заданы роли всех маркеров набора'};
+ $('amelCcStatus').textContent=cc?'AMEL cross-check · '+(gq.status==='stale'?'Устарело':cc.status==='evaluated_subset'?(cc.mismatch?'Несоответствие':'Согласовано'):cc.status==='not_applicable'?'Неприменим':'Недоступен')+' · '+(ccReasons[cc.reason]||'Причина приведена в подробностях')+'. Confidence рассчитан до cross-check и затем умножен на SQ.':'';
+ if(!gq)return;
+ const reasons={calibrated_morphology_or_offscale_state_missing:'Нет измеренной ширины или состояния offscale',
+  explicit_marker_quality_recipe_missing:'Не заданы параметры маркера',explicit_amel_marker_unavailable:'Нет указанного AMEL',
+  marker_analysis_rejected:'Маркер не рассчитан',accepted_base_quality_missing:'Нет принятого качества стандарта',
+  negative_control_gq_not_implemented:'Ветка GQ отрицательного контроля не реализована',
+  positive_control_observations_missing:'Нет проверки положительного контроля',positive_control_observations_stale:'Проверка контроля устарела',
+  negative_control_observations_missing:'Нет проверки отрицательного контроля',negative_control_observations_stale:'Проверка отрицательного контроля устарела',
+  negative_zero_peak_observation_missing:'Нет свежей оценки пиков отрицательного контроля',
+  negative_control_gq_requires_schema2:'Отрицательный контроль требует параметров GQ версии2'};
+ for(const m of gq.markers){const tr=document.createElement('tr'),stale=gq.status==='stale';
+  const values=[m.marker,format(m.score?.gq,4),stale?'Устарело':m.category?['Пройдено','Проверить','Не пройдено'][m.category.code]:'Нет оценки',
+   (m.call_scores||[]).map(v=>format(v.after_sample_sq,4)).join(', ')||'—',stale?'Требуется пересчёт':reasons[m.reason]||m.reason||'Предварительная оценка'];
+  for(const value of values){const td=document.createElement('td');td.textContent=value;tr.append(td)}$('gqRows').append(tr);
+ }
+}
+async function annotateQuality(kind){
+ const isGq=kind==='marker-quality',message=isGq?'gqStatus':'controlStatus',definition=isGq?gqDefinitionRaw:controlDefinitionRaw;
+ let acquired=false;
+ try{
+  if(annotationBusy){$(message).textContent='Дождитесь текущего расчёта качества';return;}
+  if(!strReport||!definition)throw Error('Нужны STR-расчёт и явное определение параметров');
+  annotationBusy=true;acquired=true;$('applyControls').disabled=true;$('applyGq').disabled=true;
+  const serial=strSerial,definitionSerial=isGq?gqSerial:controlSerial;
+  const next=await jsonPost('/api/'+kind,{report:strReport,definition});
+  if(serial!==strSerial||definitionSerial!==(isGq?gqSerial:controlSerial))return;
+  strReport=next;if(isGq)gqDefinitionPending=false;else controlDefinitionPending=false;renderStr();
+ }catch(error){$(message).textContent=error.message}
+ finally{if(acquired){annotationBusy=false;$('applyControls').disabled=false;$('applyGq').disabled=false}}
+}
+$('gqFile').onchange=async()=>{const file=$('gqFile').files[0];if(!file)return;try{if(file.size>1024*1024)throw Error('Параметры GQ превышают1MiB');const text=await file.text(),parsed=JSON.parse(text);if(![1,2].includes(parsed?.schema_version))throw Error('Требуется schema_version1 или2');gqDefinitionRaw=text;gqSerial++;gqDefinitionPending=true;$('gqStatus').textContent=file.name+' · параметры ещё не применены.'}catch(error){$('gqStatus').textContent=error.message}finally{$('gqFile').value=''}};
+$('applyGq').onclick=()=>annotateQuality('marker-quality');
+$('gqDemoDefinition').onclick=()=>{if(demoGqDefinition)saveJson(demoGqDefinition,'invented-marker-quality.json')};
+new ResizeObserver(draw).observe($('plot').parentElement);engineInputs();renderTable();
+</script>
+</html>

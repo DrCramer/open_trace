@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenTrace</title>
+<link rel="stylesheet" href="/idx/idx.css">
+<script>window.OT_TOKEN='__SESSION_TOKEN__';</script>
+<script src="/idx/i18n.js"></script>
+<script src="/idx/ui.js"></script>
+</head>
+<body>
+<div class="menubar" id="menubar"></div>
+<div class="toolbar" id="toolbar"></div>
+<div class="workarea">
+  <nav class="navigator" id="navigator" aria-label="Navigator"></nav>
+  <div class="content">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <section class="tabpage" id="page-samples"><div class="grid" id="samplesGrid"></div></section>
+    <section class="tabpage" id="page-summary" hidden><div class="summary" id="summary"></div></section>
+    <section class="tabpage" id="page-genotypes" hidden><div class="grid" id="genotypesGrid"></div></section>
+  </div>
+</div>
+<div class="statusbar">
+  <div class="cell grow" id="statusText"></div>
+  <div class="cell progress" id="progress"><div class="bar" id="progressBar" style="width:0"></div><span id="progressText">0%</span></div>
+  <button class="btn" id="stopBtn" disabled></button>
+</div>
+<script src="/idx/project.js"></script>
+</body>
+</html>
