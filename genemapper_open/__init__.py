@@ -1,3 +1,3 @@
 """Independent, research-only electropherogram tools. MIT licensed."""
 
-__version__ = "0.23.0"
+__version__ = "0.24.0"

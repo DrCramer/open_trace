@@ -51,7 +51,7 @@ class IdxPagesTests(unittest.TestCase):
         for name, kind in (("plot.html", "text/html"), ("idx.css", "text/css"), ("i18n.js", "text/javascript"),
                            ("ui.js", "text/javascript"), ("project.js", "text/javascript"), ("plot.js", "text/javascript"),
                            ("kits.js", "text/javascript"), ("panels.js", "text/javascript"),
-                           ("methods.js", "text/javascript")):
+                           ("methods.js", "text/javascript"), ("tables.js", "text/javascript")):
             with self.subTest(name=name):
                 code, got, body = self.get("idx/" + name)
                 self.assertEqual(code, 200)
@@ -71,7 +71,7 @@ class IdxPagesTests(unittest.TestCase):
         self.assertGreater(len(keys(en)), 150)
         self.assertEqual(keys(en), keys(ru))
         used = set()
-        for name in ("project.js", "plot.js", "panels.js", "ui.js", "methods.js"):
+        for name in ("project.js", "plot.js", "panels.js", "ui.js", "methods.js", "tables.js"):
             used |= set(re.findall(r"\b(?:T|fmt)\('([A-Za-z_][A-Za-z0-9_]*)'[),]", (WEB / name).read_text(encoding="utf-8")))
         self.assertEqual(sorted(used - keys(en)), [])
 

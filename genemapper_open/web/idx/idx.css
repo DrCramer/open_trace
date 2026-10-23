@@ -185,3 +185,8 @@ table.amgrid th{background:linear-gradient(#fff,#ebeadb);font-weight:normal}
 .rng{margin:4px 0}
 .btnrow.right{justify-content:flex-end}
 .mgrgrid{height:300px;flex:none}
+/* Table Setting Editor */
+.dlg .body.tsdlg{width:860px;max-width:94vw}
+.colgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:0 10px}
+.colgrid .chk{margin:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#samplesGrid th,#genotypesGrid th{cursor:pointer}

@@ -25,6 +25,7 @@ const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
 window.OT={state,plotPayload,kitsChanged:()=>{dropCaches();render()}};
+window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
  for(const s of state.project.samples)if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))s.method=defaultMethod();render()});
 const panelChoices=()=>KitStore.choices(KitStore.load());
@@ -94,7 +95,7 @@ function markerRows(s){
  return (rep.allele_calling.markers||[]).map(m=>{
   const calls=(rep.calls||[]).filter(c=>c.marker===m.name);
   const g=gq[m.name];const score=g?.score?.gq;
-  return {sample:s,marker:m.name,channel:m.channel,calls,gq:score,gqCat:g?cat(score):'na',status:m.status}})}
+  return {sample:s,marker:m.name,channel:m.channel,calls,gq:score,gqCat:g?code(g.category?.code):'na',status:m.status}})}
 
 // ---------- tabs ----------
 const TABS=[['samples','samples'],['summary','analysisSummary'],['genotypes','genotypes']];
@@ -137,38 +138,112 @@ function statusIcon(s){
  if(s.status==='analyzed')return '';
  const color=s.status==='changed'?'#e5a000':'#2ea043';
  return `<svg viewBox="0 0 14 14" width="14" height="14"><path d="M3 2l9 5-9 5z" fill="${color}" stroke="#555"/></svg>`}
+// ---------- table cells (columns chosen by the active Table Setting) ----------
+const PQV_NUM={pass:0,check:1,low:2,na:-2,override:0.5};
+function arnmReasons(s){const r=[];
+ if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))r.push(T('arnmMethod'));
+ if(!s.panelKey)r.push(T('arnmPanel'));
+ if(!SIZE_STANDARDS[s.sizeStd]&&s.method!==EXAMPLE_METHOD)r.push(T('arnmStandard'));
+ if(s.type!=='ladder'&&s.panelKey&&!state.project.samples.some(x=>x.runFolder===s.runFolder&&x.type==='ladder'&&x.panelKey===s.panelKey))r.push(T('arnmLadder'));
+ return r}
+function sampleFlags(s){const q=samplePqv(s);
+ return {...q,SE:'na',SQO:'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
+  ARNM:arnmReasons(s).length?'low':'pass'}}
+const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
+// Returns {value, node?, cls?, title?} for one Samples-table cell.
+function sampleCell(id,s,flags){
+ const info=s.analysis?.run_info||{};
+ switch(id){
+  case 'status':return {value:s.status,html:statusIcon(s),cls:'ic',title:T(s.status==='analyzed'?'stAnalyzed':s.status==='changed'?'stChanged':'stUnanalyzed')};
+  case 'sampleFile':return {value:s.file};
+  case 'sampleName':return {value:s.name};
+  case 'sampleID':return {value:s.sampleId||''};
+  case 'comments':return {value:s.comment??info.comment??''};
+  case 'sampleType':{const sel=el('select');for(const k of ['sample','ladder','positive','negative'])sel.append(new Option(T(TYPE_KEYS[k]),k));sel.value=s.type;
+   sel.addEventListener('change',()=>{s.type=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:T(TYPE_KEYS[s.type]),node:sel}}
+  case 'analysisMethod':{const sel=methodSelect(s.method,v=>{s.method=v;try{localStorage.setItem('opentrace.lastMethod',v)}catch(e){}changed(s)});
+   return {value:s.method,node:sel,dbl:()=>{if(s.method!==EXAMPLE_METHOD)editMethod(s.method)}}}
+  case 'panel':{const sel=panelSelect(s.panelKey,v=>{s.panelKey=v;s.panel=v?v.split('\u0001')[1]:'';if(v)s.sizeStd=fitStandard(v,s.sizeStd);changed(s)});
+   return {value:s.panel||'',node:sel}}
+  case 'sizeStandard':{const sel=el('select');for(const k of Object.keys(SIZE_STANDARDS))sel.append(new Option(k,k));sel.value=s.sizeStd;
+   sel.addEventListener('change',()=>{s.sizeStd=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.sizeStd,node:sel}}
+  case 'matrix':return {value:''};
+  case 'runName':return {value:info.run_name||''};
+  case 'instrumentType':return {value:info.instrument_type||''};
+  case 'instrumentID':return {value:info.instrument_id||''};
+  case 'runDate':return {value:info.run_date||''};
+  case 'plate':return {value:info.plate||''};
+  case 'well':return {value:info.well||''};
+  case 'lane':return {value:info.capillary??'',cls:'num'};
+  case 'sampleFileNorm':return {value:''};
+  case 'customControl':return {value:''};
+  case 'profileId':return {value:s.profileId||''};
+  default:
+   if(/^UD\d$/.test(id))return {value:(s.ud||{})[id]||''};
+   const v=flags[id]??'na';const out={value:v,html:pqv(v),cls:'ic'};
+   if(id==='ARNM'&&v==='low')out.title=arnmReasons(s).join('; ');return out}}
+function genoRows(s){
+ const rep=s.report;if(!rep||!rep.allele_calling)return [];
+ const gq=Object.fromEntries((rep.quality?.marker_gq?.markers||[]).map(m=>[m.marker,m]));
+ return (rep.allele_calling.markers||[]).map(m=>{const calls=(rep.calls||[]).filter(c=>c.marker===m.name);
+  const g=gq[m.name];const metrics=g?.score?.metrics||{};
+  const f=k=>metrics[k]===1?'check':metrics[k]===0?'pass':'na';
+  const flags={OS:f('offscale'),BIN:f('binning'),PHR:f('ratio'),LPH:f('absolute_height'),MPH:f('high_height'),SPK:f('spike'),
+   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:'na',CC:'na',MEC:'na',ADO:'na',ME:'na',
+   GQ:g?code(g.category?.code):'na'};
+  return {sample:s,marker:m.name,channel:m.channel,calls,gq:g?.score?.gq,flags,peaks:rep.peaks||[]}})}
+function genoCell(id,r,i){
+ const s=r.sample,c=r.calls[i];const info=s.analysis?.run_info||{};
+ switch(id){
+  case 'sampleFile':return {value:s.file};case 'sampleName':return {value:s.name};case 'sampleID':return {value:s.sampleId||''};
+  case 'runName':return {value:info.run_name||''};case 'panel':return {value:s.panel||''};case 'marker':return {value:r.marker};
+  case 'dye':return {value:dyeLetter(r.channel)};
+  case 'allele':return {value:c?c.label:''};
+  case 'size':return {value:c?Number(c.size_bp.toFixed(2)):'',cls:'num'};
+  case 'height':return {value:c?Math.round(c.height):'',cls:'num'};
+  case 'area':{const p=c&&r.peaks[c.peak_index];return {value:p&&p.area!=null?Math.round(p.area):'',cls:'num'}}
+  case 'dataPoint':return {value:c?Math.round(c.scan):'',cls:'num'};
+  case 'aeReason':case 'PLI':return {value:''};
+  case 'profileId':return {value:s.profileId||''};
+  default:
+   if(/^UD\d$/.test(id))return {value:''};
+   const v=r.flags[id]??'na';return {value:v,html:pqv(v),cls:'ic',title:id==='GQ'&&r.gq!=null?r.gq.toFixed(3):''}}}
+const isNum=v=>typeof v==='number'||(v!==''&&v!=null&&!isNaN(Number(v)));
+function compare(a,b){if(isNum(a)&&isNum(b))return Number(a)-Number(b);return String(a).localeCompare(String(b),undefined,{numeric:true})}
+function sortRows(rows,keys,cell){if(!keys.length)return rows;
+ return rows.map((r,i)=>({r,i})).sort((x,y)=>{for(const k of keys){const d=compare(cell(k.col,x.r).value,cell(k.col,y.r).value);if(d)return k.desc?-d:d}return x.i-y.i}).map(x=>x.r)}
+function currentSort(table){const ts=TableSettings.active();return state.sort?.[table]||ts[table].sort}
+function headerClick(table,col){const cur=currentSort(table);const desc=cur[0]?.col===col?!cur[0].desc:false;
+ state.sort={...(state.sort||{}),[table]:[{col,desc},...cur.filter(k=>k.col!==col)].slice(0,3)};render()}
+function tableHead(table,cols){
+ const t=el('table',{class:'g'});const cg=el('colgroup');cg.append(el('col',{style:'width:28px'}));
+ for(const c of cols)cg.append(el('col',{style:`width:${c.width}px`}));t.append(cg);
+ const hr=el('tr');hr.append(el('th',{text:''}));const srt=currentSort(table);
+ for(const c of cols){const k=srt.findIndex(x=>x.col===c.base);const th=el('th',{text:c.head+(k===0?(srt[0].desc?' ▼':' ▲'):''),title:c.title||c.head,'data-col':c.base});
+  th.addEventListener('click',()=>headerClick(table,c.base));hr.append(th)}
+ t.append(el('thead',{},hr));return t}
+function fillCell(td,v){if(v.node)td.append(v.node);else if(v.html!=null)td.innerHTML=v.html;else{td.textContent=v.value==null?'':String(v.value);td.title=td.textContent}
+ if(v.cls)td.classList.add(v.cls);if(v.title)td.title=v.title}
+function sampleColumns(){const ts=TableSettings.active();const by=Object.fromEntries(TableSettings.CATALOG.samples.map(c=>[c.id,c]));
+ return ts.samples.visible.map(id=>({...by[id],base:id,title:T('colT_'+id)!=='colT_'+id?T('colT_'+id):by[id].head}))}
+function genoColumns(){const ts=TableSettings.active();const by=Object.fromEntries(TableSettings.CATALOG.genotypes.map(c=>[c.id,c]));const out=[];
+ for(const id of ts.genotypes.visible){const c=by[id];const title=T('colT_'+id)!=='colT_'+id?T('colT_'+id):c.head;
+  if(c.kind==='allele')for(let i=0;i<ts.genotypes.numAlleles;i++)out.push({...c,base:id,index:i,head:`${c.head} ${i+1}`,title:`${title} ${i+1}`});
+  else out.push({...c,base:id,title})}
+ return out}
+function sortedSamples(){const list=visibleSamples();if(state.lowQualityTop)return list;
+ const flags=new Map(list.map(s=>[s.id,sampleFlags(s)]));return sortRows(list,currentSort('samples'),(id,s)=>sampleCell(id,s,flags.get(s.id)))}
+function sortedGenoRows(){const rows=visibleSamples().flatMap(genoRows);return sortRows(rows,currentSort('genotypes'),(id,r)=>genoCell(id,r,0))}
 function renderSamples(){
- const grid=$('samplesGrid');grid.replaceChildren();
- const cols=[['',28],[T('colStatus'),48],[T('colSampleFile'),170],[T('colSampleName'),130],[T('colSampleType'),160],[T('colAnalysisMethod'),130],
-  [T('colPanel'),170],[T('colSizeStandard'),130],['SOS',38],['SQ',38],['SSPK',42],['MIX',38],['OMR',42],['CGQ',42]];
- const t=el('table',{class:'g'});const cg=el('colgroup');for(const [,w] of cols)cg.append(el('col',{style:`width:${w}px`}));t.append(cg);
- const hr=el('tr');for(const [h] of cols)hr.append(el('th',{text:h,title:h}));t.append(el('thead',{},hr));
- const tb=el('tbody');const list=visibleSamples();
- list.forEach((s,i)=>{
-  const tr=el('tr',{class:state.selected.has(s.id)?'sel':''});tr.dataset.id=s.id;
-  tr.append(el('td',{class:'rh',text:String(i+1)}));
-  const st=el('td',{class:'ic'});st.innerHTML=statusIcon(s);st.title=T(s.status==='analyzed'?'stAnalyzed':s.status==='changed'?'stChanged':'stUnanalyzed');tr.append(st);
-  tr.append(el('td',{text:s.file,title:s.file}),el('td',{text:s.name}));
-  const tsel=el('select');for(const k of ['sample','ladder','positive','negative'])tsel.append(new Option(T(TYPE_KEYS[k]),k));tsel.value=s.type;
-  tsel.addEventListener('change',()=>{s.type=tsel.value;if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
-  tsel.addEventListener('mousedown',e=>e.stopPropagation());
-  const psel=panelSelect(s.panelKey,v=>{s.panelKey=v;s.panel=v?v.split('\u0001')[1]:'';if(v)s.sizeStd=fitStandard(v,s.sizeStd);
-   if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
-  const msel=methodSelect(s.method,v=>{s.method=v;try{localStorage.setItem('opentrace.lastMethod',v)}catch(e){}
-   if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
-  const mcell=el('td',{},msel);mcell.addEventListener('dblclick',e=>{e.stopPropagation();if(s.method!==EXAMPLE_METHOD)editMethod(s.method)});
-  tr.append(el('td',{},tsel),mcell,el('td',{},psel));
-  const ssel=el('select');for(const k of Object.keys(SIZE_STANDARDS))ssel.append(new Option(k,k));ssel.value=s.sizeStd;
-  ssel.addEventListener('change',()=>{s.sizeStd=ssel.value;if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()});
-  ssel.addEventListener('mousedown',e=>e.stopPropagation());
-  tr.append(el('td',{},ssel));
-  const q=samplePqv(s);for(const k of ['SOS','SQ','SSPK','MIX','OMR','CGQ']){const c=el('td',{class:'ic'});c.innerHTML=pqv(q[k]);tr.append(c)}
+ const grid=$('samplesGrid');grid.replaceChildren();const cols=sampleColumns();const t=tableHead('samples',cols);
+ const tb=el('tbody');const list=sortedSamples();
+ list.forEach((s,i)=>{const flags=sampleFlags(s);
+  const tr=el('tr',{class:state.selected.has(s.id)?'sel':''});tr.dataset.id=s.id;tr.append(el('td',{class:'rh',text:String(i+1)}));
+  for(const c of cols){const v=sampleCell(c.base,s,flags);const td=el('td');fillCell(td,v);if(v.dbl)td.addEventListener('dblclick',e=>{e.stopPropagation();v.dbl()});tr.append(td)}
   tr.addEventListener('mousedown',e=>selectRow(e,s.id,list.map(x=>x.id)));
-  tr.addEventListener('dblclick',()=>displayPlots());
-  tb.append(tr)});
+  tr.addEventListener('dblclick',()=>displayPlots());tb.append(tr)});
  t.append(tb);grid.append(t);
- if(!list.length)grid.append(el('div',{class:'empty',text:state.project.name?'':T('untitled')}));
-}
+ if(!list.length)grid.append(el('div',{class:'empty',text:state.project.name?'':T('untitled')}))}
 function selectRow(e,id,order){
  if(e.shiftKey&&state.anchor!=null){const a=order.indexOf(state.anchor),b=order.indexOf(id);const [lo,hi]=a<b?[a,b]:[b,a];
   state.selected=new Set(order.slice(lo,hi+1))}
@@ -178,24 +253,12 @@ function selectRow(e,id,order){
 
 // ---------- genotypes table ----------
 function renderGenotypes(){
- const grid=$('genotypesGrid');grid.replaceChildren();
- const cols=[['',28],[T('colSampleFile'),160],[T('colSampleName'),120],[T('colMarker'),90],[T('colDye'),40],[T('colAllele')+' 1',60],[T('colAllele')+' 2',60],
-  [T('colSize')+' 1',62],[T('colSize')+' 2',62],[T('colHeight')+' 1',62],[T('colHeight')+' 2',62],['OS',34],['BIN',34],['PHR',34],['LPH',34],['MPH',34],['SPK',34],['AN',34],['BD',34],['CC',34],['OVL',34],['GQ',40]];
- const t=el('table',{class:'g'});const cg=el('colgroup');for(const [,w] of cols)cg.append(el('col',{style:`width:${w}px`}));t.append(cg);
- const hr=el('tr');for(const [h] of cols)hr.append(el('th',{text:h,title:h}));t.append(el('thead',{},hr));
- const tb=el('tbody');let n=0;
- const samples=visibleSamples().filter(s=>s.type!=='ladder'||true);
- for(const s of samples)for(const r of markerRows(s)){
-  const tr=el('tr',{class:state.selected.has(s.id)?'sel':''});n++;
-  const a=r.calls[0],b=r.calls[1];const dye=dyeLetter(r.channel);
-  tr.append(el('td',{class:'rh',text:String(n)}),el('td',{text:s.file}),el('td',{text:s.name}),el('td',{text:r.marker}),el('td',{text:dye}),
-   el('td',{text:a?.label||''}),el('td',{text:b?.label||''}),el('td',{class:'num',text:a?a.size_bp.toFixed(2):''}),el('td',{class:'num',text:b?b.size_bp.toFixed(2):''}),
-   el('td',{class:'num',text:a?String(Math.round(a.height)):''}),el('td',{class:'num',text:b?String(Math.round(b.height)):''}));
-  for(let i=0;i<10;i++){const c=el('td',{class:'ic'});c.innerHTML=pqv('na');tr.append(c)}
-  const g=el('td',{class:'ic'});g.innerHTML=pqv(r.gqCat);g.title=r.gq==null?'':String(r.gq);tr.append(g);
-  tr.addEventListener('mousedown',e=>selectRow(e,s.id,samples.map(x=>x.id)));
-  tr.addEventListener('dblclick',()=>displayPlots());
-  tb.append(tr)}
+ const grid=$('genotypesGrid');grid.replaceChildren();const cols=genoColumns();const t=tableHead('genotypes',cols);
+ const tb=el('tbody');const rows=sortedGenoRows();const order=[...new Set(rows.map(r=>r.sample.id))];
+ rows.forEach((r,n)=>{const tr=el('tr',{class:state.selected.has(r.sample.id)?'sel':''});tr.append(el('td',{class:'rh',text:String(n+1)}));
+  for(const c of cols){const td=el('td');fillCell(td,genoCell(c.base,r,c.index||0));tr.append(td)}
+  if(r.calls.length>TableSettings.active().genotypes.numAlleles)tr.title=T('moreAlleles');
+  tr.addEventListener('mousedown',e=>selectRow(e,r.sample.id,order));tr.addEventListener('dblclick',()=>displayPlots());tb.append(tr)});
  t.append(tb);grid.append(t)}
 function dyeLetter(tag){const i={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R'}[tag];return i||(tag==='DATA105'?'P':tag==='DATA106'?'O':'')}
 
@@ -349,15 +412,37 @@ function displayPlots(){
  if(!w)message(T('plotWindowBlocked'));else w.focus()}
 
 function exportTable(){
- const rows=[];const tab=state.tab==='genotypes'?'genotypes':'samples';
- if(tab==='samples'){rows.push(['Sample File','Sample Name','Sample Type','Analysis Method','Panel','Size Standard','SOS','SQ','SSPK','MIX','OMR','CGQ']);
-  const m={pass:0,check:1,low:2,na:-2,override:0.5};
-  for(const s of visibleSamples()){const q=samplePqv(s);rows.push([s.file,s.name,T(TYPE_KEYS[s.type]),s.method,s.panel,s.sizeStd,...['SOS','SQ','SSPK','MIX','OMR','CGQ'].map(k=>m[q[k]])])}}
- else{rows.push(['Sample File','Sample Name','Marker','Dye','Allele 1','Allele 2','Size 1','Size 2','Height 1','Height 2','GQ']);
-  for(const s of visibleSamples())for(const r of markerRows(s)){const a=r.calls[0],b=r.calls[1];
-   rows.push([s.file,s.name,r.marker,dyeLetter(r.channel),a?.label||'',b?.label||'',a?.size_bp??'',b?.size_bp??'',a?.height??'',b?.height??'',r.gq??''])}}
- const text=rows.map(r=>r.join('\t')).join('\r\n')+'\r\n';
+ const tab=state.tab==='genotypes'?'genotypes':'samples';const rows=[];
+ const val=v=>v.html!=null&&PQV_NUM[v.value]!==undefined?PQV_NUM[v.value]:v.value;
+ if(tab==='samples'){const cols=sampleColumns();rows.push(cols.map(c=>c.head));
+  for(const s of sortedSamples()){const f=sampleFlags(s);rows.push(cols.map(c=>val(sampleCell(c.base,s,f))))}}
+ else{const cols=genoColumns();rows.push(cols.map(c=>c.head));for(const r of sortedGenoRows())rows.push(cols.map(c=>val(genoCell(c.base,r,c.index||0))))}
+ const text=rows.map(r=>r.map(x=>x==null?'':String(x)).join('\t')).join('\r\n')+'\r\n';
  const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));const a=el('a',{href:url,download:`${state.project.name||'project'}_${tab}.txt`});a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+
+// ---------- find and sort ----------
+function findDialog(){
+ const table=state.tab==='genotypes'?'genotypes':'samples';const cols=table==='samples'?sampleColumns():genoColumns();
+ dialog(T('findTitle'),b=>{const col=el('select',{id:'fdCol'});col.append(new Option(T('allColumns'),''));for(const c of cols)col.append(new Option(c.head,cols.indexOf(c)));
+  b.append(el('div',{class:'field'},el('label',{text:T('findWhat')}),el('input',{type:'text',id:'fdText'})),el('div',{class:'field'},el('label',{text:T('inColumn')}),col),
+   el('label',{class:'chk'},el('input',{type:'checkbox',id:'fdCase'}),document.createTextNode(' '+T('matchCase'))))},
+  [[T('selectMatches'),b=>{const q=b.querySelector('#fdText').value;if(!q)return false;const ci=b.querySelector('#fdCol').value;const mc=b.querySelector('#fdCase').checked;
+    const norm=x=>mc?String(x):String(x).toLowerCase();const needle=norm(q);const use=ci===''?cols:[cols[+ci]];const hit=new Set();
+    if(table==='samples')for(const s of visibleSamples()){const f=sampleFlags(s);if(use.some(c=>norm(sampleCell(c.base,s,f).value).includes(needle)))hit.add(s.id)}
+    else for(const r of visibleSamples().flatMap(genoRows))if(use.some(c=>norm(genoCell(c.base,r,c.index||0).value).includes(needle)))hit.add(r.sample.id);
+    state.selected=hit;state.lastMessage=`${T('found')}: ${hit.size}`;render();return true},true],[T('cancel'),()=>true]])}
+function sortDialog(){
+ const table=state.tab==='genotypes'?'genotypes':'samples';const cat=TableSettings.CATALOG[table];const cur=currentSort(table);
+ dialog(T('sortTitle'),b=>{for(let i=0;i<3;i++){const sel=el('select',{'data-sort':String(i)});sel.append(new Option(T('sortNone'),''));for(const c of cat)sel.append(new Option(c.head,c.id));
+   sel.value=cur[i]?.col||'';const dir=el('select');dir.append(new Option(T('ascending'),'0'),new Option(T('descending'),'1'));dir.value=cur[i]?.desc?'1':'0';
+   b.append(el('div',{class:'field'},el('label',{text:T(i?'thenBy':'sortFirst')}),el('span',{class:'inl'},sel,dir)))}},
+  [[T('ok'),b=>{const keys=[...b.querySelectorAll('[data-sort]')].map(x=>({col:x.value,desc:x.nextSibling.value==='1'})).filter(x=>x.col);
+    state.sort={...(state.sort||{}),[table]:keys};state.lowQualityTop=false;render()},true],[T('cancel'),()=>true]])}
+function tableSettingCombo(){const ts=el('select',{class:'combo',id:'tsCombo',title:T('tableSetting')});
+ for(const r of TableSettings.list())ts.append(new Option(r.setting.name===TableSettings.DEFAULT.name?T('dataInterpretation'):r.setting.name,r.setting.name));
+ ts.value=TableSettings.active().name;ts.addEventListener('change',()=>{state.sort=null;TableSettings.setActive(ts.value)});return ts}
+function editTableSetting(){const s=TableSettings.active();
+ TableSettings.openEditor(s,{onSave:(ns,prev)=>{TableSettings.put(ns,prev);TableSettings.setActive(ns.name)}})}
 
 function deleteFromProject(){
  state.project.samples=state.project.samples.filter(s=>!state.selected.has(s.id));
@@ -379,7 +464,7 @@ function buildChrome(){
    {label:T('logOut'),disabled:true},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:notYet},{label:T('paste'),sc:'Ctrl+V',disabled:true},
    {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:notYet},'-',{label:T('deleteFromProject'),run:deleteFromProject},'-',
-   {label:T('find'),sc:'Ctrl+F',run:notYet},{label:T('sort'),run:notYet}]},
+   {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),run:sortDialog}]},
   {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),run:()=>analyze('all')},'-',
    {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:()=>{state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}},{label:T('nonConcordantTop'),disabled:true},'-',
    {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:notYet},{label:T('sizeMatchEditor'),run:notYet},{label:T('binOffsets'),run:notYet}]},
@@ -388,7 +473,7 @@ function buildChrome(){
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:notYet},
-   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:notYet},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
+   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
    {label:T('esig'),disabled:true},{label:T('databaseManager'),disabled:true}]},
@@ -401,8 +486,7 @@ function buildChrome(){
   tbutton('sizeMatchEditor',T('sizeMatchEditor'),notYet),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method),{id:'tbMethodEditor'}),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
   tbutton('manager',T('manager'),()=>Methods.openManager(),{id:'tbManager'}),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
   tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));
- const ts=el('select',{class:'combo',title:T('tableSetting')});ts.append(new Option(T('dataInterpretation'),'default'));
- tb.append(ts,tbutton('tableSettingEditor',T('tableSettingEditor'),notYet),tsep(),tbutton('find',T('find'),notYet),tbutton('print',T('print'),()=>window.print()),
+ tb.append(tableSettingCombo(),tbutton('tableSettingEditor',T('tableSettingEditor'),editTableSetting,{id:'tbTableSetting'}),tsep(),tbutton('find',T('find'),findDialog,{id:'tbFind'}),tbutton('print',T('print'),()=>window.print()),
   tbutton('printPreview',T('printPreview'),notYet),tbutton('help',T('helpTopics'),notYet));
  $('stopBtn').textContent=T('stop');
  renderTabs()}
@@ -414,7 +498,7 @@ document.addEventListener('keydown',e=>{
  const k=e.key.toLowerCase();
  if(e.key==='F1'){e.preventDefault();notYet();return}
  if(!e.ctrlKey&&!e.metaKey)return;
- const map={m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
+ const map={t:editTableSetting,f:findDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 

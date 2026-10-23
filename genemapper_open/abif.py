@@ -164,6 +164,27 @@ class AbifFile:
                 "channels": [{k: v for k, v in ch.items() if k != "values"}
                              | {"points": len(ch["values"])} for ch in self.channels()]}
 
+    def run_info(self):
+        """Run/sample identification shown in the Samples table (all optional)."""
+        def first(*names):
+            for name in names:
+                value = self.value(name)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return None
+        date, time = self.value("RUND"), self.value("RUNT")
+        stamp = None
+        if isinstance(date, (list, tuple)) and len(date) >= 3:
+            stamp = "%04d-%02d-%02d" % tuple(date[:3])
+            if isinstance(time, (list, tuple)) and len(time) >= 3:
+                stamp += " %02d:%02d:%02d" % tuple(time[:3])
+        lane = self.value("LANE")
+        return {"sample_name": first("SpNm", "SMPL"), "run_name": first("RunN"),
+                "instrument_type": self.value("HCFG", 3) if isinstance(self.value("HCFG", 3), str) else first("MODL"),
+                "instrument_id": first("MCHN"), "run_date": stamp, "well": first("TUBE"),
+                "plate": first("CTNM", "CTID"), "capillary": lane if isinstance(lane, int) else None,
+                "comment": first("CMNT")}
+
     def directory(self):
         return [{"tag": tag.key, "type": tag.element_type,
                  "count": tag.count, "bytes": tag.size,

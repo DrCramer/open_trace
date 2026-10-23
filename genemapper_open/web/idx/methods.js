@@ -116,37 +116,48 @@ function ask(text){return new Promise(res=>{dialog(T('alert'),b=>b.append(el('p'
 
 // ---------- manager ----------
 function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-function openManager(){
- let selected=null;
+// Manager tabs: each kind supplies rows, editor and import/export.
+const KINDS=[];
+function methodKind(){return {id:'methods',label:T('mgrMethods'),
+ rows:()=>list().map(r=>({name:r.method.name,saved:r.saved,a:r.method.instrument,b:r.method.description})),
+ heads:[T('amInstrument').replace(':',''),T('amDescription').replace(':','')],
+ get,put,remove,count:()=>list().length,
+ create:async()=>{const f=await factory();let n=1;while(get(`${T('mgrUntitled')} ${n}`))n++;f.name=`${T('mgrUntitled')} ${n}`;return f},
+ edit:(obj,opts)=>openEditor(obj,opts),newTitle:T('amNewTitle'),
+ importText:async text=>{const r=/^\s*[{]/.test(text)?await post('/api/analysis-method',{action:'validate',method:JSON.parse(text)}):await post('/api/analysis-method',{action:'import_xml',xml:text});
+  return {obj:r.method,note:r.unsupported.length?fmt('amUnsupported',r.unsupported.join(', ')):''}},
+ exportText:async obj=>(await post('/api/analysis-method',{action:'export_xml',method:obj})).xml,
+ imported:T('methodImported'),confirmDelete:'confirmDeleteMethod'}}
+function openManager(tab){
+ let selected=null;let kindId=tab||'methods';
  const d=dialog(T('mgrTitle'),b=>{b.classList.add('mgrdlg')},[[T('mgrDone'),()=>true,true]]);
- const draw=()=>{const b=d.body;b.replaceChildren();
-  const tabs=el('div',{class:'tabs dtabs'},el('div',{class:'tab on',text:T('mgrMethods')}));
-  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...[T('colName'),T('colLastSaved'),T('amInstrument').replace(':',''),T('amDescription').replace(':','')].map(h=>el('th',{text:h})))));
-  const tb=el('tbody');for(const r of list()){const tr=el('tr',{class:r.method.name===selected?'sel':''});
-   tr.append(el('td',{text:r.method.name}),el('td',{text:new Date(r.saved).toLocaleString()}),el('td',{text:r.method.instrument}),el('td',{text:r.method.description}));
-   tr.addEventListener('mousedown',()=>{selected=r.method.name;tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});tr.addEventListener('dblclick',()=>openSel());tb.append(tr)}
+ const draw=()=>{const b=d.body;b.replaceChildren();const kinds=[methodKind(),...KINDS.map(f=>f())];const K=kinds.find(k=>k.id===kindId)||kinds[0];
+  const tabs=el('div',{class:'tabs dtabs'});
+  for(const k of kinds){const x=el('div',{class:'tab'+(k===K?' on':''),text:k.label,'data-kind':k.id});x.addEventListener('mousedown',()=>{kindId=k.id;selected=null;draw()});tabs.append(x)}
+  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...[T('colName'),T('colLastSaved'),...K.heads].map(h=>el('th',{text:h})))));
+  const tb=el('tbody');for(const r of K.rows()){const tr=el('tr',{class:r.name===selected?'sel':''});
+   tr.append(el('td',{text:r.name}),el('td',{text:new Date(r.saved).toLocaleString()}),el('td',{text:r.a||''}),el('td',{text:r.b||''}));
+   tr.addEventListener('mousedown',()=>{selected=r.name;tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});tr.addEventListener('dblclick',()=>openSel());tb.append(tr)}
   t.append(tb);
   const btn=(label,fn,id)=>{const x=el('button',{class:'btn',type:'button',text:label,...(id?{id}:{})});x.addEventListener('click',fn);return x};
-  const openSel=()=>{const m=get(selected);if(!m)return message(T('selectRow'));openEditor(m,{onSave:(mm,prev)=>{put(mm,prev);selected=mm.name;draw()}})};
+  const openSel=()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));K.edit(m,{onSave:(mm,prev)=>{K.put(mm,prev);selected=mm.name;draw()}})};
   b.append(tabs,el('div',{class:'grid mgrgrid'},t),el('div',{class:'btnrow'},
-   btn(T('mgrNew'),async()=>{const f=await factory();let n=1;while(get(`${T('mgrUntitled')} ${n}`))n++;f.name=`${T('mgrUntitled')} ${n}`;
-    openEditor(f,{title:T('amNewTitle'),onSave:(mm)=>{put(mm);selected=mm.name;draw()}})},'mgrNewBtn'),
-   btn(T('mgrOpen'),openSel),
-   btn(T('mgrSaveAs'),()=>{const m=get(selected);if(!m)return message(T('selectRow'));
+   btn(T('mgrNew'),async()=>{try{const f=await K.create();K.edit(f,{title:K.newTitle,onSave:(mm)=>{K.put(mm);selected=mm.name;draw()}})}catch(e){message(e.message)}},'mgrNewBtn'),
+   btn(T('mgrOpen'),openSel,'mgrOpenBtn'),
+   btn(T('mgrSaveAs'),()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));
     dialog(T('mgrSaveAs'),bb=>bb.append(row(T('amName'),el('input',{type:'text',id:'saName',value:m.name+' copy'}))),
-     [[T('ok'),bb=>{const n=bb.querySelector('#saName').value.trim();if(!n)return false;if(get(n)){message(fmt('methodNameExists',n));return false}
-       put({...clone(m),name:n});selected=n;draw()},true],[T('cancel'),()=>true]])}),
+     [[T('ok'),bb=>{const n=bb.querySelector('#saName').value.trim();if(!n)return false;if(K.get(n)){message(fmt('methodNameExists',n));return false}
+       try{K.put({...clone(m),name:n})}catch(e){message(e.message);return false}selected=n;draw()},true],[T('cancel'),()=>true]])}),
    btn(T('mgrImport'),()=>{const i=el('input',{type:'file',accept:'.xml,.json',style:'display:none'});
     i.addEventListener('change',async()=>{const f=i.files[0];i.remove();if(!f)return;try{const text=await f.text();
-     const r=/^\s*[{]/.test(text)?await post('/api/analysis-method',{action:'validate',method:JSON.parse(text)}):await post('/api/analysis-method',{action:'import_xml',xml:text});
-     let n=r.method.name,k=2;while(get(n))n=`${r.method.name} (${k++})`;r.method.name=n;put(r.method);selected=n;draw();
-     message(T('methodImported')+(r.unsupported.length?'\n'+fmt('amUnsupported',r.unsupported.join(', ')):''))}catch(e){message(e.message)}});
+     const r=await K.importText(text);let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;K.put(r.obj);selected=n;draw();
+     message(K.imported+(r.note?'\n'+r.note:''))}catch(e){message(e.message)}});
     document.body.append(i);i.click()},'mgrImportBtn'),
-   btn(T('mgrExport'),async()=>{const m=get(selected);if(!m)return message(T('selectRow'));try{const r=await post('/api/analysis-method',{action:'export_xml',method:m});
-    download(m.name+'.xml',r.xml,'application/xml')}catch(e){message(e.message)}}),
-   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(list().length<=1)return message(T('mgrKeepOne'));
-    ask(fmt('confirmDeleteMethod',selected)).then(ok=>{if(ok){remove(selected);selected=null;draw()}})})))};
+   btn(T('mgrExport'),async()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));try{download(m.name+'.xml',await K.exportText(m),'application/xml')}catch(e){message(e.message)}},'mgrExportBtn'),
+   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(K.count()<=1)return message(T('mgrKeepOne'));
+    ask(fmt(K.confirmDelete,selected)).then(ok=>{if(ok){K.remove(selected);selected=null;draw()}})})))};
  draw();return d}
 
-window.Methods={init(p){post=p},list,get,put,remove,ensureDefault,factory,openEditor,openManager};
+window.Methods={init(p){post=p},list,get,put,remove,ensureDefault,factory,openEditor,openManager,ask,download,
+ registerKind(f){KINDS.push(f)}};
 })();

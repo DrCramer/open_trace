@@ -367,7 +367,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                 'unavailable':0,'reference_channel_unchanged':True,'downstream_spike_adjustments_applied':False}
             artifacts['automatic_pullup_applied']=True
             artifacts['pullup_routing_scope']='explicit_experimental_reconstruction_original_route_unconfirmed'
-    output=sample.summary() | {"channels": channels, "directory": sample.directory(),
+    output=sample.summary() | {"channels": channels, "directory": sample.directory(), "run_info": sample.run_info(),
                                "calibration": calibration.anchors if calibration else [],
                                "sizing": sizing, "source_sha256": hashlib.sha256(raw).hexdigest(),
                                "analysis_version": ANALYSIS_VERSION,
@@ -400,7 +400,7 @@ def serve(port=8765, open_browser=False):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js", "methods.js")}
+                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js")}
     for page_name in ("project.html", "panels.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
