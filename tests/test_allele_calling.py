@@ -55,6 +55,21 @@ class AlleleCallingTests(unittest.TestCase):
             self.assertEqual(result['status'],'rejected')
             self.assertEqual(result['markers'][0]['calls'],[])
 
+    def test_reference_bins_use_unshifted_panel_bins_only_without_ladder_offsets(self):
+        kit=kit_definition()
+        for ladder in ({'status':'rejected','reasons':['No ladders remain in this run'],'markers':{}},
+                       {'status':'partial','markers':{'SyntheticM':{'status':'rejected'}}}):
+            result=self.call([peak(100),peak(108)],kit,ladder,missing_offset_policy='reference_bins')
+            marker=result['markers'][0]
+            self.assertEqual([c['label'] for c in marker['calls']],['1','3'])
+            self.assertTrue(marker['offsets']['reference_bins'])
+            self.assertEqual(marker['offsets']['by_bin']['2']['origin'],'reference_bins')
+        # With accepted ladder offsets the policy keeps them (forward fill semantics).
+        result=self.call([peak(99),peak(107)],kit,offsets(kit,1),missing_offset_policy='reference_bins')
+        self.assertEqual([c['label'] for c in result['markers'][0]['calls']],['1','3'])
+        self.assertNotIn('reference_bins',result['markers'][0]['offsets'])
+        self.assertEqual(self.call([peak(100)],kit,{'status':'rejected','markers':{}},missing_offset_policy='reject')['markers'][0]['calls'],[])
+
     def call(self, peaks, kit=None, ladder=None, **kwargs):
         kit = kit_definition() if kit is None else kit
         ladder = offsets(kit) if ladder is None else ladder

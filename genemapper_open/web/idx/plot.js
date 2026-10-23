@@ -15,7 +15,7 @@ const view={panes:2,layout:'separate',labels:'h',bins:true,header:true,markerRan
 function load(){
  try{payload=window.opener&&window.opener.OT?window.opener.OT.plotPayload():null}catch(e){payload=null}
  if(payload?.lang)I18N.set(payload.lang);
- build();draw()}
+ build();draw();printHead()}
 
 // ---------- scan <-> bp ----------
 function curveOf(a){const anchors=a?.sizing?.anchors;if(!anchors||anchors.length<2)return null;return [...anchors].sort((p,q)=>p[0]-q[0])}
@@ -221,7 +221,14 @@ function build(){
 }
 document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}if(e.key==='-'){e.preventDefault();zoom(2)}});
 window.addEventListener('resize',()=>draw());
-window.addEventListener('focus',()=>{const before=JSON.stringify(payload?.samples?.map(s=>s.id));let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}
- if(next&&JSON.stringify(next.samples.map(s=>s.id))!==before){payload=next;build();draw()}});
+// Follow the project window's selection (Project Options: update plots when the selection changes).
+function refresh(){const before=JSON.stringify(payload?.samples?.map(s=>s.id));let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}
+ if(next&&JSON.stringify(next.samples.map(s=>s.id))!==before&&next.samples.length){payload=next;build();draw()}
+ else if(next){payload.project=next.project;payload.printComment=next.printComment;printHead()}}
+window.otRefresh=refresh;
+window.addEventListener('focus',refresh);
+function printHead(){const h=document.getElementById('printHead');if(!h)return;
+ h.textContent=[payload?.project||'',payload?.printComment||''].filter(Boolean).join(' — ')}
+window.addEventListener('beforeprint',printHead);
 load();
 })();

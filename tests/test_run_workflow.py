@@ -83,6 +83,23 @@ class RunWorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],ladder_quality_definition=None)
 
+    def test_reference_bins_genotype_without_passing_ladders(self):
+        f=self.fixture
+        r=run_str_run_workflow(self.sample,[],f['kit'],ladder_quality_definition=f['ladder_quality_definition'],
+            missing_offset_policy='reference_bins')
+        self.assertEqual(r['ladder']['status'],'rejected')
+        self.assertEqual(r['settings']['missing_offset_policy'],'reference_bins')
+        marker=r['allele_calling']['markers'][0]
+        self.assertTrue(marker['offsets']['reference_bins'])
+        failed=[x for x in self.ladders if 'Failed' in x['ladder_id']]
+        r2=run_str_run_workflow(self.sample,failed,f['kit'],ladder_quality_definition=f['ladder_quality_definition'],
+            missing_offset_policy='reference_bins')
+        self.assertEqual(r2['quality']['run_ladders'][0]['quality_code'],2)
+        self.assertTrue(r2['allele_calling']['markers'][0]['offsets']['reference_bins'])
+        with self.assertRaises(ValueError):
+            run_str_run_workflow(self.sample,[],f['kit'],ladder_quality_definition=f['ladder_quality_definition'],
+                missing_offset_policy='forward_fill')
+
     def test_inputs_are_not_modified(self):
         before=deepcopy((self.sample,self.ladders,self.fixture));self.run_case()
         self.assertEqual((self.sample,self.ladders,self.fixture),before)

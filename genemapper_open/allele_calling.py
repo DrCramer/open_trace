@@ -63,7 +63,24 @@ def _prepare_peaks(peaks):
     return sorted(prepared, key=lambda p: (p['size_bp'], p['peak_index']))
 
 
+def _reference_offsets(marker):
+    # ID-X 'continue analysis of all run folders': without a passing ladder the
+    # reference bin locations from the panel are used unshifted.
+    by_bin = {b['label']: {'offset_bp': 0.0, 'origin': 'reference_bins', 'source_bin': b['label'], 'derived': True}
+              for b in marker['bins']}
+    record = {'bin_offsets': {b['label']: 0.0 for b in marker['bins']}, 'min_offset_bp': 0.0, 'max_offset_bp': 0.0}
+    return record, (marker['min_bp'], marker['max_bp']), {
+        'policy': 'reference_bins', 'bin_order': 'kit_declared_order', 'by_bin': by_bin,
+        'min_offset_bp': 0.0, 'max_offset_bp': 0.0, 'reference_bins': True}
+
+
 def _marker_offsets(marker, ladder_offsets, missing_offset_policy):
+    if missing_offset_policy == 'reference_bins':
+        record = ladder_offsets.get('markers', {}).get(marker['name']) if isinstance(ladder_offsets, Mapping) else None
+        if (not isinstance(ladder_offsets, Mapping) or ladder_offsets.get('status') not in ('accepted', 'partial')
+                or not isinstance(record, Mapping) or record.get('status') != 'accepted'):
+            return _reference_offsets(marker)
+        missing_offset_policy = 'forward_fill'
     if not isinstance(ladder_offsets, Mapping):
         raise ValueError('ladder_offsets must be an explicit ladder result object')
     if ladder_offsets.get('status') not in ('accepted', 'partial'):
@@ -290,7 +307,9 @@ def call_sample(peaks, kit, ladder_offsets, *, sizing_accepted, source_metadata=
     Missing offsets reject a marker by default. Explicit policy 'forward_fill'
     uses the kit's declared bin order, first missing bin's accepted virtual
     minimum, then the previous resolved offset. There is no interpolation or
-    implicit zero. All derivations carry metadata, events and call flags.
+    implicit zero. Policy 'reference_bins' behaves as 'forward_fill' where the
+    ladder gives offsets and uses unshifted panel bins where it gives none.
+    All derivations carry metadata, events and call flags.
 
     Invalid input returns rejected diagnostics. The only successful status is
     tentative, including cases with no selected peak. Sizing/offset acceptance
@@ -308,8 +327,8 @@ def call_sample(peaks, kit, ladder_offsets, *, sizing_accepted, source_metadata=
                               'stutter_ranges': 'explicit_effective_ranges'}}
     try:
         definition = load_kit_definition(kit)
-        if missing_offset_policy not in ('reject', 'forward_fill'):
-            raise ValueError('missing_offset_policy must be reject or forward_fill')
+        if missing_offset_policy not in ('reject', 'forward_fill', 'reference_bins'):
+            raise ValueError('missing_offset_policy must be reject, forward_fill or reference_bins')
         if sizing_accepted is not True:
             raise ValueError('sizing must be explicitly accepted before sample calling')
         if source_metadata is not None and not isinstance(source_metadata, Mapping):

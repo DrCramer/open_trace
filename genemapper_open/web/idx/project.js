@@ -21,6 +21,7 @@ const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
 window.OT={state,plotPayload,edit:(id,spec)=>applyEdit(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
+window.addEventListener('opentrace-options',()=>render());
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
  for(const s of state.project.samples)if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))s.method=defaultMethod();render()});
@@ -137,12 +138,17 @@ function statusIcon(s){
  return `<svg viewBox="0 0 14 14" width="14" height="14"><path d="M3 2l9 5-9 5z" fill="${color}" stroke="#555"/></svg>`}
 // ---------- table cells (columns chosen by the active Table Setting) ----------
 const PQV_NUM={pass:0,check:1,low:2,na:-2,override:0.5};
-function arnmReasons(s){const r=[];
- if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))r.push(T('arnmMethod'));
- if(!s.panelKey)r.push(T('arnmPanel'));
- if(!SIZE_STANDARDS[s.sizeStd]&&s.method!==EXAMPLE_METHOD)r.push(T('arnmStandard'));
- if(s.type!=='ladder'&&s.panelKey&&!state.project.samples.some(x=>x.runFolder===s.runFolder&&x.type==='ladder'&&x.panelKey===s.panelKey))r.push(T('arnmLadder'));
+function arnmCodes(s){const r=[];
+ if(!s.blob&&!s.analysis)r.push('arsSfnf');
+ if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))r.push('arnmMethod');
+ if(!SIZE_STANDARDS[s.sizeStd]&&s.method!==EXAMPLE_METHOD)r.push('arnmStandard');
+ if(!s.panelKey)r.push('arnmPanel');
+ if(s.type!=='ladder'&&s.panelKey&&!state.project.samples.some(x=>x.runFolder===s.runFolder&&x.type==='ladder'&&x.panelKey===s.panelKey))r.push('arnmLadder');
  return r}
+const arnmReasons=s=>arnmCodes(s).map(k=>T(k));
+// Requirements without which a sample cannot be analyzed at all (ID-X: non-optional requirements).
+const BLOCKING=new Set(['arsSfnf','arnmMethod','arnmStandard']);
+const blocked=s=>arnmCodes(s).some(k=>BLOCKING.has(k));
 function sampleFlags(s){const q=samplePqv(s);
  const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';
  return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
@@ -184,6 +190,7 @@ function sampleCell(id,s,flags){
   default:
    if(/^UD\d$/.test(id))return textEdit(s,'ud.'+id,(s.ud||{})[id]||'');
    const v=flags[id]??'na';const out={value:v,html:pqv(v),cls:'ic'};
+   if(id==='SQ'&&ProjectOptions.get().metrics==='numbers'&&v!=='na'&&v!=='override'){const q=sqScore(s);if(q!=null)Object.assign(out,{html:null,value:Number(q.toFixed(3)),cls:'num'})}
    if(id==='ARNM'&&v==='low')out.title=arnmReasons(s).join('; ');return out}}
 // ---------- label edits (overlay on the machine result; the report itself is never changed) ----------
 const activeEdits=s=>(s.edits||[]).filter(e=>!e.undone);
@@ -244,7 +251,7 @@ function genoRows(s){
    GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
   return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||''}})}
 function genoCell(id,r,i){
- const s=r.sample,c=r.calls[i];const info=s.analysis?.run_info||{};
+ const s=r.sample;const c=r.calls[i]??(i===1&&r.calls.length===1&&ProjectOptions.get().dupHomo&&autosomal(r.marker)?r.calls[0]:undefined);const info=s.analysis?.run_info||{};
  switch(id){
   case 'sampleFile':return {value:s.file};case 'sampleName':return {value:s.name};case 'sampleID':return {value:s.sampleId||''};
   case 'runName':return {value:info.run_name||''};case 'panel':return {value:s.panel||''};case 'marker':return {value:r.marker};
@@ -259,7 +266,12 @@ function genoCell(id,r,i){
   case 'profileId':return {value:s.profileId||''};
   default:
    if(/^UD\d$/.test(id))return {value:''};
-   const v=r.flags[id]??'na';return {value:v,html:pqv(v),cls:'ic',title:id==='GQ'&&r.gq!=null?r.gq.toFixed(3):''}}}
+   const v=r.flags[id]??'na';
+   if(id==='GQ'&&ProjectOptions.get().metrics==='numbers'&&r.gq!=null&&v!=='override')return {value:Number(r.gq.toFixed(3)),cls:'num'};
+   return {value:v,html:pqv(v),cls:'ic',title:id==='GQ'&&r.gq!=null?r.gq.toFixed(3):''}}}
+const sqScore=s=>{const sz=s.analysis?.sizing;return sz?(sz.post_sizing_quality||sz.base_quality||{}).score??null:null};
+// Duplicate homozygous alleles (Project Options): autosomal markers only.
+const autosomal=name=>!/^(AMEL|DYS|DXS|Y[-_ ]?indel|Yindel|Y)/i.test(name);
 const isNum=v=>typeof v==='number'||(v!==''&&v!=null&&!isNaN(Number(v)));
 function compare(a,b){if(isNum(a)&&isNum(b))return Number(a)-Number(b);return String(a).localeCompare(String(b),undefined,{numeric:true})}
 function sortRows(rows,keys,cell){if(!keys.length)return rows;
@@ -274,7 +286,7 @@ function tableHead(table,cols){
  for(const c of cols){const k=srt.findIndex(x=>x.col===c.base);const th=el('th',{text:c.head+(k===0?(srt[0].desc?' ▼':' ▲'):''),title:c.title||c.head,'data-col':c.base});
   th.addEventListener('click',()=>headerClick(table,c.base));hr.append(th)}
  t.append(el('thead',{},hr));return t}
-function fillCell(td,v){if(v.node)td.append(v.node);else if(v.html!=null)td.innerHTML=v.html;else{td.textContent=v.value==null?'':String(v.value);td.title=td.textContent}
+function fillCell(td,v){if(v.cls)td.className=v.cls;if(v.title)td.title=v.title;if(v.node)td.append(v.node);else if(v.html!=null)td.innerHTML=v.html;else{td.textContent=v.value==null?'':String(v.value);td.title=td.textContent}
  if(v.cls)td.classList.add(v.cls);if(v.title)td.title=v.title}
 function sampleColumns(){const ts=TableSettings.active();const by=Object.fromEntries(TableSettings.CATALOG.samples.map(c=>[c.id,c]));
  return ts.samples.visible.map(id=>({...by[id],base:id,title:T('colT_'+id)!=='colT_'+id?T('colT_'+id):by[id].head}))}
@@ -301,7 +313,8 @@ function selectRow(e,id,order){
   state.selected=new Set(order.slice(lo,hi+1))}
  else if(e.ctrlKey||e.metaKey){state.selected.has(id)?state.selected.delete(id):state.selected.add(id);state.anchor=id}
  else{state.selected=new Set([id]);state.anchor=id}
- render()}
+ render();refreshPlots()}
+function refreshPlots(){if(!ProjectOptions.get().updatePlots)return;try{const w=state.plotWin;if(w&&!w.closed&&w.otRefresh)w.otRefresh()}catch(e){}}
 
 // ---------- genotypes table ----------
 function renderGenotypes(){
@@ -315,39 +328,61 @@ function renderGenotypes(){
 function dyeLetter(tag){const i={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R'}[tag];return i||(tag==='DATA105'?'P':tag==='DATA106'?'O':'')}
 
 // ---------- analysis summary ----------
+const worst=s=>{const v=Object.values(samplePqv(s));return v.includes('low')?'low':v.includes('check')?'check':'pass'};
+const ladderClass=s=>s.ladderQuality===0&&sqPass(s)?(s.ladderUsed?'used':'unused'):'low';
+function filterLink(ids,label){const a=el('a',{text:String(ids.length),'data-count':String(ids.length)});
+ if(ids.length)a.addEventListener('click',()=>{state.filter={ids:new Set(ids),label};showTab('samples')});else a.classList.add('zero');return a}
+const pqvTip=s=>`${s.file}: `+Object.entries(samplePqv(s)).filter(([,v])=>v!=='na').map(([k,v])=>`${k} ${v}`).join(', ');
+// Ladder quality per run folder (Analysis Summary and Allelic Ladder Analysis Summary).
+function ladderTable(runFolders,{group=false}={}){
+ const t=el('table',{class:'ladtab'});const head=el('tr',{},el('th',{text:T('sumRunFolder')}),el('th',{text:T('sumTotal')}));
+ for(const [cls,key] of [['used','sumLadUsed'],['unused','sumLadUnused'],['low','sumLadLow']]){const th=el('th');th.innerHTML=(cls==='low'?pqv('check')+pqv('low'):pqv('pass')+pqv('pass'))+' ';th.append(T(key));head.append(th)}
+ t.append(head);
+ for(const rf of [...new Set(runFolders)]){const l=state.project.samples.filter(s=>s.runFolder===rf&&s.type==='ladder'&&s.status!=='unanalyzed');
+  const tr=el('tr',{},el('td',{text:rf}),el('td',{},filterLink(l.map(s=>s.id),rf)));
+  for(const cls of ['used','unused','low']){const sub=l.filter(s=>ladderClass(s)===cls);const td=el('td',{'data-cls':cls},filterLink(sub.map(s=>s.id),rf));td.title=sub.map(pqvTip).join('\n');tr.append(td)}
+  t.append(tr)}
+ return t}
 function renderSummary(){
- const box=$('summary');box.replaceChildren();const all=state.project.samples;
- box.append(el('h2',{text:T('analysisSummary')}));
- const link=(ids)=>{const a=el('a',{text:String(ids.length)});if(ids.length)a.addEventListener('click',()=>{state.filter={ids:new Set(ids)};showTab('samples')});return a};
+ const box=$('summary');box.replaceChildren();
+ const folders=state.project.runFolders;if(state.summaryRun&&!folders.includes(state.summaryRun))state.summaryRun=null;
+ const all=state.project.samples.filter(s=>!state.summaryRun||s.runFolder===state.summaryRun);
+ const sel=el('select',{id:'sumRun'});sel.append(new Option(T('sumAllRuns'),''));for(const f of folders)sel.append(new Option(f,f));sel.value=state.summaryRun||'';
+ sel.disabled=folders.length<2;sel.addEventListener('change',()=>{state.summaryRun=sel.value||null;render()});
+ box.append(el('h2',{text:T('analysisSummary')}),el('div',{class:'field sumrun'},el('label',{text:T('sumRunFolder')+':'}),sel));
  const st=el('table');st.append(el('tr',{},el('th',{text:T('sumStatus')}),el('th',{text:T('sumTotal')})));
  for(const [k,key] of [['unanalyzed','stUnanalyzed'],['analyzed','stAnalyzed'],['changed','stChanged']]){
-  const ids=all.filter(s=>s.status===k).map(s=>s.id);const c=el('td');c.innerHTML=statusIcon({status:k})+' ';c.append(T(key));st.append(el('tr',{},c,el('td',{},link(ids))))}
+  const ids=all.filter(s=>s.status===k).map(s=>s.id);const c=el('td');c.innerHTML=statusIcon({status:k})+' ';c.append(T(key));st.append(el('tr',{},c,el('td',{},filterLink(ids,T(key)))))}
  box.append(st,el('p',{text:T('sumIntro')}),el('p',{text:T('sumClick')}));
  const done=all.filter(s=>s.status!=='unanalyzed');
  const head=(first,cols)=>{const r=el('tr',{},el('th',{text:first}));for(const c of cols){const th=el('th');th.innerHTML=c;r.append(th)}return r};
- const worst=s=>{const v=Object.values(samplePqv(s));return v.includes('low')?'low':v.includes('check')?'check':'pass'};
- box.append(el('h3',{text:T('sumLadder')}),el('p',{text:T('sumLadderNote')}));
- const lt=el('table');lt.append(head(T('sumRunFolder'),[T('sumTotal'),pqv('pass'),pqv('check'),pqv('low')]));
- for(const rf of state.project.runFolders){const l=done.filter(s=>s.runFolder===rf&&s.type==='ladder');
-  lt.append(el('tr',{},el('td',{text:rf}),el('td',{},link(l.map(s=>s.id))),...['pass','check','low'].map(k=>el('td',{},link(l.filter(s=>worst(s)===k).map(s=>s.id))))))}
- box.append(lt);
+ box.append(el('h3',{text:T('sumLadder')}),el('p',{text:T('sumLadderNote')}),ladderTable(state.summaryRun?[state.summaryRun]:folders));
+ const flagRow=(label,list)=>{const ok=list.filter(s=>worst(s)==='pass'),bad=list.filter(s=>worst(s)!=='pass');
+  const a=el('td',{},filterLink(ok.map(s=>s.id),label)),b=el('td',{},filterLink(bad.map(s=>s.id),label));b.title=bad.map(pqvTip).join('\n');
+  return el('tr',{},el('td',{text:label}),el('td',{},filterLink(list.map(s=>s.id),label)),a,b)};
+ const cols=[T('sumTotal'),pqv('pass')+' '+T('sumAllMet'),pqv('check')+pqv('low')+' '+T('sumOneNotMet')];
  box.append(el('h3',{text:T('sumControl')}));
- const ct=el('table');ct.append(head(T('sumControlType'),[T('sumTotal'),pqv('pass')+' '+T('sumAllMet'),pqv('low')+' '+T('sumOneNotMet')]));
+ const ct=el('table');ct.append(head(T('sumControlType'),cols));
  const ctrl=done.filter(s=>s.type==='positive'||s.type==='negative');
- for(const [label,list] of [[T('sumTotalRow'),ctrl],[T('tPositive'),ctrl.filter(s=>s.type==='positive')],[T('tNegative'),ctrl.filter(s=>s.type==='negative')]])
-  ct.append(el('tr',{},el('td',{text:label}),el('td',{},link(list.map(s=>s.id))),el('td',{},link(list.filter(s=>worst(s)==='pass').map(s=>s.id))),el('td',{},link(list.filter(s=>worst(s)!=='pass').map(s=>s.id)))));
- box.append(ct);
- box.append(el('h3',{text:T('sumSample')}));
- const smp=done.filter(s=>s.type==='sample');
- const stt=el('table');stt.append(head('',[T('sumTotal'),pqv('pass')+' '+T('sumAllMet'),pqv('low')+' '+T('sumOneNotMet')]));
- stt.append(el('tr',{},el('td',{text:T('samples')}),el('td',{},link(smp.map(s=>s.id))),el('td',{},link(smp.filter(s=>worst(s)==='pass').map(s=>s.id))),el('td',{},link(smp.filter(s=>worst(s)!=='pass').map(s=>s.id)))));
- box.append(stt)}
+ for(const [label,list] of [[T('sumTotalRow'),ctrl],[T('tPositive'),ctrl.filter(s=>s.type==='positive')],[T('tNegative'),ctrl.filter(s=>s.type==='negative')]])ct.append(flagRow(label,list));
+ box.append(ct,el('h3',{text:T('sumSample')}));
+ const stt=el('table');stt.append(head('',cols));stt.append(flagRow(T('samples'),done.filter(s=>s.type==='sample')));box.append(stt);
+ const skipped=all.filter(s=>s.alasSkipped),refBins=all.filter(s=>s.referenceBins&&s.report);
+ if(skipped.length||refBins.length){const nt=el('table');nt.append(head('',[T('sumTotal')]));
+  if(skipped.length)nt.append(el('tr',{},el('td',{text:T('sumSkipped')}),el('td',{},filterLink(skipped.map(s=>s.id),T('sumSkipped')))));
+  if(refBins.length)nt.append(el('tr',{},el('td',{text:T('sumRefBins')}),el('td',{},filterLink(refBins.map(s=>s.id),T('sumRefBins')))));
+  box.append(el('h3',{text:T('sumGenotyping')}),nt)}}
+function renderFilterBar(){const bar=$('filterBar');if(!bar)return;const f=state.filter;
+ bar.hidden=!(f&&f.ids);bar.replaceChildren();if(bar.hidden)return;
+ const all=el('a',{text:T('showAllSamples'),id:'clearFilter'});all.addEventListener('click',()=>{state.filter=null;render()});
+ bar.append(document.createTextNode(`${T('filtered')}: ${f.label||''} (${f.ids.size}) `),all)}
 
 // ---------- render ----------
 function renderTitle(){document.title=`${T('app')} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`}
 function render(){
  document.title=`${T('app')} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`;
  renderNavigator();
+ renderFilterBar();
  if(state.tab==='samples')renderSamples();else if(state.tab==='summary')renderSummary();else renderGenotypes();
  const any=state.project.samples.length>0;
  for(const id of ['tbAnalyze','tbPlots','tbExport'])if($(id))$(id).disabled=!any||state.busy;
@@ -365,7 +400,7 @@ function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.leng
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
  return {comment:state.project.comment||'',run_folders:state.project.runFolders,
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
-   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
+   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
   snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
@@ -378,7 +413,7 @@ async function writeProject(name,{create=false}={}){
    if(need){const payload={action:'save_sample',name,id:sid(s),data:{analysis:s.analysis||null,compact:s.compact||null,report:s.report||null}};
     if(s.blob)payload.fsa_b64=await blobToB64(s.blob);await jsonPost('/api/idx-project',payload);s.savedRev=s.rev}
    progress(++i,list.length,`${T('saving')}: ${s.file}`)}
-  Object.assign(state.project,{name,savedAs:name,dirty:false});state.lastMessage=T('projectSaved')+': '+name;return true}
+  Object.assign(state.project,{name,savedAs:name,dirty:false});state.lastMessage=T('projectSaved')+': '+name;rememberProject(name);return true}
  catch(e){message(e.message);return false}finally{state.busy=false;render()}}
 function saveProject(){if(!state.project.samples.length&&!state.project.name)return;
  if(state.project.savedAs&&state.project.savedAs===state.project.name)return writeProject(state.project.name);return saveProjectAs()}
@@ -423,13 +458,14 @@ async function loadProject(name){
   const samples=[];let i=0;state.nextId=1;
   for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
    const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
-    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,ud:m.ud||{},ladderQuality:m.ladderQuality,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
+    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:data.analysis||null,compact:data.compact||null,report:data.report||null,rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
-  state.lastMessage=T('projectOpened')+': '+meta.name;if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
+  state.lastMessage=T('projectOpened')+': '+meta.name;rememberProject(meta.name);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
  catch(e){message(e.message)}finally{state.busy=false;render()}}
+function rememberProject(name){try{localStorage.setItem('opentrace.lastProject',name)}catch(e){}}
 async function closeProject(){if(!(await confirmDiscard()))return;
  Object.assign(state.project,{name:null,savedAs:null,comment:'',runFolders:[],samples:[],dirty:false});state.selected.clear();state.lastMessage=null;render()}
 // ---------- copy / fill down ----------
@@ -473,12 +509,13 @@ function addSamples(){
   const choose=el('button',{class:'btn',text:T('addChoose'),type:'button'});choose.addEventListener('click',()=>input.click());
   const clear=el('button',{class:'btn',text:T('addClear'),type:'button'});clear.addEventListener('click',()=>{files=[];redraw()});
   const ss=el('select',{id:'addStd'});for(const k of Object.keys(SIZE_STANDARDS))ss.append(new Option(k,k));
-  let lastKey='';try{lastKey=localStorage.getItem('opentrace.lastPanel')||''}catch(e){}
+  const od=ProjectOptions.get().add;if(od.sizeStd&&SIZE_STANDARDS[od.sizeStd])ss.value=od.sizeStd;
+  let lastKey='';try{lastKey=od.panelKey||localStorage.getItem('opentrace.lastPanel')||''}catch(e){}
   if(!panelChoices().some(c=>c.key===lastKey))lastKey='';
   const ps=panelSelect(lastKey,v=>{if(v)ss.value=fitStandard(v,ss.value)});ps.id='addPanel';if(lastKey)ss.value=fitStandard(lastKey,ss.value);
   const fs=el('fieldset',{},el('legend',{text:T('addSettings')}),
    el('div',{class:'field'},el('label',{text:T('runFolderName')}),el('input',{type:'text',id:'addRun',value:'Run '+(state.project.runFolders.length+1)})),
-   el('div',{class:'field'},el('label',{text:T('colAnalysisMethod')}),(()=>{const m=methodSelect(defaultMethod(),v=>{m.value=v});m.id='addMethod';return m})()),
+   el('div',{class:'field'},el('label',{text:T('colAnalysisMethod')}),(()=>{const dm=ProjectOptions.get().add.method;const m=methodSelect(dm&&Methods.get(dm)?dm:defaultMethod(),v=>{m.value=v});m.id='addMethod';return m})()),
    el('div',{class:'field'},el('label',{text:T('colPanel')}),ps),
    el('div',{class:'field'},el('label',{text:T('colSizeStandard')}),ss));
   if(!panelChoices().length)fs.append(el('div',{class:'note',text:T('noPanelsYet')}));
@@ -488,19 +525,37 @@ function addSamples(){
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
     if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
     for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
-     state.project.samples.push({id:state.nextId++,file:f.name,name,type:sampleTypeFromName(f.name),
+     state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),
       runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
     state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
 
+// ---------- analysis workflow: requirements (ARS) -> sizing -> ladders (ALAS) -> genotyping -> summary ----------
+function requirementsSummary(failing){
+ // Analysis Requirements Summary: resolves 'continue' | 'view' | 'cancel'.
+ return new Promise(res=>{const counts=new Map();for(const s of failing)for(const k of arnmCodes(s)){if(!counts.has(k))counts.set(k,[]);counts.get(k).push(s.id)}
+  const view=ids=>{state.filter={ids:new Set(ids),label:T('arsTitle')};showTab('samples')};
+  const d=dialog(T('arsTitle'),b=>{b.classList.add('arsdlg');
+   const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},el('th',{text:T('arsRequirement')}),el('th',{text:T('samples')}),el('th',{text:T('arsEffect')}))));const tb=el('tbody');
+   for(const [k,ids] of counts){const a=el('a',{text:String(ids.length),href:'#'});a.addEventListener('click',e=>{e.preventDefault();d.close();view(ids);res('view')});
+    tb.append(el('tr',{},el('td',{text:T(k)}),el('td',{class:'num'},a),el('td',{text:T(BLOCKING.has(k)?'arsNotAnalyzed':'arsAnalyzedOnly')})))}
+   t.append(tb);b.append(el('p',{text:T('arsIntro').replace('{0}',failing.length)}),el('div',{class:'grid'},t))},
+   [[T('arsView'),()=>{view(failing.map(s=>s.id));res('view');return true}],[T('arsContinue'),()=>{res('continue');return true},true],[T('cancel'),()=>{res('cancel');return true}]]);
+  d.root.querySelector('.x').addEventListener('click',()=>res('cancel'))})}
+
 async function analyze(scope){
- const targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
+ let targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;
+ const opts=ProjectOptions.get();
+ const failing=targets.filter(s=>arnmCodes(s).some(k=>k!=='arnmLadder'));
+ if(failing.length&&opts.ars==='stop'){const r=await requirementsSummary(failing);if(r!=='continue')return}
+ targets=targets.filter(s=>!blocked(s));
+ if(!targets.length)return;
  const edited=targets.filter(s=>activeEdits(s).length);
  if(edited.length){if(!(await Methods.ask(T('reanalyzeDropsEdits').replace('{0}',edited.length))))return;
   for(const s of edited)for(const e of s.edits)if(!e.undone){e.undone=true;e.undoneAt=new Date().toISOString();e.undoneBy='reanalysis'}}
  state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;state.binSetNote=null;render();
  const order=[...targets].sort((a,b)=>(a.type==='ladder'?0:1)-(b.type==='ladder'?0:1)); // ladders first
- let i=0;
+ let i=0,finished=false;
  try{
   for(const s of order){
    if(state.stop)break;
@@ -510,31 +565,62 @@ async function analyze(scope){
     const r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob});
     const j=await r.json();if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=j;s.compact=null;s.rev=(s.rev||0)+1}
    s.status='analyzed';i++;progress(i,order.length)}
-  await genotype();
+  finished=await genotype();
   const any=state.project.samples.some(s=>s.panelKey);
-  state.lastMessage=state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone')+(state.binSetNote?' — '+T('binSetSubstituted')+' '+state.binSetNote:''):T('noKit');
+  const skipped=state.project.samples.filter(s=>s.alasSkipped).length;
+  state.lastMessage=skipped?T('alasSkippedMsg').replace('{0}',skipped):state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone')+(state.binSetNote?' — '+T('binSetSubstituted')+' '+state.binSetNote:''):T('noKit');
  }catch(err){message(err.message)}
- finally{state.busy=false;state.project.dirty=true;render()}}
+ finally{state.busy=false;state.project.dirty=true;
+  if(finished&&!state.stop){if(opts.lowQualityTop)state.lowQualityTop=true;if(finished!=='view'){state.tab=opts.after==='summary'?'summary':'samples';renderTabs()}}
+  render()}}
 
+// One genotyping group = run folder + panel. Ladders are judged first with a ladder as the probe sample.
+function groups(){const out=[];
+ for(const rf of state.project.runFolders){const inRun=state.project.samples.filter(s=>s.runFolder===rf&&s.analysis&&s.status==='analyzed'&&s.panelKey);
+  for(const key of [...new Set(inRun.map(s=>s.panelKey))])out.push({rf,key,group:inRun.filter(s=>s.panelKey===key)})}
+ return out}
+const ladderInput=s=>({ladder_id:s.file,analysis:s.compact||compactAnalysis(s.analysis)});
+const sqPass=s=>{const q=samplePqv(s).SQ;return q==='pass'||q==='override'};
+async function judgeLadders(g){
+ const lad=g.group.filter(s=>s.type==='ladder');
+ for(const s of lad){s.ladderQuality=null;s.ladderUsed=false}
+ g.ladders=lad.map(ladderInput);g.pass=false;
+ const probe=lad.find(s=>s.analysis?.sizing?.status==='accepted');if(!probe)return g;
+ const k=await kitFor(g.key,probe.method);
+ const rep=await jsonPost('/api/str-run',{sample:ladderInput(probe).analysis,ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
+ const used=new Set(Object.values(rep.ladder?.markers||{}).flatMap(m=>m.status==='accepted'?m.source_ladders||[]:[]));
+ for(const l of rep.quality?.run_ladders||[]){const s=lad.find(x=>x.file===l.ladder_id);if(s){s.ladderQuality=l.quality_code;s.ladderUsed=used.has(s.file)}}
+ g.pass=['accepted','partial'].includes(rep.ladder?.status)&&lad.some(s=>s.ladderQuality===0&&sqPass(s));
+ return g}
+function ladderSummary(gs){
+ // Allelic Ladder Analysis Summary: resolves 'passing' | 'all' | 'view'.
+ return new Promise(res=>{
+  const lowLadders=gs.flatMap(g=>g.group.filter(s=>s.type==='ladder'&&!(s.ladderQuality===0&&sqPass(s)))).map(s=>s.id);
+  const d=dialog(T('alasTitle'),b=>{b.classList.add('alasdlg');b.append(el('p',{text:T('alasIntro')}),ladderTable(gs.map(g=>g.rf),{group:true}),el('p',{class:'note',text:T('alasNote')}))},
+   [[T('alasPassing'),()=>{res('passing');return true},true],[T('alasAll'),()=>{res('all');return true}],
+    [T('alasView'),()=>{state.filter={ids:new Set(lowLadders),label:T('alasTitle')};showTab('samples');res('view');return true}]]);
+  d.root.querySelector('.x').addEventListener('click',()=>res('passing'))})}
 async function genotype(){
- for(const rf of state.project.runFolders){
-  const inRun=state.project.samples.filter(s=>s.runFolder===rf&&s.analysis&&s.status==='analyzed'&&s.panelKey);
-  for(const key of [...new Set(inRun.map(s=>s.panelKey))]){
-   if(state.stop)return;
-   const group=inRun.filter(s=>s.panelKey===key);
-   const methods=[...new Set(group.filter(s=>s.type!=='ladder').map(s=>s.method))];
-   const ladders=group.filter(s=>s.type==='ladder').map(s=>({ladder_id:s.file,analysis:s.compact||compactAnalysis(s.analysis)}));
-   if(!ladders.length){for(const s of group)s.report=null;state.noLadder=rf;continue}
-   for(const s of group)if(s.type==='ladder')s.ladderQuality=null;
-   const kits={};for(const mname of methods)kits[mname]=await kitFor(key,mname);
-   for(const s of group.filter(x=>x.type!=='ladder')){
-    if(state.stop)return;
-    const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
-    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
-    let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
-    if(k.mq)rep=await jsonPost('/api/marker-quality',{report:rep,definition:k.mq});
-    s.report=rep;s.rev=(s.rev||0)+1;
-    for(const l of rep.quality?.run_ladders||[]){const ls=group.find(x=>x.file===l.ladder_id);if(ls)ls.ladderQuality=l.quality_code}}}}}
+ const gs=groups();if(!gs.length)return true;
+ for(const s of state.project.samples){if(gs.some(g=>g.group.includes(s))){s.alasSkipped=false;s.referenceBins=false}}
+ for(const g of gs){if(state.stop)return false;$('statusText').textContent=`${T('ladderEval')}: ${g.rf}`;await judgeLadders(g)}
+ const failing=gs.filter(g=>!g.pass);let mode='passing';
+ if(failing.length){const o=ProjectOptions.get().alas;mode=o==='stop'?await ladderSummary(gs):o;
+  if(mode==='view'){for(const g of failing)for(const s of g.group)if(s.type!=='ladder')s.report=null;return 'view'}}
+ for(const g of gs){
+  if(!g.pass&&mode!=='all'){for(const s of g.group)if(s.type!=='ladder'){s.report=null;s.alasSkipped=true;s.rev=(s.rev||0)+1}
+   if(!g.ladders.length)state.noLadder=g.rf;continue}
+  const methods=[...new Set(g.group.filter(s=>s.type!=='ladder').map(s=>s.method))];
+  const kits={};for(const mname of methods)kits[mname]=await kitFor(g.key,mname);
+  for(const s of g.group.filter(x=>x.type!=='ladder')){
+   if(state.stop)return false;
+   const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
+   $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
+   const policy=g.pass?k.policy:'reference_bins';
+   let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy});
+   if(k.mq)rep=await jsonPost('/api/marker-quality',{report:rep,definition:k.mq});
+   s.report=rep;s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
+ return true}
 
 async function loadExample(){
  if(state.busy)return;state.busy=true;render();progress(0,1,T('loadExample'));
@@ -555,14 +641,15 @@ async function loadExample(){
 
 function plotPayload(){
  const samples=state.project.samples.filter(s=>state.selected.has(s.id));
- return {lang:I18N.lang,kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
+ const po=ProjectOptions.get();
+ return {lang:I18N.lang,project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
   return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls}:null,kit:sampleKit(s),pqv:sampleFlags(s),
    markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check'})),editable:!!s.report}})}}
 function openPanelManager(){const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
  if(!state.selected.size)return message(T('selectSamplesFirst'));
  const w=window.open('/idx/plot.html','opentrace-plot','width=1100,height=760');
- if(!w)message(T('plotWindowBlocked'));else w.focus()}
+ if(!w)message(T('plotWindowBlocked'));else{state.plotWin=w;w.focus()}}
 
 function exportTable(){
  const tab=state.tab==='genotypes'?'genotypes':'samples';const rows=[];
@@ -613,7 +700,7 @@ function buildChrome(){
    {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},'-',
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
    {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:notYet},{label:T('exportCodis'),run:notYet},'-',
-   {label:T('projectOptions'),run:notYet},'-',{label:T('pageSetup'),run:notYet},{label:T('printPreview'),run:notYet},{label:T('print'),sc:'Ctrl+P',run:()=>window.print()},'-',
+   {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:notYet},{label:T('printPreview'),run:notYet},{label:T('print'),sc:'Ctrl+P',run:()=>window.print()},'-',
    {label:T('logOut'),disabled:true},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
    {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},'-',
@@ -643,6 +730,7 @@ function buildChrome(){
   tbutton('printPreview',T('printPreview'),notYet),tbutton('help',T('helpTopics'),notYet));
  $('stopBtn').textContent=T('stop');
  renderTabs()}
+function projectOptions(){ProjectOptions.open({methodSelect,panelSelect,sizeStdNames:()=>Object.keys(SIZE_STANDARDS),types:Object.entries(TYPE_KEYS).map(([k,v])=>[k,T(v)])})}
 function buildAfter(fn){fn();buildChrome();render()}
 
 $('stopBtn').addEventListener('click',()=>{state.stop=true});
@@ -657,5 +745,7 @@ window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project
 
 Methods.init(jsonPost);
 buildChrome();render();
-Methods.ensureDefault().then(()=>render()).catch(e=>message(e.message));
+Methods.ensureDefault().then(()=>{render();
+ let last=null;try{last=localStorage.getItem('opentrace.lastProject')}catch(e){}
+ if(ProjectOptions.get().startup==='last'&&last)return loadProject(last)}).catch(e=>message(e.message));
 })();

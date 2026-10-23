@@ -25,6 +25,14 @@ def _ladder_entries(ladders,field):
     return ladders
 
 
+POLICIES=('reject','forward_fill','reference_bins')
+
+
+def _ladder_policy(policy):
+    # Reference bins only replace offsets in sample calling; ladders are judged as with forward fill.
+    return 'forward_fill' if policy=='reference_bins' else policy
+
+
 def _base_run_report(sample_analysis,sample,definition,quality_definition,missing_offset_policy):
     return {'schema_version':1,'source_sha256':sample['source_sha256'],'analysis_version':'OpenTrace/'+__version__,
         'status':'rejected','reasons':[],'calls':[],'peaks':[],'allele_calling':None,'ladder':None,
@@ -121,15 +129,16 @@ def run_str_run_workflow(sample_analysis,ladders,kit,*,ladder_quality_definition
     """Use an ordered explicit run cohort; duplicate filename means reanalysis."""
     definition=load_kit_definition(kit)
     quality_definition=load_ladder_quality_definition(ladder_quality_definition)
-    if missing_offset_policy not in ('reject','forward_fill'):
-        raise ValueError('missing_offset_policy must be reject or forward_fill')
-    _ladder_entries(ladders,'analysis')
+    if missing_offset_policy not in POLICIES:
+        raise ValueError('missing_offset_policy must be reject, forward_fill or reference_bins')
+    if ladders or missing_offset_policy!='reference_bins':_ladder_entries(ladders,'analysis')
+    elif not isinstance(ladders,(list,tuple)):raise ValueError('Explicit run ladder list required')
     sample=_analysis(sample_analysis,'sample',{m['channel'] for m in definition['markers']})
     result=_base_run_report(sample_analysis,sample,definition,quality_definition,missing_offset_policy)
     result['reasons']=_sample_failures(sample)
     if result['reasons']:return result
     spike_definition,adjustments=_artifact_options(sample)
-    cohort=_ladder_cohort(sample,ladders,definition,quality_definition,missing_offset_policy,adjustments)
+    cohort=_ladder_cohort(sample,ladders,definition,quality_definition,_ladder_policy(missing_offset_policy),adjustments)
     return _finish_run(result,sample,definition,cohort,adjustments,spike_definition)
 
 
@@ -141,7 +150,7 @@ def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missi
     siblings retain rejected reports. Malformed inputs abort before persistence.
     """
     definition=load_kit_definition(kit);quality_definition=load_ladder_quality_definition(ladder_quality_definition)
-    if missing_offset_policy not in ('reject','forward_fill'):raise ValueError('Invalid missing offset policy')
+    if missing_offset_policy not in POLICIES:raise ValueError('Invalid missing offset policy')
     if not isinstance(ladders,(list,tuple)):raise ValueError('Explicit run ladder list required')
     if ladders:_ladder_entries(ladders,'analysis')
     if not isinstance(samples,(list,tuple)) or len(samples)>128:raise ValueError('Explicit0..128 run samples required')
@@ -153,7 +162,7 @@ def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missi
         if not isinstance(key,str) or not key.strip() or len(key)>256 or key in keys:raise ValueError('Bounded unique sample_key required')
         keys.add(key);prepared.append(_analysis(entry['analysis'],'sample '+key,channels))
     reference=prepared[0];spike_definition,adjustments=_artifact_options(reference)
-    cohort=_ladder_cohort(reference,ladders,definition,quality_definition,missing_offset_policy,adjustments)
+    cohort=_ladder_cohort(reference,ladders,definition,quality_definition,_ladder_policy(missing_offset_policy),adjustments)
     outputs=[]
     for entry,sample in zip(samples,prepared):
         result=_base_run_report(entry['analysis'],sample,definition,quality_definition,missing_offset_policy)

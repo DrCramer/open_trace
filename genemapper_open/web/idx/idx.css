@@ -205,3 +205,16 @@ table.g tr.sel td input[type=text]{color:#fff}
 .menu.ctx{position:fixed;z-index:200}
 .dlg .body.levdlg{width:980px;max-width:96vw}
 table.g tr.undone td{color:#999;text-decoration:line-through}
+
+/* 0.28: project options, analysis workflow summaries */
+.printhead{display:none}
+@media print{.printhead{display:block;font:bold 12px Tahoma,sans-serif;padding:2px 4px}.menubar,.toolbar,.statusbar{display:none}}
+.filterbar{padding:3px 8px;background:#fff8d6;border-bottom:1px solid #d8c97a;font-size:11px}
+.filterbar a,.arsdlg a{color:var(--link);cursor:pointer;text-decoration:underline;margin-left:6px}
+.summary a.zero{color:inherit;text-decoration:none;cursor:default}
+.summary .sumrun{margin:0 0 8px;display:flex;gap:8px;align-items:center}.summary .sumrun select{width:auto;min-width:200px}
+.optdlg .dpage{min-width:560px;min-height:300px}
+.optdlg fieldset{margin:6px 0}.optdlg label.chk{display:block;margin:2px 0}
+.arsdlg,.alasdlg{max-width:640px}.arsdlg table,.alasdlg table{border-collapse:collapse;margin:6px 0}
+.alasdlg th,.alasdlg td{border:1px solid #a7a6aa;padding:2px 8px;text-align:center}
+.alasdlg a{color:var(--link)}
