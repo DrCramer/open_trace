@@ -777,6 +777,7 @@ function plotPayload(){
  const po=ProjectOptions.get();
  return {lang:I18N.lang,project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
   return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls,artifacts:eff.artifacts}:null,spk:s.report?spikeArtifacts(s):[],kit:sampleKit(s),pqv:sampleFlags(s),omr:s.report?omrPeaks(s):[],
+   editReasons:Object.fromEntries(activeEdits(s).map(e=>[e.callId||('u'+e.id),e.reason||''])),
    markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check',pli:r.flags.PLI==='check'})),editable:!!s.report}})}}
 function openPanelManager(){if(!Sec.need('READ_PANEL'))return;const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
