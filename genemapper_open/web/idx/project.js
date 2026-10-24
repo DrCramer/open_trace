@@ -162,7 +162,7 @@ function statusIcon(s){
 // ---------- table cells (columns chosen by the active Table Setting) ----------
 const PQV_NUM={pass:0,check:1,low:2,na:-2,override:0.5};
 function arnmCodes(s){const r=[];
- if(!s.blob&&!s.analysis)r.push('arsSfnf');
+ if(!s.blob&&s.method!==EXAMPLE_METHOD)r.push('arsSfnf'); // ID-X SFNF: the .fsa is not available (re-associate with Edit > Define New Sample File Path)
  if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))r.push('arnmMethod');
  if(!SIZE_STANDARDS[s.sizeStd]&&s.method!==EXAMPLE_METHOD)r.push('arnmStandard');
  if(!s.panelKey)r.push('arnmPanel');
@@ -205,7 +205,7 @@ function spikeArtifacts(s){const kit=sampleKit(s);if(!kit)return [];const ch=new
 function omrFlag(s){if(s.type==='ladder'||!s.report||!sampleKit(s))return 'na';if(activeEdits(s).some(e=>e.action!=='override_cgq'&&e.action!=='pli'))return 'check';return omrPeaks(s).length?'check':'pass'}
 function sampleFlags(s){const q=samplePqv(s);
  const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';if(s.report&&q.SQ!=='low'){q.MIX=mixFlag(s,eff);q.OMR=omrFlag(s)}
- return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
+ return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.method===EXAMPLE_METHOD)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
 // Inline text cell (Sample ID, Comment, Profile ID, UD1-UD9): edits mark the project dirty.
@@ -513,7 +513,7 @@ function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.leng
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
  return {comment:state.project.comment||'',security_group:state.project.securityGroup||Sec.defaultGroup(),run_folders:state.project.runFolders,bin_offsets:state.project.binOffsets||[],reports:state.project.reports||[],mixture:state.project.mixture||{},
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
-   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
+   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},origin:s.origin||'',ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
   snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
@@ -583,7 +583,7 @@ async function loadProject(name){
   const samples=[];let i=0;state.nextId=1;
   for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
    const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
-    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
+    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},origin:m.origin||'',ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:slimAnalysis(data.analysis||null),compact:data.compact?slimAnalysis(data.compact):null,report:slimReport(data.report||null),rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{securityGroup:meta.security_group||Sec.DEFAULT_GROUP,owner:meta.owner||'',mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],binOffsets:Array.isArray(meta.bin_offsets)?meta.bin_offsets:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
@@ -628,9 +628,12 @@ function addSamples(){
  let files=[];
  dialog(T('addTitle'),b=>{
   const list=el('div',{class:'filelist'});const input=el('input',{type:'file',multiple:'',accept:'.fsa,.ab1',style:'display:none'});
-  const redraw=()=>{list.replaceChildren(...files.map(f=>el('div',{text:f.name})))};
+  const redraw=()=>{list.replaceChildren(...files.map(f=>el('div',{text:f.webkitRelativePath||f.name})))};
   input.addEventListener('change',()=>{files=[...files,...input.files];input.value='';redraw()});
   const choose=el('button',{class:'btn',text:T('addChoose'),type:'button'});choose.addEventListener('click',()=>input.click());
+  const dirIn=el('input',{type:'file',webkitdirectory:'',directory:'',multiple:'',style:'display:none'});
+  dirIn.addEventListener('change',()=>{files=[...files,...[...dirIn.files].filter(f=>/\.(fsa|ab1)$/i.test(f.name))];dirIn.value='';redraw()});
+  const chooseDir=el('button',{class:'btn',text:T('addChooseFolder'),type:'button'});chooseDir.addEventListener('click',()=>dirIn.click());
   const clear=el('button',{class:'btn',text:T('addClear'),type:'button'});clear.addEventListener('click',()=>{files=[];redraw()});
   const ss=el('select',{id:'addStd'});for(const k of Object.keys(SIZE_STANDARDS))ss.append(new Option(k,k));
   const od=ProjectOptions.get().add;if(od.sizeStd&&SIZE_STANDARDS[od.sizeStd])ss.value=od.sizeStd;
@@ -643,16 +646,47 @@ function addSamples(){
    el('div',{class:'field'},el('label',{text:T('colPanel')}),ps),
    el('div',{class:'field'},el('label',{text:T('colSizeStandard')}),ss));
   if(!panelChoices().length)fs.append(el('div',{class:'note',text:T('noPanelsYet')}));
-  b.append(el('div',{text:T('addFiles')}),list,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,clear,input),fs)},
+  b.append(el('div',{text:T('addFiles')}),list,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,chooseDir,clear,input,dirIn),fs)},
   [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;const meth=body.querySelector('#addMethod').value;
     try{localStorage.setItem('opentrace.lastMethod',meth)}catch(e){}
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
     if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
     for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
      state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),
-      runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
+      runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
     Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
     state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
+
+// ---------- Edit > Define New Sample File Path ----------
+// The sample keeps a reference to its .fsa (Sample Origin Path = folder it was added from; browsers expose only the
+// folder-relative part). A missing file (SFNF) is re-associated by choosing the folder that now holds it: files are
+// matched by name (case-insensitive) and, when the sample was analysed, by the SHA-256 of the file contents.
+const originOf=f=>{const r=f.webkitRelativePath||'';return r.includes('/')?r.slice(0,r.lastIndexOf('/')):''};
+async function sha256Hex(blob){const d=await crypto.subtle.digest('SHA-256',await blob.arrayBuffer());return [...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+async function associateFiles(targets,files){
+ const byName=new Map();for(const f of files){if(!/\.(fsa|ab1|hid)$/i.test(f.name))continue;const k=f.name.toLowerCase();if(!byName.has(k))byName.set(k,[]);byName.get(k).push(f)}
+ const res={ok:[],missing:[],differs:[]};
+ for(const s of targets){const cands=byName.get(String(s.file).toLowerCase())||[];
+  if(!cands.length){res.missing.push(s.file);continue}
+  const want=s.analysis?.source_sha256||s.compact?.source_sha256;let pick=null;
+  if(want){for(const f of cands){try{if((await sha256Hex(f))===want){pick=f;break}}catch(e){}}if(!pick){res.differs.push(s.file);continue}}
+  else pick=cands[0];
+  const was=s.origin||'';s.blob=pick;s.origin=originOf(pick)||was;s.rev=(s.rev||0)+1;res.ok.push(s);
+  Sec.record([{map:'Sample',attribute:'sample file path',instance:`${s.runFolder}/${s.file}`,old:was,new:s.origin||pick.name,event:'Define New Sample File Path'}])}
+ if(res.ok.length){state.project.dirty=true;SampleViews?.invalidate?.()}
+ return res}
+function defineSamplePath(){
+ const targets=state.project.samples.filter(s=>state.selected.has(s.id)&&s.method!==EXAMPLE_METHOD);
+ if(!targets.length){message(T('dspSelect'));return}
+ const input=el('input',{type:'file',webkitdirectory:'',directory:'',multiple:'',style:'display:none'});document.body.append(input);
+ input.addEventListener('change',async()=>{const files=[...input.files];input.remove();if(!files.length)return;
+  $('statusText').textContent=T('dspChecking');
+  const r=await associateFiles(targets,files);render();
+  const lines=[T('dspDone').replace('{0}',r.ok.length).replace('{1}',targets.length)];
+  if(r.missing.length)lines.push(T('dspMissing')+'\n  '+r.missing.slice(0,20).join('\n  ')+(r.missing.length>20?'\n  …':''));
+  if(r.differs.length)lines.push(T('dspDiffers')+'\n  '+r.differs.slice(0,20).join('\n  ')+(r.differs.length>20?'\n  …':''));
+  $('statusText').textContent=lines[0];message(lines.join('\n\n'),T('dspTitle'))},{once:true});
+ input.click()}
 
 // ---------- analysis workflow: requirements (ARS) -> sizing -> ladders (ALAS) -> genotyping -> summary ----------
 function requirementsSummary(failing){
@@ -968,7 +1002,7 @@ const reportApi={
   return out},
  plot:files=>{const set=new Set(files);state.selected=new Set(state.project.samples.filter(s=>set.has(s.file)).map(s=>s.id));render();displayPlots()},
  hasProject:()=>!!state.project.samples.length};
-window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.binOffsets=binOffsetsDialog;
+window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;
 
 // ---------- printing: page setup and print preview ----------
 const PAGE_KEY='opentrace.pageSetup.v1';
@@ -1037,7 +1071,7 @@ function buildChrome(){
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
-   {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},'-',
+   {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},{label:T('defineSamplePath'),run:defineSamplePath},'-',
    {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),run:sortDialog}]},
   {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),run:()=>analyze('all')},'-',
    {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:()=>{state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}},{label:T('nonConcordantTop'),disabled:true},'-',

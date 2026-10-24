@@ -297,7 +297,7 @@ en:{
  tf_Analyzed:'Analyzed',tf_Unanalyzed:'Unanalyzed',tf_AnalysisSettingChanged:'Analysis Setting Changed',tf_Sample:'Sample',tf_PositiveControl:'Positive Control',
  tf_AllelicLadder:'Allelic Ladder',tf_NegativeControl:'Negative Control',tf_Yes:'Yes',tf_No:'No',tf_Found:'Found',tf_NotFound:'Not Found',
  tfFilteredBy:'Filtered by table setting',siSelect:'Select one or more samples in the Samples table.',
- siNoFile:'The sample file is not available (SFNF). Add the sample again or open a saved project that contains the file.',siLoading:'Reading the sample file...',
+ siNoFile:'The sample file is not available (SFNF). Use Edit > Define New Sample File Path to re-associate the sample with its file.',siLoading:'Reading the sample file...',
  siSampleFileInfo:'Sample File Information',siErrors:'Error Messages',siNone:'None',siLastSettings:'Last Used Analysis Settings',
  siFirst8:'Only the first 8 selected samples are shown.',siSec_sample:'Sample File',siSec_run:'Run Information',siSec_collection:'Data Collection Settings',
  siSec_buffers:'Buffer Information',siSec_capillary:'Capillary Information',si_sampleFile:'Sample File Name',si_sampleName:'Sample Name',si_sampleOrigin:'Sample Origin Path',
@@ -377,6 +377,11 @@ en:{
  stutterExportNote:'Stutter alleles are not exported for allelic ladders; PQVs refer to the main alleles; stutter peaks labelled as artifacts are left out.',yes:'Yes',no:'No',
  boRun:'Run',boBinSet:'Bin Set',boPanel:'Panel',boMarker:'Marker',boBin:'Bin',boOffset:'Offset',boTitleRun:'Offsets For Run <{0}>',boExport:'Export...',
  boExportError:'Error exporting bin offset table',boEmpty:'No bin offsets: the run folder has not been genotyped with a passing allelic ladder.',
+ defineSamplePath:'Define New Sample File Path...',dspTitle:'Define New Sample File Path',
+ dspSelect:'Select the samples in the Samples table, then choose the folder that contains their sample files.',dspChecking:'Checking sample files...',
+ dspDone:'Sample files associated: {0} of {1}.',dspMissing:'Not found in the selected folder:',
+ dspDiffers:'A file with this name was found, but its contents differ from the analysed sample file:',
+ addChooseFolder:'Add Folder...',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -680,7 +685,7 @@ ru:{
  tf_ShowLowQuality:'Низкое качество',tf_Analyzed:'Проанализирован',tf_Unanalyzed:'Не проанализирован',tf_AnalysisSettingChanged:'Изменены параметры анализа',
  tf_Sample:'Образец',tf_PositiveControl:'Положительный контроль',tf_AllelicLadder:'Аллельная лестница',tf_NegativeControl:'Отрицательный контроль',tf_Yes:'Да',tf_No:'Нет',
  tf_Found:'Найден',tf_NotFound:'Не найден',tfFilteredBy:'Отфильтровано настройкой таблицы',siSelect:'Выберите один или несколько образцов в таблице «Образцы».',
- siNoFile:'Файл образца недоступен (SFNF). Добавьте образец снова или откройте сохранённый проект с этим файлом.',siLoading:'Чтение файла образца...',
+ siNoFile:'Файл образца недоступен (SFNF). Свяжите образец с файлом: Правка > Задать новый путь к файлам образцов.',siLoading:'Чтение файла образца...',
  siSampleFileInfo:'Информация о файле образца',siErrors:'Сообщения об ошибках',siNone:'Нет',siLastSettings:'Последние использованные параметры анализа',
  siFirst8:'Показаны только первые 8 выбранных образцов.',siSec_sample:'Файл образца',siSec_run:'Информация о запуске',siSec_collection:'Параметры сбора данных',
  siSec_buffers:'Информация о буферах',siSec_capillary:'Информация о капиллярах',si_sampleFile:'Имя файла образца',si_sampleName:'Название образца',
@@ -763,6 +768,10 @@ ru:{
  stutterExportNote:'Статтерные аллели лестниц не экспортируются; PQV относятся к основным аллелям; статтерные пики с меткой артефакта не выводятся.',yes:'Да',no:'Нет',
  boRun:'Запуск',boBinSet:'Набор бинов',boPanel:'Панель',boMarker:'Маркер',boBin:'Бин',boOffset:'Смещение',boTitleRun:'Смещения для запуска <{0}>',boExport:'Экспорт...',
  boExportError:'Ошибка экспорта таблицы смещений бинов',boEmpty:'Смещений нет: папка запуска не генотипирована по прошедшей аллельной лестнице.',
+ defineSamplePath:'Задать новый путь к файлам образцов...',dspTitle:'Новый путь к файлам образцов',
+ dspSelect:'Выделите образцы в таблице образцов, затем выберите папку с их файлами.',dspChecking:'Проверка файлов образцов...',dspDone:'Связано файлов образцов: {0} из {1}.',
+ dspMissing:'Не найдены в выбранной папке:',dspDiffers:'Файл с таким именем найден, но его содержимое отличается от проанализированного файла образца:',
+ addChooseFolder:'Добавить папку...',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

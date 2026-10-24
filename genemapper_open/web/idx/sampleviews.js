@@ -19,7 +19,7 @@ async function renderInfo(page,list){
  for(const s of list.slice(0,8)){const box=el('div',{class:'sibox','data-file':s.file});wrap.append(box);
   const x=ctx.extra(s);
   box.append(el('h3',{text:`${s.file} — ${s.name}`}),
-   el('div',{class:'legend',text:T('siSampleFileInfo')}),kv([[label('sampleFile'),s.file],[label('sampleName'),s.name],[label('sampleOrigin'),`${s.runFolder}/${s.file}`],[label('statusMessage'),x.status],[label('sampleType'),x.sampleType]]),
+   el('div',{class:'legend',text:T('siSampleFileInfo')}),kv([[label('sampleFile'),s.file],[label('sampleName'),s.name],[label('sampleOrigin'),s.origin||`${s.runFolder}/${s.file}`],[label('statusMessage'),x.status],[label('sampleType'),x.sampleType]]),
    el('div',{class:'legend',text:T('siErrors')}),kv(x.errors.length?x.errors.map((e,i)=>[String(i+1),e]):[[T('siNone'),'']]),
    el('div',{class:'legend',text:T('siLastSettings')}),kv(x.settings));
   const slot=el('div',{class:'sidyn',text:T('siLoading')});box.append(slot);
