@@ -72,8 +72,8 @@ async function open(){
  if(!ctx)return;const all=ctx.samples();const meths=await methods();let saved=ctx.results()||{};
  const eligible=all.filter(s=>s.eligibleBase&&!s.ol);const ol=all.filter(s=>s.eligibleBase&&s.ol);
  if(!eligible.length&&!ol.length)return message(T('maNoSamples'));
- const st={page:'select',methodOf:{},include:new Set(eligible.map(s=>s.file)),seg:null,tab:2,known:{},current:null,results:saved};
- for(const s of eligible)st.methodOf[s.file]=saved[s.file]?.method||meths[0].name;
+ const st={page:'select',methodOf:{},include:new Set(eligible.map(s=>s.key)),seg:null,tab:2,known:{},current:null,results:saved};
+ for(const s of eligible)st.methodOf[s.key]=saved[s.key]?.method||meths[0].name;
  const d=dialog(T('mixture').replace(/\.+$/,''),()=>{},[]);d.body.classList.add('madlg');
  const foot=d.root.querySelector('.foot');
  const setButtons=list=>{foot.replaceChildren();for(const [label,fn,id,dis] of list){const b=el('button',{class:'btn',type:'button',text:label,id});b.disabled=!!dis;b.addEventListener('click',fn);foot.append(b)}};
@@ -81,8 +81,8 @@ async function open(){
  const draw=()=>{const b=d.body;b.replaceChildren();
   if(st.page==='select'){b.append(el('h3',{text:T('maSelectTitle')}),el('p',{class:'note',text:T('maSelectNote')}));
    const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...['',T('sumRunFolder'),T('colSampleFile'),T('colSampleName'),T('maMethod')].map(h=>el('th',{text:h})))));const tb=el('tbody');
-   for(const s of eligible){const cb=el('input',{type:'checkbox','data-file':s.file});cb.checked=st.include.has(s.file);cb.addEventListener('change',()=>{cb.checked?st.include.add(s.file):st.include.delete(s.file)});
-    const ms=el('select');for(const m of meths)ms.append(new Option(m.name,m.name));ms.value=st.methodOf[s.file];ms.addEventListener('change',()=>{st.methodOf[s.file]=ms.value});
+   for(const s of eligible){const cb=el('input',{type:'checkbox','data-file':s.key});cb.checked=st.include.has(s.key);cb.addEventListener('change',()=>{cb.checked?st.include.add(s.key):st.include.delete(s.key)});
+    const ms=el('select');for(const m of meths)ms.append(new Option(m.name,m.name));ms.value=st.methodOf[s.key];ms.addEventListener('change',()=>{st.methodOf[s.key]=ms.value});
     tb.append(el('tr',{},el('td',{class:'ic'},cb),el('td',{text:s.runFolder}),el('td',{text:s.file}),el('td',{text:s.name}),el('td',{},ms)))}
    t.append(tb);b.append(el('div',{class:'grid magrid'},t));
    setButtons([[T('maDetails'),()=>message(ol.length?T('maOlList')+'\n'+ol.map(s=>s.name).join('\n'):T('maOlNone'))],[T('mixtureManager').replace(/\.+$/,''),()=>manager()],
@@ -91,42 +91,43 @@ async function open(){
    const tabs=el('div',{class:'tabs dtabs'});for(const k of [1,2,3]){const x=el('div',{class:'tab'+(st.tab===k?' on':''),text:`${T('maTab'+k)} (${groups[k].length})`,'data-tab':String(k)});x.addEventListener('mousedown',()=>{st.tab=k;draw()});tabs.append(x)}
    const t=el('table',{class:'g'});const heads=[T('sumRunFolder'),T('colSampleFile'),T('colSampleName'),T('maMethod'),T('maReason')];if(st.tab===2)heads.unshift(T('maExtraction'),T('maReview'));if(st.tab===2)heads.push(T('maKnown'));
    t.append(el('thead',{},el('tr',{},...heads.map(h=>el('th',{text:h})))));const tb=el('tbody');
-   for(const r of groups[st.tab]){const s=all.find(x=>x.file===r.id);const res=st.results[r.id];const cells=[];
+   for(const r of groups[st.tab]){const s=all.find(x=>x.key===r.id);const res=st.results[r.id];const cells=[];
     if(st.tab===2)cells.push(el('td',{class:'ic',html:res?.extraction?.status==='extracted'?'':pqv('check')}),el('td',{text:res?.review?'TRUE':'FALSE'}));
     cells.push(el('td',{text:s.runFolder}),el('td',{text:s.file}),el('td',{text:s.name}),el('td',{text:st.methodOf[r.id]}),el('td',{text:reasonText(r)}));
     if(st.tab===2){const ks=el('select');ks.append(new Option(T('maNone'),''));for(const p of ctx.knowns())ks.append(new Option(p.id,p.id));ks.value=st.known[r.id]||'';ks.addEventListener('change',()=>{st.known[r.id]=ks.value});cells.push(el('td',{},ks))}
     tb.append(el('tr',{},...cells))}
    t.append(tb);b.append(el('h3',{text:T('maSegTitle')}),tabs,el('div',{class:'grid magrid'},t),el('p',{class:'note',text:T('maSegNote'+st.tab)}));
-   const exp=()=>download('Sample Segregation.csv',csv([[T('maContributors'),T('colSampleFile'),T('colSampleName'),T('maMethod'),T('maReason')],...st.seg.filter(r=>r.contributors).map(r=>[r.contributors===3?'3+':r.contributors,r.id,all.find(x=>x.file===r.id).name,st.methodOf[r.id],reasonText(r)])]));
+   const exp=()=>download('Sample Segregation.csv',csv([[T('maContributors'),T('colSampleFile'),T('colSampleName'),T('maMethod'),T('maReason')],...st.seg.filter(r=>r.contributors).map(r=>[r.contributors===3?'3+':r.contributors,r.id,all.find(x=>x.key===r.id).name,st.methodOf[r.id],reasonText(r)])]));
    setButtons([[T('exportBtn'),exp],[T('maBack'),()=>{st.page='select';draw()}],[T('maFinish'),finish],[T('maNext'),()=>extractAll(groups),'maNext2']])}
   else viewer(b)};
  const reasonText=r=>!r.reason?'':r.reason.startsWith('phr_fail:')?fmt('maReasonPhr',r.reason.slice(9)):T('maReason_'+r.reason);
- async function segregate(){const list=eligible.filter(s=>st.include.has(s.file));if(!list.length)return message(T('selectSamplesFirst'));
-  try{const out=[];for(const s of list){const m=await getMethod(st.methodOf[s.file]);const r=(await ctx.post('/api/mixture',{action:'segregate',method:m,samples:[{id:s.file,markers:s.markers}]})).samples[0];out.push(r)}
+ async function segregate(){const list=eligible.filter(s=>st.include.has(s.key));if(!list.length)return message(T('selectSamplesFirst'));
+  try{const out=[];for(const s of list){const m=await getMethod(st.methodOf[s.key]);const r=(await ctx.post('/api/mixture',{action:'segregate',method:m,samples:[{id:s.key,markers:s.markers}]})).samples[0];out.push(r)}
    st.seg=out;for(const r of out){const prev=st.results[r.id];const mit=(await getMethod(st.methodOf[r.id])).mit;if(!prev||prev.method!==st.methodOf[r.id]||prev.contributors!==r.contributors)st.results[r.id]={method:st.methodOf[r.id],mit,contributors:r.contributors,adbi:r.adbi_markers,reason:r.reason}}
    st.tab=[2,1,3].find(k=>out.some(r=>r.contributors===k))||1;st.page='segregate';draw()}catch(e){message(e.message)}}
  async function extractAll(groups){
   for(const r of groups[2]){const res=st.results[r.id];const kn=st.known[r.id]?ctx.knowns().find(p=>p.id===st.known[r.id]):null;
    if(res.extraction&&res.knownId===(kn?.id||''))continue;
-   const s=all.find(x=>x.file===r.id);try{res.extraction=await ctx.post('/api/mixture',{action:'extract',method:await getMethod(res.method),sample:{id:s.file,markers:s.markers},known:kn?kn.markers:null});res.knownId=kn?.id||'';res.review=false}catch(e){message(e.message);return}}
+   const s=all.find(x=>x.key===r.id);try{res.extraction=await ctx.post('/api/mixture',{action:'extract',method:await getMethod(res.method),sample:{id:s.key,markers:s.markers},known:kn?kn.markers:null});res.knownId=kn?.id||'';res.review=false}catch(e){message(e.message);return}}
   for(const k of [1,3])for(const r of groups[k]){const res=st.results[r.id];res.options=res.options||{}}
   st.page='viewer';const order=[...groups[2],...groups[1],...groups[3]].map(r=>r.id);st.order=order;st.current=order[0];draw()}
  // ---------- results viewer ----------
- function viewer(b){const id=st.current;const s=all.find(x=>x.file===id);const res=st.results[id];
-  const nav=el('div',{class:'mahead'});const sel=el('select',{id:'maSample'});for(const f of st.order)sel.append(new Option(all.find(x=>x.file===f).name,f));sel.value=id;sel.addEventListener('change',()=>{st.current=sel.value;st.vtab=null;draw()});
+ const sOf=id=>st.virtual?.[id]||all.find(x=>x.key===id);
+ function viewer(b){const id=st.current;const s=sOf(id);const res=st.results[id];
+  const nav=el('div',{class:'mahead'});const sel=el('select',{id:'maSample'});for(const f of st.order)sel.append(new Option(sOf(f).name,f));sel.value=id;sel.addEventListener('change',()=>{st.current=sel.value;st.vtab=null;draw()});
   const i=st.order.indexOf(id);const prev=el('button',{class:'btn',type:'button',text:'<< '+T('maPrevSample')});prev.disabled=i<=0;prev.addEventListener('click',()=>{st.current=st.order[i-1];st.vtab=null;draw()});
   const next=el('button',{class:'btn',type:'button',text:T('maNextSample')+' >>',id:'maNextSample'});next.disabled=i>=st.order.length-1;next.addEventListener('click',()=>{st.current=st.order[i+1];st.vtab=null;draw()});
   nav.append(el('span',{text:`${T('colSampleFile')}: ${s.file}`}),el('span',{text:`${T('sumRunFolder')}: ${s.runFolder}`}),el('span',{text:`${T('colPanel')}: ${s.panel}`}),el('span',{text:`${T('maContributors')}: ${res.contributors===3?'3+':res.contributors}`}),el('span',{},el('label',{text:T('colSampleName')+': '}),sel),prev,next);
   b.append(nav);
   const tabs=[['results',T(res.contributors===1?'ma1Results':res.contributors===2?'maMixResults':'ma3Results')]];
-  if(res.stats?.rmp)tabs.push(['rmp',T('maRmpTab')]);if(res.stats?.cpi)tabs.push(['cpi',T('maCpiTab')]);
+  if(res.stats?.rmp)tabs.push(['rmp',T('maRmpTab')]);if(res.stats?.cpi)tabs.push(['cpi',T('maCpiTab')]);if(res.stats&&res.contributors<=2)tabs.push(['lr',T('maLrTab')]);
   st.vtab=st.vtab&&tabs.some(t=>t[0]===st.vtab)?st.vtab:'results';
   const tb=el('div',{class:'tabs dtabs'});for(const [k,label] of tabs){const x=el('div',{class:'tab'+(st.vtab===k?' on':''),text:label,'data-tab':k});x.addEventListener('mousedown',()=>{st.vtab=k;draw()});tb.append(x)}
   const page=el('div',{class:'tabpage dpage mapage'});b.append(tb,page);
-  if(st.vtab==='results'){if(res.contributors===1)oneContributor(page,s,res);else if(res.contributors===2)twoContributors(page,s,res);else threePlus(page,s,res)}
-  else if(st.vtab==='rmp')rmpView(page,res);else cpiView(page,res);
+  if(st.vtab==='results'){if(res.merged)mergedView(page,s,res);else if(res.contributors===1)oneContributor(page,s,res);else if(res.contributors===2)twoContributors(page,s,res);else threePlus(page,s,res)}
+  else if(st.vtab==='rmp')rmpView(page,res);else if(st.vtab==='lr')lrView(page,s,res);else cpiView(page,res);
   const notes=()=>dialog(T('maNotes'),bb=>{const ta=el('textarea',{rows:'6',cols:'60',id:'maNoteText'});ta.value=res.notes||'';bb.append(ta)},[[T('ok'),bb=>{res.notes=bb.querySelector('#maNoteText').value}],[T('cancel'),()=>true]]);
-  setButtons([[T('maNotes'),notes],[T('maCalcStats'),()=>calcStats(s,res),'maCalcStats'],[T('exportBtn'),()=>exportResults(s,res)],[T('maParams'),()=>params(res)],[T('maSamplesPlot'),()=>ctx.plot([s.file])],
+  setButtons([[T('maNotes'),notes],[T('maCalcStats'),()=>calcStats(s,res),'maCalcStats'],[T('exportBtn'),()=>exportResults(s,res)],[T('maParams'),()=>params(res)],[T('maSamplesPlot'),()=>ctx.plot(res.merged?res.merged.markers.flatMap(m=>m.variants.map(v=>v.source)).filter((v,i,a)=>a.indexOf(v)===i):[s.key])],[T('maMergedBtn'),()=>mergeGroups(),'maMergedBtn',!mergeCandidates().length],
    [T('maBack'),()=>{st.page='segregate';draw()}],[T('maFinish'),finish,'maFinish']])}
  // Alleles at or above the MIT of the sample's mixture analysis method (Y markers excluded).
  const alleles=(s,res)=>Object.fromEntries(s.markers.filter(m=>!m.y).map(m=>[m.name,m.alleles.filter(a=>a.height>=(res?.mit||0)).map(a=>a.label)]));
@@ -145,7 +146,7 @@ async function open(){
   const mk=el('select',{id:'maFilterMarker'});mk.append(new Option(T('maAll'),'All'));for(const m of [...new Set(x.rows.map(r=>r.marker))])mk.append(new Option(m,m));mk.value=f.marker;mk.addEventListener('change',()=>{f.marker=mk.value;draw()});
   const iq=el('select',{id:'maFilterIq'});for(const [v,k] of [['all','maShowAll'],['pass','maShowPass'],['check','maShowCheck'],['low','maShowLow']])iq.append(new Option(T(k),v));iq.value=f.iq;iq.addEventListener('change',()=>{f.iq=iq.value;draw()});
   const show=el('select',{id:'maShow'});for(const [v,k] of [['both','maShowBoth'],['selected','maShowSelected'],['unselected','maShowUnselected']])show.append(new Option(T(k),v));show.value=f.show;show.addEventListener('change',()=>{f.show=show.value;draw()});
-  const rev=el('input',{type:'checkbox',id:'maReview'});rev.checked=!!res.review;rev.addEventListener('change',()=>{res.review=rev.checked});
+  const rev=el('input',{type:'checkbox',id:'maReview'});rev.checked=!!res.review;rev.addEventListener('change',()=>{res.review=rev.checked;draw()});
   page.append(hdr,el('div',{class:'mabar'},el('label',{text:T('maFilterMarker')}),mk,el('label',{text:T('maFilterIq')}),iq,el('label',{text:T('maTables')}),show,el('label',{class:'chk'},rev,document.createTextNode(' '+T('maReviewComplete')))));
   const selRows=new Set();
   const table=(selected,title)=>{const rows=x.rows.filter(r=>r.selected===selected&&(f.marker==='All'||r.marker===f.marker)&&(selected||f.iq==='all'||r.iq===f.iq));
@@ -169,7 +170,7 @@ async function open(){
   dialog(T('maPopSelect'),b=>{const sel=el('select',{id:'maDb'});dbs.forEach((p,i)=>sel.append(new Option(p.data.database,String(i))));const box=el('div',{class:'pcsel',id:'maPops'});
    const fill=()=>{box.replaceChildren();pops.clear();for(const p of dbs[di].data.populations){pops.add(p.name);const c=el('input',{type:'checkbox'});c.checked=true;c.addEventListener('change',()=>{c.checked?pops.add(p.name):pops.delete(p.name)});box.append(el('label',{class:'chk'},c,document.createTextNode(` ${p.name} (θ=${p.theta})`)))}};
    sel.addEventListener('change',()=>{di=+sel.value;fill()});fill();b.append(el('div',{class:'field'},el('label',{text:T('maDatabase')}),sel),el('div',{class:'cap',text:T('maPopulations')}),box,el('p',{class:'note',text:T('maStatsNote')}))},
-   [[T('ok'),async()=>{const db=dbs[di].data,names=[...pops];if(!names.length)return message(T('maPickPop')),false;res.stats={database:db.database};
+   [[T('ok'),async()=>{const db=dbs[di].data,names=[...pops];if(!names.length)return message(T('maPickPop')),false;res.stats={database:db.database,populations:names};res.lr=null;
      try{if(res.contributors===1)res.stats.rmp=await ctx.post('/api/mixture',{action:'statistics',kind:'single',population_db:db,populations:names,markers:alleles(s,res),options:res.options});
       if(res.contributors===2){const x=res.extraction;if(x?.status!=='extracted')return message(T('maNotExtracted')),false;
        res.stats.rmp=await ctx.post('/api/mixture',{action:'statistics',kind:'two',population_db:db,populations:names,c1:contributorProfile(res,'c1'),c2:contributorProfile(res,'c2')});
@@ -193,6 +194,67 @@ async function open(){
   t.append(tb);const d=el('table',{class:'g'});d.append(el('thead',{},el('tr',{},...[T('maPopulation'),T('colMarker'),T('maAlleles'),T('maCombos'),T('maInclusion')].map(h=>el('th',{text:h})))));const db=el('tbody');
   for(const p of r.results)for(const x of p.details)db.append(el('tr',{},el('td',{text:p.population}),el('td',{text:x.marker}),el('td',{text:x.alleles.join(', ')}),el('td',{class:'num',text:x.combinations==null?'N/A':String(x.combinations)}),el('td',{class:'num',text:x.inclusion.toFixed(4)})));
   d.append(db);page.append(el('div',{class:'cap',text:`${T('maCpiSummary')} — ${r.database}`}),el('div',{class:'grid'},t),el('div',{class:'cap',text:T('maCpiDetails')}),el('div',{class:'grid magrid'},d))}
+ // ---------- likelihood ratio ----------
+ const hypText=(h,r1,r2)=>{const U=T('maUnknown'),UU=T('maTwoUnknown');const mix=(a,b)=>fmt('maMixtureOf',a,b);
+  return {single:[`C1: ${r1}`,`C1: ${U}`],major:[`C1: ${r1}`,`C1: ${U}`],h1:[mix(r1,r2),mix(r1,U)],h2:[mix(r1,r2),mix(r2,U)],h3:[mix(r1,r2),UU],h4:[mix(r1,U),UU],h5:[mix(r2,U),UU]}[h]};
+ function lrView(page,s,res){const L=res.lr=res.lr||{r1:res.knownId||'',r2:'',useC1:false,result:null,checked:null};const two=res.contributors===2;const knowns=ctx.knowns();
+  const refSel=(key,id,other)=>{const x=el('select',{id});x.append(new Option(T('maNone'),''));for(const p of knowns)if(p.id!==L[other])x.append(new Option(p.id,p.id));x.value=L[key];x.addEventListener('change',()=>{L[key]=x.value;L.result=null;draw()});return x};
+  const bar=el('div',{class:'mabar'},el('span',{text:'LR = Pr(E | Hp) / Pr(E | Hd)'}),el('label',{text:T('maRef1')}),refSel('r1','maRef1','r2'));
+  if(two){const c=el('input',{type:'checkbox',id:'maUseC1'});c.checked=L.useC1;c.addEventListener('change',()=>{L.useC1=c.checked;if(c.checked)L.r2='';L.result=null;draw()});
+   const r2=refSel('r2','maRef2','r1');r2.disabled=L.useC1;bar.append(el('label',{text:T('maRef2')}),r2,el('label',{class:'chk'},c,document.createTextNode(' '+T('maUseC1'))))}
+  const go=el('button',{class:'btn',type:'button',text:T('maCalcLr'),id:'maCalcLr'});go.addEventListener('click',async()=>{
+   const db=popdbs().find(x=>x.data.database===res.stats.database);if(!db)return message(T('maNoPopDb'));const refs=[L.r1,L.r2].filter(Boolean).map(id=>knowns.find(p=>p.id===id)).filter(Boolean);if(!refs.length)return message(T('maPickRef'));
+   const req={action:'lr',population_db:db.data,populations:res.stats.populations,references:refs.map(p=>({id:p.id,markers:p.markers}))};
+   if(two)Object.assign(req,{kind:'two',use_c1_only:L.useC1,rows:res.extraction.rows.filter(r=>r.selected)});else Object.assign(req,{kind:'single',markers:alleles(s,res),options:res.options||{}});
+   try{L.result=await ctx.post('/api/mixture',req);L.checked=new Set(L.result.hypotheses);draw()}catch(e){message(e.message)}});
+  bar.append(go);page.append(bar);
+  const r=L.result;if(!r){page.append(el('p',{class:'note',text:T('maLrNote')}));return}
+  const names={R1:L.r1,R2:L.r2};const st2=[];
+  for(const [k,v] of Object.entries(r.references)){if(k==='mismatch')continue;const id=v.id||names[k];const ok=v.match??(v==='match');
+   st2.push(ok?fmt('maRefFound',id,(v.positions||['c1']).map(x=>x==='c1'?'C1 (Major)':'C2 (Minor)').join(', ')):fmt('maRefNotFound',id,s.name)+(v.mismatch_c1?' '+fmt('maRefMismatch',v.mismatch_c1.join(', ')||'—',v.mismatch_c2.join(', ')||'—'):''))}
+  if(r.not_in_reference?.length)st2.push(T('maNotInRef')+' '+r.not_in_reference.join(', '));
+  page.append(el('div',{class:'note',text:st2.join('\n')}));
+  if(!r.hypotheses.length){page.append(el('p',{text:T('maNoHyp')}));return}
+  const hb=el('div',{class:'mahyp'});for(const h of r.hypotheses){const [hp,hd]=hypText(h,L.r1,L.r2);const c=el('input',{type:'checkbox','data-h':h});c.checked=L.checked.has(h);c.addEventListener('change',()=>{c.checked?L.checked.add(h):L.checked.delete(h);draw()});
+   hb.append(el('label',{class:'chk'},c,document.createTextNode(` Hp = ${hp};  Hd = ${hd}`)))}
+  page.append(el('div',{class:'cap',text:T('maHypotheses')}),hb);
+  const rows=r.results.filter(x=>L.checked.has(x.hypothesis));const big=v=>v==null?'N/A':v>=1e6?Number(v).toExponential(3):Number(v).toLocaleString(undefined,{maximumFractionDigits:2});
+  const t=el('table',{class:'g',id:'maLrTable'});t.append(el('thead',{},el('tr',{},...[T('maPopulation'),'Hp','Hd','Pr(E|Hp)','Pr(E|Hd)','LR',T('maMissingPop')].map(h=>el('th',{text:h})))));const tb=el('tbody');
+  for(const x of rows){const [hp,hd]=hypText(x.hypothesis,L.r1,L.r2);tb.append(el('tr',{},el('td',{text:x.population}),el('td',{text:hp}),el('td',{text:hd}),el('td',{class:'num',text:x.numerator.toExponential(4)}),el('td',{class:'num',text:x.denominator.toExponential(4)}),el('td',{class:'num',text:big(x.lr)}),el('td',{text:x.missing_markers.join(', ')})))}
+  t.append(tb);page.append(el('div',{class:'cap',text:T('maLrSummary')}),el('div',{class:'grid'},t));
+  const ex=el('button',{class:'btn',type:'button',text:T('maExportLr'),id:'maExportLr'});ex.addEventListener('click',()=>{const out=[['Sample File',s.file],['Sample Name',s.name],['Run Folder',s.runFolder],['Panel',s.panel],['Date/Time',new Date().toLocaleString()],['Database',res.stats.database],['Reference 1',L.r1],['Reference 2',L.r2]];
+   if(res.extraction?.average_mx)out.push(['Average Mx',res.extraction.average_mx],['Residual Threshold',res.extraction.residual_threshold]);
+   for(const x of rows){const [hp,hd]=hypText(x.hypothesis,L.r1,L.r2);out.push([],['Population',x.population,'Theta',x.theta],['Hp',hp],['Hd',hd],['Marker','Hp','Hd']);
+    for(const d of x.details)out.push(d.note?[d.marker,d.note]:[d.marker,d.hp,d.hd]);out.push(['Likelihood Ratio',x.lr,`${x.numerator}/${x.denominator}`]);if(x.missing_markers.length)out.push(['Markers missing in population',x.missing_markers.join(' ')])}
+   download(`${s.name} - LR Statistics.csv`,csv(out))});
+  page.append(el('div',{class:'btnrow'},ex))}
+ // ---------- merged results (samples with the same name) ----------
+ function mergeCandidates(){const by={};for(const id of st.order){if(id.startsWith('merged:'))continue;const s=sOf(id),r=st.results[id];if(!r||r.contributors>2)continue;
+   if(r.contributors===2&&!(r.review&&r.extraction?.status==='extracted'))continue;(by[s.name+'\u0001'+r.contributors]=by[s.name+'\u0001'+r.contributors]||[]).push(id)}
+  return Object.entries(by).filter(([,v])=>v.length>1)}
+ async function mergeGroups(){const groups=mergeCandidates();if(!groups.length)return message(T('maNoMerge'));st.virtual=st.virtual||{};let first=null;
+  for(const [key,ids] of groups){const [name,c]=key.split('\u0001');const contributors=+c;const vid=`merged:${name}:${c}`;
+   const sources=ids.map(id=>{const s=sOf(id),r=st.results[id];return {id,markers:contributors===2?[...new Set(r.extraction.rows.map(x=>x.marker))].map(m=>({name:m,rows:r.extraction.rows.filter(x=>x.marker===m)})):Object.entries(alleles(s,r)).map(([m,a])=>({name:m,alleles:a}))}});
+   try{const merged=await ctx.post('/api/mixture',{action:'merge',kind:contributors===2?'two':'one',sources});
+    const base=sOf(ids[0]);st.virtual[vid]={key:vid,file:vid,name:`${name} (${T('maMergedName')})`,runFolder:'<Multiple>',panel:[...new Set(ids.map(i=>sOf(i).panel))].join(', '),markers:[],virtual:true};
+    st.results[vid]={contributors,merged,method:st.results[ids[0]].method,mit:0,sources:ids,options:{},extraction:{status:'extracted',rows:[],residual_threshold:0.04,average_mx:null,missing_markers:[]}};
+    deriveMerged(st.virtual[vid],st.results[vid]);if(!st.order.includes(vid))st.order.push(vid);first=first||vid}catch(e){return message(e.message)}}
+  st.current=first;st.vtab='results';draw()}
+ function deriveMerged(s,res){const m=res.merged.markers;
+  if(res.contributors===2){res.extraction.rows=m.flatMap(x=>x.chosen==null?[]:x.variants[x.chosen].rows.map(r=>({...r,selected:true,inconclusive:{...(r.inconclusive||{c1:false,c2:false})}})));
+   res.extraction.missing_markers=m.filter(x=>x.chosen==null).map(x=>x.marker)}
+  else s.markers=m.filter(x=>x.chosen!=null).map(x=>({name:x.marker,y:false,alleles:x.variants[x.chosen].alleles.map(a=>({label:a,height:1}))}));
+  res.stats=null;res.lr=null}
+ function mergedView(page,s,res){const m=res.merged.markers;const two=res.contributors===2;
+  page.append(el('p',{class:'note',text:fmt('maMergedNote',res.sources.map(id=>sOf(id).file).join(', '))}));
+  const t=el('table',{class:'g matab'});t.append(el('thead',{},el('tr',{},...[T('colMarker'),T('maMergeStatus'),T('maMergeSource'),...(two?['C1 (Major)','C2 (Minor)']:[T('maAlleles')])].map(h=>el('th',{text:h})))));const tb=el('tbody');
+  for(const x of m){const srcCell=el('td');
+   if(x.status==='conflict'){const sel=el('select',{'data-marker':x.marker});sel.append(new Option(T('maChoose'),''));x.variants.forEach((v,i)=>sel.append(new Option(sOf(v.source).file,String(i))));sel.value=x.chosen==null?'':String(x.chosen);
+    sel.addEventListener('change',()=>{x.chosen=sel.value===''?null:+sel.value;deriveMerged(s,res);draw()});srcCell.append(sel)}else srcCell.textContent=x.source==='<Multiple>'?'<Multiple>':sOf(x.source).file;
+   const v=x.chosen==null?null:x.variants[x.chosen];
+   const cells=two?[el('td',{text:v?v.rows.map(r=>gt(r.c1)).join(' | '):''}),el('td',{text:v?v.rows.map(r=>gt(r.c2)).join(' | '):''})]:[el('td',{text:v?v.alleles.join(', '):''})];
+   tb.append(el('tr',{class:x.status==='conflict'&&x.chosen==null?'conflict':''},el('td',{text:x.marker}),el('td',{html:pqv(x.status==='conflict'?(x.chosen==null?'low':'check'):'pass'),title:T('maMerge_'+x.status)}),srcCell,...cells))}
+  t.append(tb);page.append(el('div',{class:'grid magrid'},t));if(!two)oneContributor(page,s,res)}
  function exportResults(s,res){const head=[`Sample File,${s.file}`,`Sample Name,${s.name}`,`Run Folder,${s.runFolder}`,`Panel,${s.panel}`,`Mixture Analysis Method,${res.method}`,`Date/Time,${new Date().toLocaleString()}`].join('\r\n')+'\r\n';
   if(res.contributors===2&&res.extraction?.rows){const x=res.extraction;const code=v=>({pass:0,check:1,low:2,na:-2}[v]??-2);
    const rows=[['Table','Marker','C1 (Major)','C2 (Minor)','Inconclusive C1','Inconclusive C2','ADBI','Mx','Residual','PHR1','PHR2','Residual Status','PHR Status','IQ']];

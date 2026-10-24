@@ -577,6 +577,258 @@ def statistics(request):
     return {'database': db['database'], 'kind': kind, 'results': out}
 
 
+# ---------- likelihood ratio (ID-X "Selecting a Likelihood Ratio (LR) Hypothesis") ----------
+def _norm(g):
+    return tuple(sorted((F if is_f(a) else a) for a in g))
+
+
+def _ref_fits(ref, gt):
+    """A reference genotype fits an evidence genotype; F (possible dropout) accepts any missing allele."""
+    ref = list(ref) * 2 if len(ref) == 1 else list(ref)  # profiles store a homozygote as one label
+    gt, ref = _norm(gt), tuple(sorted(ref))
+    if F not in gt:
+        return gt == ref
+    known = [a for a in gt if a != F]
+    rest = list(ref)
+    for a in known:
+        if a not in rest:
+            return False
+        rest.remove(a)
+    return True
+
+
+HYPOTHESES = {
+    'single': ('C1: R1', 'C1: unknown'),
+    'major': ('C1: R1', 'C1: unknown'),
+    'h1': ('R1 + R2', 'R1 + unknown'),
+    'h2': ('R1 + R2', 'R2 + unknown'),
+    'h3': ('R1 + R2', 'two unknowns'),
+    'h4': ('R1 + unknown', 'two unknowns'),
+    'h5': ('R2 + unknown', 'two unknowns'),
+}
+
+
+def _positions(rows, ref, markers):
+    """Contributor position(s) at which a reference fits a selected combination at every marker."""
+    out = []
+    for key in ('c1', 'c2'):
+        if all(any(_ref_fits(ref[m], r[key]) for r in rows if r['marker'] == m) for m in markers):
+            out.append(key)
+    return out
+
+
+def likelihood_ratio(request):
+    """LR = Pr(E|Hp) / Pr(E|Hd) per marker product.
+
+    kind 'single': evidence {marker: alleles} with 1-contributor options; reference R1.
+    kind 'two': evidence rows = selected genotype combinations {marker, c1, c2, inconclusive};
+    references R1 (and R2); use_c1_only treats the major contributor as single source.
+    Pr(E|H) at a marker = sum over selected combinations consistent with the known contributors
+    of the genotype frequencies of the unknown contributors (1 when all are known).
+    """
+    db = request.get('population_db')
+    if isinstance(db, str):
+        db = parse_population_db(db)
+    names = request.get('populations') or [p['name'] for p in db['populations']]
+    pops = [p for p in db['populations'] if p['name'] in names]
+    if not pops:
+        raise ValueError('Select at least one population')
+    refs = [r for r in (request.get('references') or []) if r]
+    if not refs:
+        raise ValueError('Select a reference sample')
+    refs = [{'id': str(r['id']), 'markers': {m: [str(a) for a in v] for m, v in r['markers'].items() if v}} for r in refs]
+    kind = request.get('kind')
+    if kind == 'single':
+        evidence = request.get('markers') or {}
+        options = request.get('options') or {}
+        r1 = refs[0]
+        markers = [m for m, a in evidence.items() if a and _stat_marker(m) and options.get(m) != 'inconclusive']
+        not_in_ref = [m for m in markers if m not in r1['markers']]
+        markers = [m for m in markers if m in r1['markers']]
+        mismatch = []
+        for m in markers:
+            ev = evidence[m]
+            ref = r1['markers'][m]
+            ok = (sorted(set(ref)) == sorted(set(ev))) if len(ev) <= 2 else set(ref) <= set(ev)
+            if len(ev) == 1 and options.get(m) == '2p':
+                ok = ev[0] in ref
+            if not ok:
+                mismatch.append(m)
+        status = {'R1': 'match' if not mismatch else 'no_match', 'mismatch': mismatch}
+        hyps = ['single'] if not mismatch else []
+        results = []
+        for pop in pops:
+            for h in hyps:
+                rows, missing, num, den = [], [], 1.0, 1.0
+                for m in markers:
+                    f = rmp_single({m: evidence[m]}, pop, options)
+                    if f['missing_markers']:
+                        missing.append(m)
+                        continue
+                    d = f['details'][0]['frequency']
+                    num *= 1.0
+                    den *= d
+                    rows.append({'marker': m, 'hp': 1.0, 'hd': d})
+                results.append({'population': pop['name'], 'theta': pop['theta'], 'hypothesis': h, 'hp': HYPOTHESES[h][0],
+                                'hd': HYPOTHESES[h][1], 'numerator': num, 'denominator': den,
+                                'lr': num / den if den > 0 else None, 'details': rows, 'missing_markers': missing})
+        return {'kind': kind, 'references': status, 'not_in_reference': not_in_ref, 'hypotheses': hyps, 'results': results}
+    if kind != 'two':
+        raise ValueError('kind must be single or two')
+    rows = [r for r in request.get('rows') or [] if r.get('selected', True)]
+    use_c1 = bool(request.get('use_c1_only'))
+    markers = []
+    for r in rows:
+        if r['marker'] not in markers and _stat_marker(r['marker']):
+            markers.append(r['marker'])
+    inconc = {m for m in markers if any(r['marker'] == m and (r.get('inconclusive') or {}).get('c1') for r in rows)}
+    inconc2 = {m for m in markers if any(r['marker'] == m and (r.get('inconclusive') or {}).get('c2') for r in rows)}
+    not_in_ref = sorted({m for m in markers for ref in refs if m not in ref['markers']})
+    usable = [m for m in markers if all(m in ref['markers'] for ref in refs)]
+    pos = [_positions(rows, ref['markers'], usable) for ref in refs]
+    status = {}
+    for i, ref in enumerate(refs):
+        miss = {k: [m for m in usable if not any(_ref_fits(ref['markers'][m], r[k]) for r in rows if r['marker'] == m)]
+                for k in ('c1', 'c2')}
+        status[f'R{i + 1}'] = {'id': ref['id'], 'positions': pos[i], 'match': bool(pos[i]),
+                               'mismatch_c1': miss['c1'], 'mismatch_c2': miss['c2']}
+    hyps = []
+    p1 = pos[0]
+    p2 = pos[1] if len(refs) > 1 else []
+    if use_c1:
+        if any(len({_norm(r['c1']) for r in rows if r['marker'] == m}) > 1 for m in usable):
+            raise ValueError('Use C1 (Major) Only needs one C1 genotype per marker in the Selected Genotype Combinations table')
+        if 'c1' in p1:
+            hyps = ['major']
+    else:
+        if p1:
+            hyps.append('h4')
+        if len(refs) > 1 and p2:
+            hyps.append('h5')
+        if len(refs) > 1 and p1 and p2 and any(a != b for a in p1 for b in p2):
+            hyps = ['h1', 'h2', 'h3'] + hyps
+
+    def assign():
+        """Positions of R1/R2 (R1 prefers C1)."""
+        a1 = 'c1' if 'c1' in p1 else (p1[0] if p1 else None)
+        a2 = None
+        if p2:
+            a2 = next((x for x in p2 if x != a1), None)
+        return a1, a2
+
+    a1, a2 = assign()
+
+    def prob(m, known, pop):
+        """sum over selected combinations at m with known[pos]=ref of product of unknown genotype frequencies."""
+        seen, total = set(), 0.0
+        for r in rows:
+            if r['marker'] != m:
+                continue
+            if any(not _ref_fits(ref, r[k]) for k, ref in known.items()):
+                continue
+            unknown = [k for k in ('c1', 'c2') if k not in known]
+            key = tuple(_norm(r[k]) for k in unknown)
+            if key in seen:
+                continue
+            seen.add(key)
+            f = 1.0
+            for k in unknown:
+                g = genotype_frequency(pop, m, *_norm(r[k]))
+                if g is None:
+                    return None
+                f *= g
+            total += f
+        return total
+
+    results = []
+    for pop in pops:
+        for h in hyps:
+            r1m = lambda m: refs[0]['markers'][m]
+            r2m = lambda m: refs[1]['markers'][m]
+            num = den = 1.0
+            details, missing = [], []
+            for m in usable:
+                if m in inconc or (m in inconc2 and not use_c1):
+                    details.append({'marker': m, 'note': 'inconclusive'})
+                    continue
+                if h == 'major':
+                    hp = 1.0
+                    seen, hd = set(), 0.0
+                    for r in rows:
+                        if r['marker'] == m and _norm(r['c1']) not in seen:
+                            seen.add(_norm(r['c1']))
+                            g = genotype_frequency(pop, m, *_norm(r['c1']))
+                            hd = None if g is None or hd is None else hd + g
+                else:
+                    k1 = {a1: r1m(m)} if a1 else {}
+                    k2 = {a2: r2m(m)} if a2 else {}
+                    if h == 'h4':
+                        hp, hd = prob(m, {p1[0] if a1 is None else a1: r1m(m)}, pop), prob(m, {}, pop)
+                    elif h == 'h5':
+                        pos5 = a2 or p2[0]
+                        hp, hd = prob(m, {pos5: r2m(m)}, pop), prob(m, {}, pop)
+                    else:
+                        hp = prob(m, {**k1, **k2}, pop)
+                        hd = prob(m, k1, pop) if h == 'h1' else prob(m, k2, pop) if h == 'h2' else prob(m, {}, pop)
+                if hp is None or hd is None:
+                    missing.append(m)
+                    continue
+                num *= hp
+                den *= hd
+                details.append({'marker': m, 'hp': hp, 'hd': hd})
+            results.append({'population': pop['name'], 'theta': pop['theta'], 'hypothesis': h, 'hp': HYPOTHESES[h][0],
+                            'hd': HYPOTHESES[h][1], 'numerator': num, 'denominator': den,
+                            'lr': num / den if den > 0 else None, 'details': details, 'missing_markers': missing})
+    return {'kind': kind, 'references': status, 'assigned': {'R1': a1, 'R2': a2}, 'not_in_reference': not_in_ref,
+            'hypotheses': hyps, 'results': results}
+
+
+# ---------- merged results (VirtualSample, AnalysisManager.a(VirtualSample)) ----------
+def merge(request):
+    """Samples with the same name: per marker the first source with selected results is the
+    baseline; other sources with selected results must agree (same genotype pairs) -> '<Multiple>',
+    otherwise the marker is in conflict and every source variant is offered."""
+    sources = request.get('sources') or []
+    if len(sources) < 2:
+        raise ValueError('Merging needs two or more samples with the same name')
+    kind = request.get('kind', 'two')
+    order = []
+    for s in sources:
+        for m in s['markers']:
+            if m['name'] not in order:
+                order.append(m['name'])
+    out = []
+    for name in order:
+        variants = []
+        for s in sources:
+            m = next((x for x in s['markers'] if x['name'] == name), None)
+            if not m:
+                continue
+            if kind == 'two':
+                sel = [r for r in m['rows'] if r.get('selected')]
+                if sel:
+                    key = sorted((_norm(r['c1']), _norm(r['c2'])) for r in sel)
+                    variants.append({'source': s['id'], 'rows': sel, 'key': key})
+            else:
+                if m['alleles']:
+                    variants.append({'source': s['id'], 'alleles': m['alleles'], 'key': sorted(m['alleles'])})
+        if not variants:
+            continue
+        base = variants[0]
+        others = variants[1:]
+        if not others:
+            status, source = 'single', base['source']
+        elif all(v['key'] == base['key'] for v in others):
+            status, source = 'concordant', '<Multiple>'
+        else:
+            status, source = 'conflict', None
+        for v in variants:
+            v.pop('key')
+        out.append({'marker': name, 'status': status, 'source': source,
+                    'chosen': None if status == 'conflict' else 0, 'variants': variants})
+    return {'kind': kind, 'markers': out}
+
+
 def mixture_request(request):
     if not isinstance(request, dict):
         raise ValueError('Mixture request must be an object')
@@ -598,4 +850,8 @@ def mixture_request(request):
         return parse_population_db(request.get('text'))
     if action == 'statistics':
         return statistics(request)
-    raise ValueError('action must be factory, validate, segregate, extract, parse_popdb or statistics')
+    if action == 'lr':
+        return likelihood_ratio(request)
+    if action == 'merge':
+        return merge(request)
+    raise ValueError('action must be factory, validate, segregate, extract, parse_popdb, statistics, lr or merge')

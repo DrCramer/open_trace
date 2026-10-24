@@ -251,3 +251,4 @@ tr.sub td{background:#f7f7f2;color:#333}
 .mabar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0}.mapage{min-height:360px}
 .matab td,.matab th{white-space:nowrap}.madlg tr.known td{background:#eef5ff}.madlg .magrid.sel{border-color:#2f7d32}
 .mamdlg .grid{max-height:200px;overflow:auto;background:#fff}.mamdlg input.num{width:80px}.mamgr .mgrgrid{min-width:640px}
+tr.conflict td{background:#fde8e8}.mahyp{display:flex;flex-direction:column;gap:2px;margin:4px 0}

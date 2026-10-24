@@ -910,9 +910,9 @@ function mixSamples(){return state.project.samples.map(s=>{const eff=s.report?ef
  const y=new Set((kit?.markers||[]).filter(m=>m.y_marker).map(m=>m.name));const byM=new Map();
  if(eff)for(const c of [...eff.calls].sort((a,b)=>a.size_bp-b.size_bp)){if(!c.label)continue;if(!byM.has(c.marker))byM.set(c.marker,[]);byM.get(c.marker).push({label:String(c.label),height:c.height})}
  const q=samplePqv(s).SQ;const markers=[...byM].map(([name,alleles])=>({name,y:y.has(name),alleles}));
- return {file:s.file,name:s.name,runFolder:s.runFolder,panel:s.panel||'',markers,
+ return {key:s.runFolder+'/'+s.file,file:s.file,name:s.name,runFolder:s.runFolder,panel:s.panel||'',markers,
   eligibleBase:!!eff&&s.type==='sample'&&['pass','check','override'].includes(q)&&markers.length>0,ol:markers.some(m=>m.alleles.some(a=>a.label.toUpperCase()==='OL'))}})}
-Mixture.init({post:jsonPost,samples:mixSamples,plot:files=>reportApi.plot(files),results:()=>JSON.parse(JSON.stringify(state.project.mixture||{})),
+Mixture.init({post:jsonPost,samples:mixSamples,plot:keys=>{const set=new Set(keys);state.selected=new Set(state.project.samples.filter(s=>set.has(s.runFolder+'/'+s.file)).map(s=>s.id));render();displayPlots()},results:()=>JSON.parse(JSON.stringify(state.project.mixture||{})),
  saveResults:r=>{state.project.mixture=r;state.project.dirty=true;render()},knowns:()=>Profiles.profiles()});
 Methods.init(jsonPost);
 buildChrome();render();

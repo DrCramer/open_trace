@@ -141,3 +141,69 @@ class StatisticsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+from genemapper_open.mixture import likelihood_ratio, merge
+
+LR_POP = """Module=STR_JFS Mixture Analysis Population Statistics,
+Version=1.0,
+Database=LR DB,
+Population=P,Theta=0.01
+Marker=M1,N=500
+Allele,Frequency
+a,0.1
+b,0.2
+c,0.3
+d,0.05
+"""
+
+
+class LikelihoodRatioTests(unittest.TestCase):
+    def rows(self):
+        return [{'marker': 'M1', 'c1': ['a', 'b'], 'c2': ['c', 'd'], 'selected': True, 'inconclusive': {'c1': False, 'c2': False}},
+                {'marker': 'AMEL', 'c1': ['X', 'X'], 'c2': ['X', 'Y'], 'selected': True}]
+
+    def test_help_example_victim_and_suspect(self):
+        victim = {'id': 'Victim', 'markers': {'M1': ['a', 'b'], 'AMEL': ['X', 'X']}}
+        suspect = {'id': 'Suspect', 'markers': {'M1': ['c', 'd'], 'AMEL': ['X', 'Y']}}
+        r = likelihood_ratio({'kind': 'two', 'population_db': LR_POP, 'rows': self.rows(), 'references': [victim, suspect]})
+        self.assertEqual(r['assigned'], {'R1': 'c1', 'R2': 'c2'})
+        h1 = next(x for x in r['results'] if x['hypothesis'] == 'h1')
+        self.assertAlmostEqual(h1['numerator'], 1.0)
+        self.assertAlmostEqual(h1['denominator'], 2 * 0.3 * 0.05)       # Hd = 2 fc fd
+        self.assertAlmostEqual(h1['lr'], 1 / (2 * 0.3 * 0.05))
+        h3 = next(x for x in r['results'] if x['hypothesis'] == 'h3')
+        self.assertAlmostEqual(h3['denominator'], (2 * .1 * .2) * (2 * .3 * .05))
+        self.assertEqual(set(r['hypotheses']), {'h1', 'h2', 'h3', 'h4', 'h5'})
+        none = likelihood_ratio({'kind': 'two', 'population_db': LR_POP, 'rows': self.rows(),
+                                 'references': [{'id': 'X', 'markers': {'M1': ['a', 'c']}}]})
+        self.assertEqual((none['references']['R1']['match'], none['hypotheses']), (False, []))
+        major = likelihood_ratio({'kind': 'two', 'population_db': LR_POP, 'rows': self.rows(), 'references': [victim], 'use_c1_only': True})
+        self.assertAlmostEqual(major['results'][0]['lr'], 1 / (2 * .1 * .2))
+        hom = [{'marker': 'M1', 'c1': ['a', 'a'], 'c2': ['b', 'c'], 'selected': True}]
+        r = likelihood_ratio({'kind': 'two', 'population_db': LR_POP, 'rows': hom, 'references': [{'id': 'H', 'markers': {'M1': ['a']}}]})
+        self.assertEqual(r['assigned']['R1'], 'c1')
+
+    def test_dropout_and_single_source(self):
+        rows = [{'marker': 'M1', 'c1': ['a', 'b'], 'c2': ['c', 'F1'], 'selected': True}]
+        r = likelihood_ratio({'kind': 'two', 'population_db': LR_POP, 'rows': rows,
+                              'references': [{'id': 'S', 'markers': {'M1': ['c', 'd']}}]})
+        self.assertEqual(r['assigned']['R1'], 'c2')
+        h4 = r['results'][0]
+        self.assertAlmostEqual(h4['numerator'], 2 * .1 * .2)
+        self.assertAlmostEqual(h4['denominator'], (2 * .1 * .2) * (2 * .3))
+        s = likelihood_ratio({'kind': 'single', 'population_db': LR_POP, 'markers': {'M1': ['a', 'b']},
+                              'references': [{'id': 'R', 'markers': {'M1': ['b', 'a']}}]})
+        self.assertAlmostEqual(s['results'][0]['lr'], 1 / (2 * .1 * .2))
+
+
+class MergeTests(unittest.TestCase):
+    def test_baseline_concordant_conflict(self):
+        row = lambda c1, c2: {'c1': c1, 'c2': c2, 'selected': True}
+        a = {'id': 'run1', 'markers': [{'name': 'M1', 'rows': [row(['1', '2'], ['3', '4'])]}, {'name': 'M2', 'rows': [row(['5', '6'], ['7', '7'])]}]}
+        b = {'id': 'run2', 'markers': [{'name': 'M1', 'rows': [row(['2', '1'], ['4', '3'])]}, {'name': 'M2', 'rows': [row(['5', '6'], ['7', '8'])]},
+                                       {'name': 'M3', 'rows': [row(['9', '9'], ['10', '10'])]}]}
+        out = {m['marker']: m for m in merge({'sources': [a, b]})['markers']}
+        self.assertEqual((out['M1']['status'], out['M1']['source']), ('concordant', '<Multiple>'))
+        self.assertEqual((out['M2']['status'], out['M2']['chosen'], len(out['M2']['variants'])), ('conflict', None, 2))
+        self.assertEqual((out['M3']['status'], out['M3']['source']), ('single', 'run2'))
