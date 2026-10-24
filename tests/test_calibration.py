@@ -154,6 +154,25 @@ class CalibrationModelsTests(unittest.TestCase):
                 external[0][1] = -1
                 self.assertEqual(calibration.size(0), 50)
 
+    def test_global_southern_least_squares_reciprocal(self):
+        # exact Southern curve bp = c + m/(scan - s0) is recovered from all fragments
+        c, m, s0 = 1086.0, -4617000.0, -3000.0
+        anchors = [(x, c + m / (x - s0)) for x in range(1500, 6600, 350)]
+        cal = build_calibration(anchors, "global_southern")
+        d = cal.diagnostics
+        self.assertLess(d["max_abs_anchor_error_bp"], 1e-8)
+        self.assertAlmostEqual(d["pole_scan"], s0, places=4)
+        self.assertAlmostEqual(cal.size(3300), c + m / (3300 - s0), places=8)
+        # one anomalous fragment: global fit stays near the true curve, unlike interpolating models
+        bumped = [(x, y + (1.5 if i == 5 else 0)) for i, (x, y) in enumerate(anchors)]
+        g = build_calibration(bumped, "global_southern").size(3300)
+        local = build_calibration(bumped, "local_rational").size(3300)
+        truth = c + m / (3300 - s0)
+        self.assertLess(abs(g - truth), abs(local - truth))
+        self.assertGreater(build_calibration(bumped, "global_southern").diagnostics["max_abs_anchor_error_bp"], 0.5)
+        with self.assertRaises(CalibrationError):
+            build_calibration(anchors[:3], "global_southern")
+
     def test_invalid_query_values(self):
         calibration = build_calibration([(100, 50), (200, 100)])
         for value in (math.nan, math.inf, -math.inf, True, False, "100", [], {}, 10 ** 1000):

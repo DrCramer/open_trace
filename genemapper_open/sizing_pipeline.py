@@ -24,7 +24,7 @@ def analyze_size_standard(values, expected_bp, *, num_extra_peaks, quality_thres
                           min_width=2.0, tau_begin=0.0, tau_end=0.0, group_gap=25,
                           ratio_factor=0.8, min_accepted_score=0.75, ambiguity_margin=0.01,
                           allow_prefix=True, max_bp_per_scan=0.25, offscale_intervals=(),
-                          height_mode='explicit', coordinate_mode='ap_fractional'):
+                          height_mode='explicit', coordinate_mode='ap_fractional', sg_degree=3):
     """Analyze one explicit standard channel, returning anchors only after base SQ.
 
     Rejected paths may expose tentative matched_bp in selected_peaks for review.
@@ -85,7 +85,7 @@ def analyze_size_standard(values, expected_bp, *, num_extra_peaks, quality_thres
         result['not_applied'].remove('original autoheight')
         result['stage'] = 'detection'
     try:
-        detected = detect_sg_peaks(signal, threshold=detection_threshold, window=sg_window,
+        detected = detect_sg_peaks(signal, threshold=detection_threshold, window=sg_window, degree=sg_degree,
                                    min_width=min_width, tau_begin=tau_begin, tau_end=tau_end,
                                    offscale_intervals=offscale_intervals if coordinate_mode == 'ap_fractional' else ())
     except ValueError as exc:

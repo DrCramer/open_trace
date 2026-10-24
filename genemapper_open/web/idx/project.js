@@ -229,7 +229,8 @@ function sampleCell(id,s,flags){
   case 'plate':return {value:info.plate||''};
   case 'well':return {value:info.well||''};
   case 'lane':return {value:info.capillary??'',cls:'num'};
-  case 'sampleFileNorm':return {value:''};
+  case 'sampleFileNorm':return {value:s.analysis?.normalization?.sample_file||''};
+  case 'ssNormFactor':{const n=s.analysis?.normalization;return {value:n?(n.sample_file==='Yes'&&n.factor!=null?String(n.factor):n.sample_file==='N/A'?'':'N/A'):'',cls:'num'}}
   case 'customControl':{const sel=el('select');sel.append(new Option('',''));for(const p of Profiles.customControls())sel.append(new Option(p.id,p.id));
    if(s.customControl&&!Profiles.getProfile(s.customControl))sel.append(new Option(s.customControl,s.customControl));sel.value=s.customControl||'';
    sel.addEventListener('change',()=>{s.customControl=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.customControl||'',node:sel}}
@@ -378,7 +379,7 @@ function genoColumns(){const ts=TableSettings.active();const by=Object.fromEntri
  return out}
 // Table-setting column filters (Filtering column of the Table Setting Editor).
 function sampleRaw(id,s,fl){if(id==='status')return s.status;if(id==='sampleType')return s.type;if(id==='specimenCategory')return s.specimenCategory||'No Export';
- if(id==='sampleFileNorm')return 'na';const sp=TableSettings.filterSpec('samples',id);if(sp&&sp.type==='enum')return fl[id]??'na';return String(exportSampleValue(id,s,fl)??'')}
+ if(id==='sampleFileNorm'){const v=s.analysis?.normalization?.sample_file;return v==='Yes'?'yes':v==='No'?'no':'na'}const sp=TableSettings.filterSpec('samples',id);if(sp&&sp.type==='enum')return fl[id]??'na';return String(exportSampleValue(id,s,fl)??'')}
 const ALLELE_COLS=new Set(['allele','size','height','area','dataPoint']);
 function genoRaw(id,r){if(id==='dye')return dyeLetter(r.channel);const sp=TableSettings.filterSpec('genotypes',id);if(sp&&sp.type==='enum')return r.flags[id]??'na';
  if(ALLELE_COLS.has(id))return r.calls.map((c,i)=>genoCell(id,r,i).value).join(' ');return String(genoCell(id,r,0).value??'')}
@@ -642,6 +643,17 @@ function requirementsSummary(failing){
    [[T('arsView'),()=>{view(failing.map(s=>s.id));res('view');return true}],[T('arsContinue'),()=>{res('continue');return true},true],[T('cancel'),()=>{res('cancel');return true}]]);
   d.root.querySelector('.x').addEventListener('click',()=>res('cancel'))})}
 
+// Samples Not Normalized (ID-X NormalizationWarningDialog): the method asks for normalization but the sample file
+// carries no size-standard normalization factor; "Don't show again until the next session".
+function normalizationWarning(samples){
+ let hide=false;try{hide=sessionStorage.getItem('opentrace.hideNormWarning')==='1'}catch(e){}
+ if(hide)return;
+ const bad=samples.filter(s=>s.analysis&&Methods.get(s.method)?.peak_detector?.normalization&&s.analysis.normalization?.sample_file!=='Yes');
+ if(!bad.length)return;
+ const all=bad.length===samples.filter(s=>s.analysis&&Methods.get(s.method)?.peak_detector?.normalization).length;
+ dialog(T('nwTitle'),b=>{b.classList.add('nwdlg');b.append(el('p',{text:T(all?'nwAll':'nwSome')}),el('p',{text:T('nwNotApplied').replace('{0}',bad.length)}),
+   el('label',{class:'chk'},el('input',{type:'checkbox',id:'nwHide'}),document.createTextNode(' '+T('nwHide'))))},
+  [[T('ok'),body=>{if(body.querySelector('#nwHide').checked)try{sessionStorage.setItem('opentrace.hideNormWarning','1')}catch(e){}return true},true]])}
 async function analyze(scope){
  let targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;if(!Sec.need('UPDATE_PROJECT'))return;
@@ -666,6 +678,7 @@ async function analyze(scope){
     catch(e){throw Error(`${s.file}: `+T('serverUnreachable').replace('{0}','/api/analyze')+' ('+e.message+')')}
     let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=slimAnalysis(j);s.compact=null;s.rev=(s.rev||0)+1}
    s.status='analyzed';i++;progress(i,order.length)}
+  normalizationWarning(order);
   finished=await genotype();
   const any=state.project.samples.some(s=>s.panelKey);
   const skipped=state.project.samples.filter(s=>s.alasSkipped).length;

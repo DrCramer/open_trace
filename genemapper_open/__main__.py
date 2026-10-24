@@ -294,7 +294,7 @@ def main(argv=None):
         command.add_argument("--standard-start", type=int, default=0)
         command.add_argument("--standard-end", type=int, default=None)
         command.add_argument("--calibration-model", default="linear",
-                             choices=("linear", "lsq2", "lsq3", "natural_cubic", "local_rational"))
+                             choices=("linear", "lsq2", "lsq3", "natural_cubic", "local_rational", "global_southern"))
     import_kit=commands.add_parser('import-kit',help='Convert GeneMapper Panels/Bins/Stutter text files to an OpenTrace kit JSON')
     import_kit.add_argument('panels',type=Path)
     import_kit.add_argument('bins',type=Path,nargs='?')

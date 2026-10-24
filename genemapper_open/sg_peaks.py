@@ -19,7 +19,37 @@ def _finite(value):
         return False
 
 
-def cubic_sg_derivative(values, *, window=15):
+def sg_derivative_weights(window, degree=3):
+    """Savitzky-Golay first-derivative weights w_k (k=1..r) for a centered window.
+
+    Only odd powers enter the derivative, so the normal equations are solved
+    exactly (rational arithmetic) on the odd-power subspace; degree 3 gives the
+    classic cubic/quartic weights, degree 2 equals degree 1, and so on.
+    """
+    from fractions import Fraction
+    radius = window // 2
+    powers = list(range(1, degree + 1, 2))
+    if not powers or len(powers) > radius:
+        raise ValueError('SG degree must be >= 1 and leave at least one degree of freedom in the window')
+    m = len(powers)
+    matrix = [[Fraction(2 * sum(k ** (a + b) for k in range(1, radius + 1))) for b in powers] for a in powers]
+    rhs = [[Fraction(int(i == j)) for j in range(m)] for i in range(m)]
+    for col in range(m):
+        pivot = next(r for r in range(col, m) if matrix[r][col] != 0)
+        matrix[col], matrix[pivot], rhs[col], rhs[pivot] = matrix[pivot], matrix[col], rhs[pivot], rhs[col]
+        inv = 1 / matrix[col][col]
+        matrix[col] = [v * inv for v in matrix[col]]
+        rhs[col] = [v * inv for v in rhs[col]]
+        for r in range(m):
+            if r != col and matrix[r][col] != 0:
+                f = matrix[r][col]
+                matrix[r] = [a - f * b for a, b in zip(matrix[r], matrix[col])]
+                rhs[r] = [a - f * b for a, b in zip(rhs[r], rhs[col])]
+    row = rhs[0]  # coefficient of the linear term = derivative at the center
+    return [float(sum(row[j] * k ** powers[j] for j in range(m))) for k in range(1, radius + 1)]
+
+
+def cubic_sg_derivative(values, *, window=15, degree=3):
     """Derivative at unit scan spacing; first/last half-window outputs are zero."""
     if not isinstance(values, (list, tuple)) or not 1 <= len(values) <= MAX_POINTS:
         raise ValueError('Signal must be a nonempty bounded list or tuple')
@@ -28,9 +58,14 @@ def cubic_sg_derivative(values, *, window=15):
     if type(window) is not int or not 5 <= window <= 101 or window % 2 != 1 or len(values) < window:
         raise ValueError('Cubic SG window must be odd, 5..101, and <= signal length')
     radius = window//2
-    s2, s4, s6 = (2*sum(k**power for k in range(1, radius+1)) for power in (2, 4, 6))
-    determinant = s2*s6-s4*s4
-    weights = [(s6*k-s4*k**3)/determinant for k in range(1, radius+1)]
+    if degree == 3:
+        s2, s4, s6 = (2*sum(k**power for k in range(1, radius+1)) for power in (2, 4, 6))
+        determinant = s2*s6-s4*s4
+        weights = [(s6*k-s4*k**3)/determinant for k in range(1, radius+1)]
+    else:
+        if type(degree) is not int or not 1 <= degree < window:
+            raise ValueError('SG polynomial degree must be an integer below the window size')
+        weights = sg_derivative_weights(window, degree)
     derivative = [0.0]*len(values)
     for center in range(radius, len(values)-radius):
         derivative[center] = math.fsum(weight*(values[center+k]-values[center-k])
@@ -139,7 +174,7 @@ def _half_width(values, lo, hi, center):
 
 
 def detect_sg_peaks(values, *, threshold=100.0, window=15, min_width=2.0,
-                    tau_begin=0.0, tau_end=0.0, offscale_intervals=()):
+                    tau_begin=0.0, tau_end=0.0, offscale_intervals=(), degree=3):
     """Return peak dictionaries and diagnostics; no minimum-distance pruning.
 
     Width is measured about round-half-up(SG center) before apex snap. Signal
@@ -162,11 +197,11 @@ def detect_sg_peaks(values, *, threshold=100.0, window=15, min_width=2.0,
         if (not isinstance(interval, (list, tuple)) or len(interval) != 2
                 or any(not _finite(x) for x in interval) or not 0 <= interval[0] <= interval[1] < len(values)):
             raise ValueError('Offscale intervals must lie within the selected signal')
-    derivative = cubic_sg_derivative(values, window=window)
+    derivative = cubic_sg_derivative(values, window=window, degree=degree)
     candidates = _candidates(derivative)
     diagnostics = {'sg_candidates': len(candidates), 'invalid_bounds': 0, 'height_rejected': 0,
                    'width_rejected': 0, 'edge_rejected': 0, 'duplicate_snapped_scans': 0,
-                   'degree': 3, 'window': window, 'threshold': float(threshold),
+                   'degree': degree, 'window': window, 'threshold': float(threshold),
                    'companion_metrics': False, 'original_runtime_validated': False}
     peaks = []
     for crossing in candidates:

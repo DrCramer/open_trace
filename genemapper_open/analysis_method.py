@@ -29,7 +29,7 @@ SMOOTHING = {'none': 0, 'light': 2, 'heavy': 8}
 SIZE_CALLING = {'local_southern': 'Local Southern', 'lsq2': 'Least Square Second Order',
                 'lsq3': 'Least Square Third Order', 'cubic_spline': 'Cubic Spline Interpolation',
                 'global_southern': 'Global Southern'}
-CALIBRATION_MODEL = {'local_southern': 'local_rational', 'lsq2': 'lsq2', 'lsq3': 'lsq3', 'cubic_spline': 'natural_cubic'}
+CALIBRATION_MODEL = {'local_southern': 'local_rational', 'lsq2': 'lsq2', 'lsq3': 'lsq3', 'cubic_spline': 'natural_cubic', 'global_southern': 'global_southern'}
 WEIGHTS = ('bd', 'bin', 'ovl', 'spk', 'acc', 'cc', 'an', 'lph', 'mph', 'os', 'phr')
 DEFAULT_DYE_CHANNELS = {'blue': 'DATA1', 'green': 'DATA2', 'yellow': 'DATA3', 'red': 'DATA4',
                         'orange': 'DATA105', 'purple': 'DATA106'}
@@ -224,12 +224,6 @@ def unsupported(method):
     p, out = method['peak_detector'], []
     if p['size_calling'] not in CALIBRATION_MODEL:
         out.append('size_calling_'+p['size_calling'])
-    if p['polynomial_degree'] != 3:
-        out.append('polynomial_degree_not_3')
-    if p['normalization']:
-        out.append('normalization')
-    if method['allele']['amelogenin_cutoff'] != 0:
-        out.append('amelogenin_cutoff')
     return out
 
 
@@ -256,8 +250,11 @@ def analyze_settings(method, standard_bp, dye_channels=None, standard_dye='orang
         'analysis_range': None if p['analysis_range']['full'] else [p['analysis_range']['start'], p['analysis_range']['stop']],
         'detector': {'baseline_window': p['baseline_window'], 'smooth_passes': SMOOTHING[p['smoothing']],
                      'window': f['str_peak_window'], 'standard_window': p['peak_window'],
-                     'min_width': float(p['min_half_width']), 'tau_begin': p['slope_start'], 'tau_end': p['slope_end']},
+                     'min_width': float(p['min_half_width']), 'tau_begin': p['slope_start'], 'tau_end': p['slope_end'],
+                     'degree': p['polynomial_degree']},
     }
+    if p['normalization']:
+        settings['normalization'] = True
     if method['peak_quality']['sample_spike']:
         settings['spike_definition'] = spike_definition(method)
     settings['pullup_definition'] = pullup_definition(method, channels, standard_dye)
@@ -302,7 +299,10 @@ def kit_marker_parameters(method, repeat, dye):
     row = a['repeats'].get(str(repeat), _repeat())
     rng = a['range_filter'].get(dye, {'from': 0.0, 'to': 0.0})
     return {
-        'ladder_cutoff_ratio': method['fixed']['ladder_cutoff'], 'cutoff_ratio': row['cutoff'],
+        # ID-X keeps one cut-off per repeat index; the non-repeat index 9 (Amelogenin) is the editor's
+        # "Amelogenin Cutoff" field (ParamView: AlleleCallerParameter.getCutOffValue(9)).
+        'ladder_cutoff_ratio': method['fixed']['ladder_cutoff'],
+        'cutoff_ratio': a['amelogenin_cutoff'] if int(repeat) == 9 else row['cutoff'],
         'minus_a_ratio': row['minus_a_ratio'], 'minus_a_min_bp': row['minus_a_from'], 'minus_a_max_bp': row['minus_a_to'],
         'global_minus_stutter': {'ratio': row['minus_stutter_ratio'], 'min_bp': row['minus_stutter_from'],
                                  'max_bp': row['minus_stutter_to']},

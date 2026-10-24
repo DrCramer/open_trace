@@ -55,9 +55,13 @@ def _detector_settings(detector):
         return dict(DETECTOR_DEFAULTS)
     if isinstance(detector, str):
         detector = json.loads(detector)
-    if not isinstance(detector, dict) or set(detector) != set(DETECTOR_DEFAULTS):
-        raise ValueError('Detector settings need exactly: ' + ', '.join(sorted(DETECTOR_DEFAULTS)))
-    out = {}
+    if not isinstance(detector, dict) or set(detector) - {'degree'} != set(DETECTOR_DEFAULTS):
+        raise ValueError('Detector settings need exactly: ' + ', '.join(sorted(DETECTOR_DEFAULTS)) + ' (and optional degree)')
+    out = {'degree': 3}
+    if 'degree' in detector:
+        if type(detector['degree']) is not int or not 1 <= detector['degree'] <= 99:
+            raise ValueError('detector.degree must be an integer 1..99')
+        out['degree'] = detector['degree']
     for key in ('baseline_window', 'smooth_passes', 'window', 'standard_window'):
         value = detector[key]
         if type(value) is not int:
@@ -159,7 +163,20 @@ def _apply_sizing_override(sizing, override, mode, analysis_engine):
     return Calibration(pairs)
 
 
-def _measure_morphology_channel(channel, threshold,spike_definition=None,detector=None):
+def sample_file_normalization(sample):
+    """Sample File Normalization as ID-X reads it: only 3500/3200 data carry a size-standard normalization
+    factor (NrmS); 'Yes' when the factor is present, 'No' when absent, 'N/A' for other instruments."""
+    texts = [sample.value(name, n) for name, n in (('HCFG', 3), ('HCFG', 2), ('MODL', 1), ('MCHN', 1))]
+    family = ' '.join(v for v in texts if isinstance(v, str))
+    if not re.search(r'3500|3200', family):
+        return {'status': 'N/A', 'factor': None}
+    factor = sample.value('NrmS', 1)
+    if isinstance(factor, (int, float)) and not isinstance(factor, bool) and math.isfinite(factor) and factor > 0:
+        return {'status': 'Yes', 'factor': float(factor)}
+    return {'status': 'No', 'factor': None}
+
+
+def _measure_morphology_channel(channel, threshold,spike_definition=None,detector=None,scale=None):
     detector = detector or DETECTOR_DEFAULTS
     from .preprocessing import prepare_trace
     from .sg_peaks import detect_sg_peaks
@@ -170,7 +187,11 @@ def _measure_morphology_channel(channel, threshold,spike_definition=None,detecto
         return
     prepared = prepare_trace(channel['values'], window=detector['baseline_window'], spike_window=5,
                              smooth_passes=detector['smooth_passes'])
-    detected = detect_sg_peaks(prepared['signal'], threshold=threshold, window=detector['window'],
+    if scale is not None:
+        # ID-X multiplies the processed (baseline-corrected, smoothed) signal by the normalization factor
+        # with integer truncation, before peak detection, so thresholds apply to normalized heights.
+        prepared['signal'] = [int(v * scale) for v in prepared['signal']]
+    detected = detect_sg_peaks(prepared['signal'], threshold=threshold, window=detector['window'], degree=detector.get('degree', 3),
                                min_width=detector['min_width'], tau_begin=detector['tau_begin'],
                                tau_end=detector['tau_end'])
     if spike_definition is not None:
@@ -193,7 +214,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
             standard_start=0, standard_end=None, calibration_model="linear",
             analysis_engine="residual", height_mode="explicit", quality_threshold=0.75,
             num_extra_peaks=25,spike_definition=None,sizing_quality_definition=None,pullup_definition=None,
-            channel_thresholds=None,detector=None,analysis_range=None,sizing_override=None):
+            channel_thresholds=None,detector=None,analysis_range=None,sizing_override=None,normalization=False):
     from .calibration import MODEL_IDS, build_calibration, CalibrationError
     detector = _detector_settings(detector)
     channel_thresholds = _channel_thresholds(channel_thresholds)
@@ -224,6 +245,10 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
         if not isinstance(threshold, Real) or isinstance(threshold, bool) or not math.isfinite(threshold) or not 0 < threshold <= 1e12:
             raise ValueError("Morphology peak threshold must be finite and in (0, 1e12]")
     sample = AbifFile(raw, filename)
+    if isinstance(normalization, str):
+        normalization = normalization.strip().lower() in ('1', 'true', 'yes')
+    sfn = sample_file_normalization(sample)
+    norm_scale = sfn['factor'] if normalization and sfn['status'] == 'Yes' else None
     mode = sizing_mode or ("auto" if standard_channel or standard_bp else "manual" if anchors.strip() else "none")
     if mode not in ("none", "manual", "auto"):
         raise ValueError("Sizing mode must be none, manual or auto")
@@ -276,7 +301,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                 ch['peaks'] = []
                 ch['processing'] = {'status': 'skipped', 'reason': 'Auxiliary or a different DATA group; no cross-group sizing'}
             elif ch is not reference:
-                _measure_morphology_channel(ch, channel_thresholds.get(ch['tag'], threshold), spike_definition, detector)
+                _measure_morphology_channel(ch, channel_thresholds.get(ch['tag'], threshold), spike_definition, detector, norm_scale)
     sizing = {"mode": mode, "status": "manual" if calibration else "not_requested",
               "reasons": [], "matched": [], "unmatched": [], "diagnostics": {}}
     if mode == "auto":
@@ -293,7 +318,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                 num_extra_peaks=num_extra_peaks, quality_threshold=quality_threshold,
                 detection_threshold=channel_thresholds.get(standard_channel, threshold), height_mode=height_mode,
                 coordinate_mode='standard_wrapper', baseline_window=detector['baseline_window'],
-                smooth_passes=detector['smooth_passes'], sg_window=detector['standard_window'],
+                smooth_passes=detector['smooth_passes'], sg_window=detector['standard_window'], sg_degree=detector.get('degree', 3),
                 min_width=detector['min_width'], tau_begin=detector['tau_begin'], tau_end=detector['tau_end'])
             calibration = result['calibration']
             standard_selected=result['selected_peaks']
@@ -425,6 +450,9 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                                   'analysis_engine': analysis_engine, 'selected_data_group': selected_group,
                                   'height_mode': height_mode if analysis_engine == 'morphology_ratio' else 'explicit'},
                                "research_only": True}
+    output['normalization'] = {'sample_file': sfn['status'], 'factor': sfn['factor'], 'requested': bool(normalization),
+                               'applied': norm_scale is not None,
+                               'scope': 'sample dye channels (size standard unscaled)' if norm_scale is not None else None}
     if artifacts is not None:output['artifacts']=artifacts
     if channel_thresholds:output['peak_settings']['channel_thresholds']=channel_thresholds
     if analysis_range is not None:output['peak_settings']['analysis_range']=list(analysis_range)
@@ -683,7 +711,8 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                                  channel_thresholds=params.get('channel_thresholds',[None])[0],
                                  detector=params.get('detector',[None])[0],
                                  analysis_range=_parse_analysis_range(params.get('analysis_range',[None])[0]),
-                                 sizing_override=params.get('sizing_override',[None])[0])
+                                 sizing_override=params.get('sizing_override',[None])[0],
+                                 normalization=params.get('normalization',['false'])[0])
                 return self.respond(200, result)
             except AccessDenied as exc:
                 return self.respond(403, {"error": str(exc), "access_denied": True})

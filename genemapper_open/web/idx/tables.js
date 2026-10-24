@@ -10,7 +10,7 @@ const SAMPLE_COLS=[
  ['analysisMethod','analysisMethod','Analysis Method',130,'edit'],['panel','panel','Panel',150,'edit'],['sizeStandard','sizeStandard','Size Standard',130,'edit'],
  ['matrix','matrix','Matrix',70,'text'],['runName','runName','Run Name',150,'text'],['instrumentType','instrumentType','Instrument Type',90,'text'],
  ['instrumentID','instrumentID','Instrument ID',90,'text'],['runDate','runDate','Run Date',130,'text'],['plate','plate','Plate Name',110,'text'],
- ['well','well','Well',44,'text'],['lane','lane','Capillary',58,'num'],['sampleFileNorm','sampleFileNorm','SFN',44,'text'],
+ ['well','well','Well',44,'text'],['lane','lane','Capillary',58,'num'],['sampleFileNorm','sampleFileNorm','SFN',44,'text'],['ssNormFactor','normalizationFactor','SS Normalization Factor',90,'num'],
  ['SE','sampleAlleleEdit','SE',36,'pqv'],['SQO','sizingQualityInvalid','SQO',38,'pqv'],['ARNM','arnm','ARNM',44,'pqv'],
  ['SFNF','fileNotFound','SFNF',42,'pqv'],['MNF','matrixNotFound','MNF',38,'pqv'],['SNF','sizeStdNotFound','SNF',38,'pqv'],
  ['SOS','offscale','SOS',38,'pqv'],['SQ','sizeStdQuality','SQ',38,'pqv'],['SSPK','spikeSamplePqvQuality','SSPK',42,'pqv'],

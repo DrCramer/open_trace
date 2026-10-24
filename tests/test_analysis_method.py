@@ -98,15 +98,21 @@ class MethodTests(unittest.TestCase):
         self.assertEqual(s['analysis_range'], [1200, 9000])
         self.assertEqual(s['channel_thresholds']['DATA106'], 175.0)
         self.assertEqual(s['detector'], {'baseline_window': 101, 'smooth_passes': 8, 'window': 9, 'standard_window': 15,
-                                         'min_width': 2.0, 'tau_begin': 0.0, 'tau_end': 0.0})
+                                         'min_width': 2.0, 'tau_begin': 0.0, 'tau_end': 0.0, 'degree': 3})
+        self.assertNotIn('normalization', s)
         self.assertEqual(s['spike_definition']['adjustments']['ladder_height_ratio'], 1e12)  # ladder spikes disabled
         pairs = s['pullup_definition']['detector']['channel_pairs']
         self.assertTrue(all(p['candidate_channel'] != 'DATA105' for p in pairs))
         m['peak_detector']['sizing_range'] = {'all': False, 'start_bp': 100, 'stop_bp': 400}
         self.assertTrue(analyze_settings(m, GS600)['standard_bp'].startswith('100,114'))
-        m['peak_detector']['size_calling'] = 'global_southern'
-        with self.assertRaises(ValueError):
-            analyze_settings(m, GS600)
+        # Global Southern, SG degree, normalization and the Amelogenin cut-off are applied (0.40)
+        m['peak_detector'].update(size_calling='global_southern', polynomial_degree=5, normalization=True)
+        m['allele']['amelogenin_cutoff'] = 0.2
+        self.assertEqual(unsupported(m), [])
+        s = analyze_settings(m, GS600)
+        self.assertEqual((s['calibration_model'], s['detector']['degree'], s['normalization']), ('global_southern', 5, True))
+        self.assertEqual(kit_marker_parameters(m, 9, 'green')['cutoff_ratio'], 0.2)
+        self.assertEqual(kit_marker_parameters(m, 4, 'green')['cutoff_ratio'], m['allele']['repeats']['4']['cutoff'])
 
     def test_kit_and_quality_definitions(self):
         m = parse_gm_xml(XML)

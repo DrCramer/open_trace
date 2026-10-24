@@ -332,6 +332,9 @@ en:{
  clearBtn:'Clear',newMarkerHint:'File > New Marker adds a marker row; click a cell of the selected row to type its value and press Enter.',
  genotypeErrors:'Some samples could not be genotyped:',
  serverUnreachable:'No response from the OpenTrace server for {0}: the server may have stopped or the connection was dropped.',
+ nwTitle:'Samples Not Normalized',nwAll:'Sample(s) are not normalized.',nwSome:'Some sample(s) are not normalized.',
+ nwNotApplied:'A normalization factor will not be applied to {0} un-normalized sample(s).',nwHide:'Don\'t show again until the next session.',
+ colT_ssNormFactor:'SS Normalization Factor',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -673,6 +676,9 @@ ru:{
  newMarkerHint:'Файл > Новый маркер добавляет строку маркера; щёлкните ячейку выбранной строки, введите значение и нажмите Enter.',
  genotypeErrors:'Не удалось генотипировать часть образцов:',
  serverUnreachable:'Нет ответа сервера OpenTrace на {0}: сервер остановлен или соединение разорвано.',
+ nwTitle:'Образцы не нормализованы',nwAll:'Образцы не нормализованы.',nwSome:'Часть образцов не нормализована.',
+ nwNotApplied:'Коэффициент нормализации не будет применён к {0} ненормализованным образцам.',nwHide:'Не показывать до следующего сеанса.',
+ colT_ssNormFactor:'Коэффициент нормализации по стандарту',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

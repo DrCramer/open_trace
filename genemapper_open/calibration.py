@@ -11,7 +11,7 @@ from copy import deepcopy
 import math
 from numbers import Real
 
-MODEL_IDS = ("linear", "lsq2", "lsq3", "natural_cubic", "local_rational")
+MODEL_IDS = ("linear", "lsq2", "lsq3", "natural_cubic", "local_rational", "global_southern")
 MAX_ANCHORS = 32
 MAX_SCAN = 100_000_000
 MAX_BP = 1_000_000
@@ -42,7 +42,7 @@ def _validate_anchors(anchors, model):
         raise CalibrationError(f"Unknown calibration model; use {', '.join(MODEL_IDS)}")
     if not isinstance(anchors, (list, tuple)):
         raise CalibrationError("Anchors must be an explicit bounded list or tuple")
-    minimum = {"linear": 2, "lsq2": 3, "lsq3": 4, "natural_cubic": 2, "local_rational": 3}[model]
+    minimum = {"linear": 2, "lsq2": 3, "lsq3": 4, "natural_cubic": 2, "local_rational": 3, "global_southern": 4}[model]
     if not minimum <= len(anchors) <= MAX_ANCHORS:
         raise CalibrationError(f"{model} requires {minimum}..{MAX_ANCHORS} anchors")
     result = []
@@ -191,6 +191,8 @@ class _Calibration:
             self._fit_polynomial(int(model[-1]))
         elif model == "local_rational":
             self._fit_local_rational()
+        elif model == "global_southern":
+            self._fit_global_southern()
         else:
             self._fit_natural_spline()
         if not math.isfinite(self._minimum_derivative) or self._minimum_derivative < 0:
@@ -332,6 +334,80 @@ class _Calibration:
             "normalized_rational_formula": "g(x)=x*q/((1-x)+q*x), q=v*(1-s)/(s*(1-v))",
         }
 
+    def _fit_global_southern(self):
+        # One reciprocal (Southern) curve z = a + b/(u - p) fitted by least squares through all anchors,
+        # with the pole p outside the anchor domain [0, 1]; a fragment with anomalous mobility shifts
+        # the whole curve slightly instead of bending its local triple (Local Southern).
+        u, z = self._u, self._z
+
+        def solve(p):
+            w = [1.0 / (x - p) for x in u]
+            n = len(u)
+            sw, sz, sww, swz = math.fsum(w), math.fsum(z), math.fsum(v * v for v in w), math.fsum(v * y for v, y in zip(w, z))
+            det = n * sww - sw * sw
+            if not math.isfinite(det) or abs(det) < 1e-300:
+                return None
+            b = (n * swz - sw * sz) / det
+            a = (sz - b * sw) / n
+            sse = math.fsum((a + b * v - y) ** 2 for v, y in zip(w, z))
+            return sse, a, b
+
+        def pole(side, s):
+            return -math.exp(s) if side < 0 else 1.0 + math.exp(s)
+
+        best = None
+        for side in (-1, 1):
+            grid = [-12 + 24 * i / 240 for i in range(241)]
+            values = [(solve(pole(side, s)), s) for s in grid]
+            values = [(r, s) for r, s in values if r is not None]
+            if not values:
+                continue
+            (r0, s0) = min(values, key=lambda item: item[0][0])
+            lo, hi = max(-12.0, s0 - 0.1), min(12.0, s0 + 0.1)
+            g = (math.sqrt(5) - 1) / 2
+            c, d = hi - g * (hi - lo), lo + g * (hi - lo)
+            for _ in range(80):
+                rc, rd = solve(pole(side, c)), solve(pole(side, d))
+                if rc is None or rd is None:
+                    break
+                if rc[0] <= rd[0]:
+                    hi, d = d, c
+                    c = hi - g * (hi - lo)
+                else:
+                    lo, c = c, d
+                    d = lo + g * (hi - lo)
+            s = (lo + hi) / 2
+            r = solve(pole(side, s)) or r0
+            if best is None or r[0] < best[0][0]:
+                best = (r, pole(side, s if r is not r0 else s0))
+        # limit of a pole at infinity: a straight line (exactly linear mobility)
+        n = len(u)
+        su, sz, suu, suz = math.fsum(u), math.fsum(z), math.fsum(x * x for x in u), math.fsum(x * y for x, y in zip(u, z))
+        slope = (n * suz - su * sz) / (n * suu - su * su)
+        icpt = (sz - slope * su) / n
+        line_sse = math.fsum((icpt + slope * x - y) ** 2 for x, y in zip(u, z))
+        if best is None or line_sse <= best[0][0] * (1 + 1e-9) + 1e-24:
+            if not slope > 0:
+                raise CalibrationError("Global Southern calibration is nonmonotonic within its domain")
+            self._gs = (icpt, slope, None)
+            self._minimum_derivative = slope * self._y_scale / self._span
+            sse, a, b, p = line_sse, icpt, slope, None
+        else:
+            (sse, a, b), p = best
+            if not (math.isfinite(a) and math.isfinite(b)) or b >= 0:
+                raise CalibrationError("Global Southern calibration is nonmonotonic within its domain")
+            self._gs = (a, b, p)
+            far = max(abs(0 - p), abs(1 - p))
+            self._minimum_derivative = (-b / (far * far)) * self._y_scale / self._span
+        self._details = {"formula": "bp = c + m/(scan - s0) (least squares over all fragments)",
+                         "pole_scan": None if p is None else self._scans[0] + p * self._span,
+                         "c_bp": self._y_center + self._y_scale * a,
+                         "m_bp_scan": None if p is None else self._y_scale * b * self._span,
+                         "limit": "linear (pole at infinity)" if p is None else None,
+                         "residual_sum_squares_bp2": sse * self._y_scale ** 2,
+                         "solver": "linear least squares in (c, m) with golden-section search of the pole",
+                         "monotonicity_check": "derivative -m/(scan-s0)^2 positive on the whole domain"}
+
     def _evaluate(self, scan):
         if self._model == "linear":
             i = min(bisect_right(self._scans, scan) - 1, len(self._scans) - 2)
@@ -345,6 +421,9 @@ class _Calibration:
             left_value = left.value(scan)
             return left_value if left is right else left_value + (right.value(scan) - left_value) / 2
         u = (scan - self._scans[0]) / self._span
+        if self._model == "global_southern":
+            a, b, p = self._gs
+            return self._y_center + self._y_scale * (a + (b * u if p is None else b / (u - p)))
         if self._model in ("lsq2", "lsq3"):
             z = _polynomial(self._coefficients, 2 * u - 1)
         else:
