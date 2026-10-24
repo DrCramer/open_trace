@@ -313,7 +313,28 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
   if(inSel&&sel.length>1)items.push({label:fmt('addArtifactMany',sel.length),run:()=>artifactMany(sel)});
   else items.push({label:T('addArtifactLabel')+` (${bp.toFixed(2)} bp)`,disabled:called,run:()=>edit(near.sample,{action:'add_artifact',marker:marker?.name||null,new:'',peak})});
   items.push('-',{label:T('peakRawData'),run:()=>{try{window.opener.OT.peakRawData(near.sample.id,near.peak.scan);window.opener.focus()}catch(e){message(String(e.message||e))}}});
-  ctxMenu(e.clientX,e.clientY,items)}});
+  ctxMenu(e.clientX,e.clientY,items);return}
+ // blank area of a pane: Delete All Labels for Sample
+ ctxMenu(e.clientX,e.clientY,[{label:T('deleteAllForSample'),run:()=>deleteLabels([s],null)}])});
+// Delete All Labels for Sample / Alleles > Delete Multiple Labels (All Labels, Labels In Range): one confirmation and one reason
+// for all allele and artifact labels of the given samples (all displayed samples for the Alleles menu).
+async function deleteLabels(samples,range){if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
+ const inR=v=>!range||(v>=range[0]&&v<=range[1]);const specs=[];
+ for(const s of samples.filter(x=>x.editable)){
+  for(const c of s.report?.calls||[])if(inR(c.size_bp))specs.push({sample:s,spec:{action:'delete',marker:c.marker,callId:c.id}});
+  for(const a of s.report?.artifacts||[])if(inR(a.size_bp))specs.push({sample:s,spec:{action:'delete_artifact',artifactId:a.id,marker:a.marker}})}
+ if(!specs.length)return message(T('noLabelsToDelete'));
+ if(!(await new Promise(res=>dialog(T('alert'),b=>b.append(el('p',{text:fmt('confirmDeleteLabels',specs.length,samples.length)})),[[T('yes'),()=>{res(true);return true},true],[T('no'),()=>{res(false);return true}]]))))return;
+ let items=[];try{for(const x of specs)items.push(...window.opener.OT.editItems(x.sample.id,x.spec))}catch(e){}
+ const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
+ for(const x of specs){try{await window.opener.OT.edit(x.sample.id,{...x.spec,reason:ch.reason})}catch(e){message(String(e.message||e));break}}
+ try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw();$('markerInfo').textContent=fmt('deletedLabels',specs.length)}
+function deleteInRangeDialog(){const [d0,d1]=bpRange();
+ dialog(T('deleteInRangeTitle'),b=>{b.classList.add('dirdlg');b.append(el('p',{text:T('deleteInRangeText')}),
+  el('div',{class:'field'},el('label',{text:T('psStartRange')}),el('input',{type:'text',id:'dirFrom',class:'num',value:String(Math.round(view.x0??d0))})),
+  el('div',{class:'field'},el('label',{text:T('psEndRange')}),el('input',{type:'text',id:'dirTo',class:'num',value:String(Math.round(view.x1??d1))})))},
+  [[T('ok'),b=>{const a=+b.querySelector('#dirFrom').value,z=+b.querySelector('#dirTo').value;if(!(isFinite(a)&&isFinite(z)&&z>a)){message(T('psEndGtStart'));return false}
+    setTimeout(()=>deleteLabels(payload.samples,[a,z]),0);return true},true],[T('cancel'),()=>true]])}
 // One artifact label and one reason for several selected peaks.
 async function artifactMany(list){if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
  const label=await artifactDialog(T('act_add_artifact'),'');if(label==null)return;
@@ -437,7 +458,7 @@ function build(){
  const ck=(k,v)=>view[k]===v;
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},'-',{label:T('pageSetup'),run:plotPageSetup},{label:T('printPreview'),run:()=>printPlots(true)},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},'-',{label:T('closePlot'),run:()=>window.close()}]},
+  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},{label:T('exportWithStutter')+'...',run:()=>{try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(e){message(String(e.message||e))}}},'-',{label:T('pageSetup'),run:plotPageSetup},{label:T('printPreview'),run:()=>printPlots(true)},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},'-',{label:T('closePlot'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',run:undoLast},{label:T('copy'),sc:'Ctrl+C',run:copyPlotTable}]},
   {label:T('view'),items:[{label:T('sampleInfo'),run:()=>sampleView('info')},{label:T('rawData'),run:()=>sampleView('raw')},{label:T('eptData'),run:()=>sampleView('ept')},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
@@ -453,7 +474,8 @@ function build(){
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),checked:view.markerRange,run:set('markerRange',!view.markerRange)},{label:T('showBins'),checked:view.bins,run:set('bins',!view.bins)},'-',
    {label:T('table'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]}]},
   {label:T('tools'),items:[{label:T('manager'),disabled:true}]},
-  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},{label:T('deletePredefined')+'...',run:deletePredefined},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
+  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},
+   {label:T('deleteMultiple'),sub:[{label:T('deleteAllLabels'),run:()=>deleteLabels(payload?.samples||[],null)},{label:T('deleteInRange')+'...',run:deleteInRangeDialog}]},{label:T('deletePredefined')+'...',run:deletePredefined},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
  const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>printPlots(false),{id:'tbPlotPrint'}),tbutton('printPreview',T('printPreview'),()=>printPlots(true),{id:'tbPlotPreview'}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
  const ps=el('select',{class:'combo',id:'psCombo'});for(const n of settingNames())ps.append(new Option(n,n));ps.value=setting?.name||'';

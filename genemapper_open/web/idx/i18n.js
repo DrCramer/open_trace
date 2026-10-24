@@ -370,6 +370,11 @@ en:{
  ppHonorNote:'Letter or A4: at most 7 panes per page in Portrait and 5 in Landscape; Legal: 8 in Portrait, 5 in Landscape. Small, Medium and Large ignore the number of panes.',
  ppPages:'{0} page(s), {1}, {2}',nothingToUndo:'There is no label edit to undo for the displayed samples.',undoneEdit:'Undone: {0} {1} ({2})',
  copiedTable:'The table was copied to the clipboard.',
+ deleteAllForSample:'Delete All Labels for Sample',deleteMultiple:'Delete Multiple Labels',deleteAllLabels:'Delete All Labels',deleteInRange:'Delete Labels In Range',
+ deleteInRangeTitle:'Delete Labels in Range',deleteInRangeText:'Delete all allele and artifact labels of all samples displayed in the plot window between (bp):',
+ confirmDeleteLabels:'Delete {0} label(s) of {1} sample(s)?',noLabelsToDelete:'There are no labels to delete.',deletedLabels:'{0} label(s) deleted',
+ exportWithStutter:'Export Table with Stutter',
+ stutterExportNote:'Stutter alleles are not exported for allelic ladders; PQVs refer to the main alleles; stutter peaks labelled as artifacts are left out.',yes:'Yes',no:'No',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -749,6 +754,11 @@ ru:{
  ppHonorNote:'Letter и A4: не более 7 панелей на странице в книжной ориентации и 5 в альбомной; Legal: 8 и 5. Маленький, средний и большой размеры не учитывают число панелей.',
  ppPages:'Страниц: {0}, {1}, {2}',nothingToUndo:'Для показанных образцов нет правок меток для отмены.',undoneEdit:'Отменено: {0} {1} ({2})',
  copiedTable:'Таблица скопирована в буфер обмена.',
+ deleteAllForSample:'Удалить все метки образца',deleteMultiple:'Удалить несколько меток',deleteAllLabels:'Удалить все метки',deleteInRange:'Удалить метки в диапазоне',
+ deleteInRangeTitle:'Удаление меток в диапазоне',deleteInRangeText:'Удалить метки аллелей и артефактов всех образцов окна графиков в диапазоне (п.н.):',
+ confirmDeleteLabels:'Удалить меток: {0} (образцов: {1})?',noLabelsToDelete:'Нет меток для удаления.',deletedLabels:'Удалено меток: {0}',
+ exportWithStutter:'Экспорт таблицы со статтером',
+ stutterExportNote:'Статтерные аллели лестниц не экспортируются; PQV относятся к основным аллелям; статтерные пики с меткой артефакта не выводятся.',yes:'Да',no:'Нет',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

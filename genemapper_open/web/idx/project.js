@@ -26,7 +26,7 @@ window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(i
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];
   e.undone=true;e.undoneAt=new Date().toISOString();s.rev=(s.rev||0)+1;state.project.dirty=true;
   Sec.record([{map:'Allele',attribute:'modified',instance:`${s.file}/${e.marker||''}`,old:e.new||'',new:e.old||'',event:'Undo Edit'}]);render();return {sample:s.name,action:e.action,marker:e.marker||''}},
- showSampleView:(id,tab)=>{state.selected=new Set([id]);buildAfter(()=>showTab(tab))},pageSetup:()=>pageSetup(),kitsChanged:()=>{dropCaches();render()}};
+ exportWithStutter:(ids)=>exportWithStutter(ids),stutterRows:(ids)=>stutterRows(ids),showSampleView:(id,tab)=>{state.selected=new Set([id]);buildAfter(()=>showTab(tab))},pageSetup:()=>pageSetup(),kitsChanged:()=>{dropCaches();render()}};
 window.addEventListener('opentrace-options',()=>render());
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
@@ -839,6 +839,21 @@ function exportTable(){
  dialog(T('exportTable').replace(/\.+$/,''),b=>{b.append(el('div',{class:'field'},el('label',{text:T('exportType')}),typeSelect('etType',v=>type=v)),
   el('div',{class:'field'},el('label',{text:T('fileName')}),el('input',{type:'text',id:'etName',value:`${fileBase()}_${tab}`})),el('p',{class:'note',text:T('exportPqvNote')}))},
   [[T('exportBtn'),b=>{const name=b.querySelector('#etName').value.trim()||fileBase();saveText(`${name}.${type}`,serialize(tableRows(tab,false),type),type)},true],[T('cancel'),()=>true]])}
+// Export Table with Stutter (Genotypes): the main alleles plus the peaks removed as stutter, labelled with their bins;
+// not for allelic ladders, stutter peaks labelled as artifacts are left out, PQVs stay those of the main alleles.
+function stutterRows(ids){const cols=genoColumns();const ts=TableSettings.active().genotypes;
+ const rows=sortedGenoRows().filter(r=>!ids||ids.includes(r.sample.id)).map(r=>{if(r.sample.type==='ladder')return r;
+  const am=(r.sample.report?.allele_calling?.markers||[]).find(m=>m.name===r.marker);const arts=effective(r.sample).artifacts;
+  const st=(am?.stutter_calls||[]).filter(c=>c.label&&!arts.some(a=>a.channel===c.channel&&Math.abs(a.size_bp-c.size_bp)<0.05)).map(c=>({...c,marker:r.marker,stutter:true}));
+  return {...r,calls:[...r.calls,...st].sort((a,b)=>a.size_bp-b.size_bp)}});
+ const n=Math.max(ts.numAlleles,...rows.map(r=>r.calls.length));
+ const out=[];const by=Object.fromEntries(TableSettings.CATALOG.genotypes.map(c=>[c.id,c]));const exp=[];
+ for(const id of ts.visible){const c=by[id];if(c.kind==='allele')for(let i=0;i<n;i++)exp.push({...c,base:id,index:i,head:`${c.head} ${i+1}`});else exp.push({...c,base:id})}
+ out.push(exp.map(c=>c.head));for(const r of rows)out.push(exp.map(c=>exportGenoValue(c.base,r,c.index||0)));return out}
+function exportWithStutter(ids){let type='txt';
+ dialog(T('exportWithStutter'),b=>{b.append(el('div',{class:'field'},el('label',{text:T('exportType')}),typeSelect('esType',v=>type=v)),
+  el('div',{class:'field'},el('label',{text:T('fileName')}),el('input',{type:'text',id:'esName',value:`${fileBase()}_genotypes_stutter`})),el('p',{class:'note',text:T('stutterExportNote')}))},
+  [[T('exportBtn'),b=>{const name=b.querySelector('#esName').value.trim()||fileBase();saveText(`${name}.${type}`,serialize(stutterRows(ids),type),type)},true],[T('cancel'),()=>true]])}
 function typeSelect(id,onChange){const s=el('select',{id});s.append(new Option(T('typeTxt'),'txt'),new Option(T('typeCsv'),'csv'));s.addEventListener('change',()=>onChange(s.value));return s}
 
 // ---------- combined export ----------
@@ -991,7 +1006,7 @@ function buildChrome(){
   {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},{label:T('closeProject'),run:closeProject},
    {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},'-',
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
-   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
+   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
