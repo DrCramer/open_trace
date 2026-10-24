@@ -130,7 +130,7 @@ function fromXml(text){
 // ---------- editor ----------
 function openEditor(source,{title,onSave,restrict}={}){
  const s=clone(source);const previous=source.name;let tab='general';const ro=restrict==='read';
- const d=dialog(title||T('psEditor'),b=>{b.classList.add('psdlg')},
+ const d=dialog(title||T('psEditor'),b=>{b.classList.add('pseditdlg')},
   [...(ro?[]:[[T('ok'),()=>{try{s.name=(s.name||'').trim();if(!s.name){message(T('psNewName'));return false}
     if(s.name!==previous&&get(s.name)){message(T('psNameExists'));return false}const v=validate(s);onSave&&onSave(v,previous);return true}catch(e){message(e.message);return false}},true]]),
    [T(ro?'close':'cancel'),()=>true]]);

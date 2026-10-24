@@ -307,13 +307,29 @@ table.g.editable tr.sel td.ed:hover{outline:1px dotted #0a246a;outline-offset:-2
 table.g.editable td input[type=text],table.g.editable td select{width:100%;height:17px;border:1px solid #7f9db9;background:#fff;padding:0 2px;font:inherit}
 table.g td.c{text-align:center}
 /* Plot Settings Editor (0.42) */
-.psdlg{width:760px;max-width:94vw}
-.psdlg .dpage{min-height:380px}
+.pseditdlg{width:760px;max-width:94vw}
+.pseditdlg .dpage{min-height:380px}
 .psgrid{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:2px 12px;margin:4px 0}
 .pscols{display:grid;grid-template-columns:1fr 1.35fr;gap:8px}
 .pscols fieldset{margin:0 0 6px}
 .pscols .inl{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;margin:2px 0}
 .pslabels select{width:100%}
-.psdlg input.num{width:64px}
+.pseditdlg input.num{width:64px}
 .pane .phead{justify-content:flex-start;gap:0;padding-bottom:0;margin-bottom:0;border-bottom:1px solid var(--shadow)}
 .pane .phead .c,.colhead .c{flex:none;box-sizing:border-box}
+/* plot printing and print preview (0.45) */
+#plotPrint{display:none}
+#plotPrint.ppreview{display:block;position:fixed;inset:0;z-index:50;overflow:auto;background:#808080;padding:8px 0}
+#plotPrint .ppbar{position:sticky;top:0;z-index:2;background:var(--face);border-bottom:1px solid var(--shadow);padding:4px 8px;display:flex;gap:6px;align-items:center;margin:-8px 0 8px}
+#plotPrint .ppage{background:#fff;margin:0 auto 10px;padding:0;box-shadow:0 1px 6px rgba(0,0,0,.5);box-sizing:border-box;overflow:hidden;font:11px Tahoma,Arial,sans-serif}
+#plotPrint .pphead{display:flex;justify-content:space-between;border-bottom:1px solid #000;margin-bottom:2mm;height:6mm;align-items:flex-end}
+#plotPrint .pplabel{font-size:10px;height:4mm;overflow:hidden;white-space:nowrap}
+#plotPrint img{display:block}
+@media print{
+ body.printingPlots>*:not(#plotPrint),body:has(#plotPrint.ppreview)>*:not(#plotPrint){display:none!important}
+ #plotPrint,#plotPrint.ppreview{display:block!important;position:static;overflow:visible;background:#fff;padding:0}
+ html:has(#plotPrint),body:has(#plotPrint){display:block!important;height:auto!important;overflow:visible!important}
+ #plotPrint .ppbar{display:none}
+ #plotPrint .ppage{box-shadow:none;margin:0;page-break-after:always;break-after:page}
+ #plotPrint .ppage:last-child{page-break-after:auto;break-after:auto}
+}

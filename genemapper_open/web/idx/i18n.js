@@ -366,6 +366,10 @@ en:{
  selectMarkersFirst:'Select genotypes (markers) in the Genotypes table first.',
  multipleDyePlot:'Multiple Dye Plot',multipleDyeTitle:'Multiple Dye Plots — {0} ({1})',selectMarkerHeader:'Click a marker header first.',
  phrStatus:'Peak Height Ratio = {0} ({1} / {2} RFU)',noRoomLabels:'No room for labels',
+ ppPlot:'Plot',ppHonor:'Honor Plots per Pane',ppSmall:'Small',ppMedium:'Medium',ppLarge:'Large',
+ ppHonorNote:'Letter or A4: at most 7 panes per page in Portrait and 5 in Landscape; Legal: 8 in Portrait, 5 in Landscape. Small, Medium and Large ignore the number of panes.',
+ ppPages:'{0} page(s), {1}, {2}',nothingToUndo:'There is no label edit to undo for the displayed samples.',undoneEdit:'Undone: {0} {1} ({2})',
+ copiedTable:'The table was copied to the clipboard.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -741,6 +745,10 @@ ru:{
  selectMarkersFirst:'Сначала выберите генотипы (маркеры) в таблице генотипов.',
  multipleDyePlot:'Все красители в диапазоне маркера',multipleDyeTitle:'Все красители — {0} ({1})',selectMarkerHeader:'Сначала щёлкните заголовок маркера.',
  phrStatus:'Соотношение высот пиков = {0} ({1} / {2} RFU)',noRoomLabels:'Нет места для меток',
+ ppPlot:'График',ppHonor:'Учитывать число панелей',ppSmall:'Маленький',ppMedium:'Средний',ppLarge:'Большой',
+ ppHonorNote:'Letter и A4: не более 7 панелей на странице в книжной ориентации и 5 в альбомной; Legal: 8 и 5. Маленький, средний и большой размеры не учитывают число панелей.',
+ ppPages:'Страниц: {0}, {1}, {2}',nothingToUndo:'Для показанных образцов нет правок меток для отмены.',undoneEdit:'Отменено: {0} {1} ({2})',
+ copiedTable:'Таблица скопирована в буфер обмена.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

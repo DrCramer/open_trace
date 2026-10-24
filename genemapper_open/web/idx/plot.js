@@ -124,7 +124,10 @@ function paint(cv,items,x0,x1,onlyMarker){
  for(const m of markers.filter(m=>dyes.includes(m.channel))){
   const row=(s.markers||[]).find(r=>r.marker===m.name);const xa=X(m.min_bp),xb=X(m.max_bp);
   // marker header colour = GQ; grey when its allele labels were edited
-  if(view.markerRange){g.fillStyle=row?.edited?'#a8a8a8':GQ_FILL[row?.gqCat||'na'];g.fillRect(xa,4,xb-xa,14);g.strokeStyle='#555';g.strokeRect(xa+.5,4.5,xb-xa-1,13);
+  if(view.markerRange){const col=row?.edited?'#a8a8a8':GQ_FILL[row?.gqCat||'na'];
+   // printed plots: marker header backgrounds are unfilled and outlined in colour (help: Reviewing Color-Coded Marker Headers)
+   if(view.printing){g.fillStyle='#fff';g.fillRect(xa,4,xb-xa,14);g.lineWidth=2;g.strokeStyle=col;g.strokeRect(xa+1,5,xb-xa-2,12);g.lineWidth=1}
+   else{g.fillStyle=col;g.fillRect(xa,4,xb-xa,14);g.strokeStyle='#555';g.strokeRect(xa+.5,4.5,xb-xa-1,13)}
    g.fillStyle='#000';g.save();g.beginPath();g.rect(xa,4,xb-xa,14);g.clip();g.fillText((row?.pli?'** ':'')+m.name,xa+3,15);g.restore();
    m._hit={x0:xa,x1:xb,y0:4,y1:18}}
   if(view.bins)for(const b of m.bins||[]){const ba=X(b.center_bp-(b.left_bp??.5)),bb=X(b.center_bp+(b.right_bp??.5));
@@ -330,6 +333,67 @@ function multipleDyePlot(){
  dialog(fmt('multipleDyeTitle',m.name,s.name),b=>{b.classList.add('mdpdlg');const c=el('canvas',{style:'width:900px;max-width:86vw'});c.height=320;b.append(c);
   const mg=setting?.display?.markerMargin??5,cur=curveOf(s.analysis);let a=m.min_bp-mg,z=m.max_bp+mg;if(view.xAxis==='dp'){a=bpToScan(cur,a);z=bpToScan(cur,z)}
   requestAnimationFrame(()=>paint(c,[{sample:s,dyes:tags}],a,z,m))},[[T('ok'),()=>true,true]])}
+// ---------- Edit / View menu ----------
+function curSample(){return payload?.samples.find(s=>s.id===view.selSample)||payload?.samples[0]||null}
+function sampleView(tab){const s=curSample();if(!s)return;try{window.opener.OT.showSampleView(s.id,tab);window.opener.focus()}catch(e){message(String(e.message||e))}}
+async function undoLast(){if(!payload)return;if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
+ let r=null;try{r=window.opener.OT.undoLast(payload.samples.map(s=>s.id))}catch(e){return message(String(e.message||e))}
+ if(!r)return message(T('nothingToUndo'));try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw();
+ $('markerInfo').textContent=fmt('undoneEdit',T('act_'+r.action)===('act_'+r.action)?r.action:T('act_'+r.action),r.marker,r.sample)}
+function copyPlotTable(){const rows=[...document.querySelectorAll('#gtGrid table tr')].map(tr=>[...tr.children].map(c=>c.textContent).join('\t')).join('\n');
+ if(!rows)return;try{navigator.clipboard.writeText(rows);$('markerInfo').textContent=T('copiedTable')}catch(e){message(String(e.message||e))}}
+
+// ---------- plot printing (Page Setup > Plot tab: Honor Plots per Pane, Small, Medium, Large) ----------
+const PAGE_KEY='opentrace.pageSetup.v1';
+const SIZES={A4:[210,297],Letter:[216,279],Legal:[216,356]};
+function pageOpts(){let v={};try{v=JSON.parse(localStorage.getItem(PAGE_KEY)||'{}')||{}}catch(e){}
+ return {...v,orientation:v.orientation==='portrait'?'portrait':'landscape',paper:['A4','Letter','Legal'].includes(v.paper)?v.paper:'A4',
+  header:v.header!==false,plot:['honor','small','medium','large'].includes(v.plot)?v.plot:'honor'}}
+function plotPageSetup(){const o=pageOpts();
+ dialog(T('pageSetup').replace(/\.+$/,''),b=>{b.classList.add('ppsdlg');
+  const paper=el('select',{id:'ppPaper'});for(const p of Object.keys(SIZES))paper.append(new Option(p,p));paper.value=o.paper;paper.addEventListener('change',()=>o.paper=paper.value);
+  const or=el('select',{id:'ppOrient'});or.append(new Option(T('psLandscape'),'landscape'),new Option(T('psPortrait'),'portrait'));or.value=o.orientation;or.addEventListener('change',()=>o.orientation=or.value);
+  const fs=el('fieldset',{},el('legend',{text:T('ppPlot')}));
+  for(const [v,k] of [['honor','ppHonor'],['small','ppSmall'],['medium','ppMedium'],['large','ppLarge']]){const r=el('input',{type:'radio',name:'ppPlot',value:v,'data-pp':v});r.checked=o.plot===v;
+   r.addEventListener('change',()=>{if(r.checked)o.plot=v});fs.append(el('label',{class:'chk'},r,document.createTextNode(' '+T(k))))}
+  fs.append(el('div',{class:'note',text:T('ppHonorNote')}));
+  const hd=el('input',{type:'checkbox',id:'ppHeader'});hd.checked=o.header;hd.addEventListener('change',()=>o.header=hd.checked);
+  b.append(el('div',{class:'field'},el('label',{text:T('psPaper')}),paper),el('div',{class:'field'},el('label',{text:T('psOrientation')}),or),fs,
+   el('label',{class:'chk'},hd,document.createTextNode(' '+T('psHeaderText'))))},
+  [[T('ok'),()=>{try{localStorage.setItem(PAGE_KEY,JSON.stringify(o))}catch(e){}return true},true],[T('cancel'),()=>true]])}
+// panes per page in "Honor Plots per Pane" (help: Letter/A4 7 portrait, 5 landscape; Legal 8 portrait, 5 landscape)
+function panesPerPage(o){const max=o.orientation==='portrait'?(o.paper==='Legal'?8:7):5;return Math.max(1,Math.min(view.panes,max))}
+function printPages(o){
+ const [w,h]=SIZES[o.paper];const [pw,ph]=o.orientation==='portrait'?[w,h]:[h,w];const PX=3.78;   // px per mm at 96 dpi
+ const usableW=pw-20,headH=o.header?8:0,usableH=ph-20-headH-6;
+ const per=o.plot==='honor'?panesPerPage(o):Math.max(1,Math.floor(usableH/({small:40,medium:60,large:90}[o.plot])));
+ const paneH=usableH/per;const panes=paneList();const [d0,d1]=domain();
+ const host=el('div',{style:'position:absolute;left:-20000px;top:0'});document.body.append(host);const imgs=[];
+ view.printing=true;
+ for(const p of panes){const items=p.overlay?p.items:[p];const s=items[0].sample;
+  let x0=view.x0??d0,x1=view.x1??d1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);x0=p.marker.min_bp-mg;x1=p.marker.max_bp+mg;if(view.xAxis==='dp'){x0=bpToScan(c,x0);x1=bpToScan(c,x1)}}
+  const cv=el('canvas',{style:`width:${Math.round(usableW*PX)}px`});cv.height=Math.round((paneH-5)*PX);host.append(cv);
+  paint(cv,items,x0,x1,p.marker);
+  const label=p.overlay?T('overlay'):[s.file,s.name,p.marker?.name].filter(Boolean).join('   ');imgs.push({src:cv.toDataURL('image/png'),label})}
+ view.printing=false;host.remove();
+ const pages=[];for(let i=0;i<imgs.length;i+=per)pages.push(imgs.slice(i,i+per));
+ return {pages,pw,ph,usableW,paneH,headH}}
+function printPlots(preview){if(!payload||!payload.samples.length)return message(T('selectSamplesFirst'));
+ const o=pageOpts();const r=printPages(o);
+ let area=document.getElementById('plotPrint');if(area)area.remove();area=el('div',{id:'plotPrint',class:preview?'ppreview':''});
+ const st=el('style',{id:'plotPrintStyle'});st.textContent=`@page{size:${o.paper.toLowerCase()} ${o.orientation};margin:10mm}`;document.getElementById('plotPrintStyle')?.remove();document.head.append(st);
+ if(preview){const bar=el('div',{class:'ppbar noprint'});const bt=(txt,fn,id)=>{const b=el('button',{class:'btn',type:'button',text:txt,id});b.addEventListener('click',fn);return b};
+  bar.append(bt(T('print'),()=>{window.print()},'ppPrint'),bt(T('closeWin'),()=>area.remove(),'ppClose'),el('span',{text:' '+fmt('ppPages',r.pages.length,o.paper,T(o.orientation==='portrait'?'psPortrait':'psLandscape'))}));area.append(bar)}
+ const proj=payload.project||T('untitled'),title=T(isGeno()?'genotypesPlot':'samplesPlot'),date=new Date().toLocaleString();
+ r.pages.forEach((pg,i)=>{const page=el('div',{class:'ppage',style:`width:${r.pw-20}mm;height:${r.ph-20}mm`});
+  if(o.header)page.append(el('div',{class:'pphead'},el('b',{text:proj}),el('span',{text:title+(payload.printComment?' — '+payload.printComment:'')}),el('span',{text:`${date}   ${i+1}/${r.pages.length}`})));
+  for(const im of pg)page.append(el('div',{class:'pplabel',text:im.label}),el('img',{src:im.src,style:`width:${r.usableW}mm;height:${(r.paneH-5)}mm`}));
+  area.append(page)});
+ document.body.append(area);
+ if(!preview){document.body.classList.add('printingPlots');const done=()=>{document.body.classList.remove('printingPlots');area.remove();window.removeEventListener('afterprint',done)};
+  window.addEventListener('afterprint',done);setTimeout(()=>window.print(),100)}
+ return r}
+window.PP={printPlots,printPages,pageOpts};
 function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
@@ -373,9 +437,9 @@ function build(){
  const ck=(k,v)=>view[k]===v;
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},'-',{label:T('pageSetup'),disabled:true},{label:T('printPreview'),disabled:true},{label:T('print'),sc:'Ctrl+P',run:()=>window.print()},'-',{label:T('closePlot'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('copy'),sc:'Ctrl+C',disabled:true}]},
-  {label:T('view'),items:[{label:T('sampleInfo'),disabled:true},{label:T('rawData'),disabled:true},{label:T('eptData'),disabled:true},'-',
+  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},'-',{label:T('pageSetup'),run:plotPageSetup},{label:T('printPreview'),run:()=>printPlots(true)},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},'-',{label:T('closePlot'),run:()=>window.close()}]},
+  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',run:undoLast},{label:T('copy'),sc:'Ctrl+C',run:copyPlotTable}]},
+  {label:T('view'),items:[{label:T('sampleInfo'),run:()=>sampleView('info')},{label:T('rawData'),run:()=>sampleView('raw')},{label:T('eptData'),run:()=>sampleView('ept')},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
   {label:T('plots'),items:[{label:T('multipleDyePlot'),run:multipleDyePlot},'-',{label:T('zoom'),sub:[{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('fullView'),run:()=>{view.x0=view.x1=null;draw()}}]},
    {label:T('xAxis'),sub:[{label:T('basepairs'),checked:view.xAxis==='bp',run:()=>{view.xAxis='bp';view.x0=view.x1=null;build();draw()}},{label:T('dataPoints'),checked:view.xAxis==='dp',run:()=>{view.xAxis='dp';view.x0=view.x1=null;build();draw()}}]},
@@ -391,7 +455,7 @@ function build(){
   {label:T('tools'),items:[{label:T('manager'),disabled:true}]},
   {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},{label:T('deletePredefined')+'...',run:deletePredefined},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
- const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>window.print()),tbutton('printPreview',T('printPreview'),null,{disabled:true}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
+ const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>printPlots(false),{id:'tbPlotPrint'}),tbutton('printPreview',T('printPreview'),()=>printPlots(true),{id:'tbPlotPreview'}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
  const ps=el('select',{class:'combo',id:'psCombo'});for(const n of settingNames())ps.append(new Option(n,n));ps.value=setting?.name||'';
  ps.addEventListener('change',()=>{applySetting(ps.value);build();draw()});
  const pn=el('select',{class:'combo',style:'min-width:44px'});for(let i=1;i<=8;i++)pn.append(new Option(String(i),String(i)));pn.value=String(view.panes);
@@ -417,7 +481,8 @@ function build(){
   ...(on('sampleName')?[el('div',{class:'c',style:'width:150px',text:T('colSampleName')})]:[]),...(on('panel')?[el('div',{class:'c',style:'width:150px',text:T('colPanel')})]:[]),
   ...PQV_KEYS.filter(on).map(k=>el('div',{class:'c',style:'width:46px',text:k})));if(!isGeno())ch.style.display=view.header?'flex':'none';
 }
-document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;if(e.key.toLowerCase()==='e'){e.preventDefault();exportPlotTable();return}if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}if(e.key==='-'){e.preventDefault();zoom(2)}});
+document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
+ if(e.key.toLowerCase()==='p'){e.preventDefault();printPlots(false);return}if(e.key.toLowerCase()==='z'&&!e.target.closest('input,textarea')){e.preventDefault();undoLast();return}if(e.key.toLowerCase()==='e'){e.preventDefault();exportPlotTable();return}if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}if(e.key==='-'){e.preventDefault();zoom(2)}});
 window.addEventListener('resize',()=>draw());
 // Follow the project window's selection (Project Options: update plots when the selection changes).
 function refresh(){const sig=p=>JSON.stringify([p?.mode,p?.genoSel,p?.samples?.map(s=>s.id)]);const before=sig(payload);let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}
