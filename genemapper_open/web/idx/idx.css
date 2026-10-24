@@ -338,3 +338,9 @@ table.g td.c{text-align:center}
 .bodlg table{border-collapse:collapse;width:100%}.bodlg th{position:sticky;top:0;background:#ece9d8;border:1px solid #a7a6aa;padding:2px 8px;font-weight:normal;text-align:left}
 .bodlg td{border:1px solid #d4d0c8;padding:1px 8px;white-space:nowrap}.bodlg td.rn{background:#ece9d8;color:#444;text-align:right}.bodlg td.num{text-align:right}
 .dlg .body>p{white-space:pre-line}
+/* Matrix Editor (MatrixMakerDiag) */
+.mxdlg{min-width:460px}.mxdlg fieldset{margin:8px 0}
+.mxgrid{display:grid;grid-template-columns:auto 1fr 70px;gap:4px 8px;align-items:center;margin:6px 0}.mxgrid .h{font-weight:bold}
+.mxgrid .mxdye{min-width:32px;padding:1px 6px}.mxfile{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px;color:#333}
+.mxdlg input.num{width:64px;text-align:right}.mxres{border-collapse:collapse}.mxres th{background:#ece9d8;border:1px solid #a7a6aa;padding:2px 8px;font-weight:normal}
+.mxres td{border:1px solid #d4d0c8;padding:0}.mxres td input{border:0;width:70px}

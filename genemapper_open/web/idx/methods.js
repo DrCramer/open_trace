@@ -122,7 +122,7 @@ function ask(text){return new Promise(res=>{dialog(T('alert'),b=>b.append(el('p'
  [[T('ok'),()=>{res(true);return true},true],[T('cancel'),()=>{res(false);return true}]])})}
 
 // ---------- manager ----------
-function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+function download(name,text,type){const url=URL.createObjectURL(text instanceof Blob?text:new Blob([text],{type}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 // Manager tabs: each kind supplies rows, editor and import/export.
 const KINDS=[];
 function methodKind(){return {id:'methods',label:T('mgrMethods'),sec:{map:'AnalysisMethod',group:'GM_ANALYSIS_METHOD',noun:'ANALYSIS_METHOD',title:'Analysis Method',read:'READ_ANALYSIS_METHOD',update:'UPDATE_ANALYSIS_METHOD',saveAs:'SAVE_AS_ANALYSIS_METHOD',ranges:true},
@@ -166,19 +166,19 @@ function openManager(tab){
     dialog(T('mgrSaveAs'),bb=>{bb.append(row(T('amName'),el('input',{type:'text',id:'saName',value:m.name+' copy'})));if(IT)bb.append(row(T('securityGroupLbl'),gs))},
      [[T('ok'),async bb=>{const n=bb.querySelector('#saName').value.trim();if(!n)return false;if(K.get(n)){message(fmt('methodNameExists',n));return false}
        const ch=await audit('created',n,m.name);if(!ch)return false;try{K.put({...clone(m),name:n})}catch(e){message(e.message);return false}if(IT)IT.set(K.id,n,gs.value);ch.commit();selected=n;draw()},true],[T('cancel'),()=>true]])}),
-   btn(T('mgrImport'),()=>{if(!upd())return Sec.denied();const i=el('input',{type:'file',accept:'.xml,.json',style:'display:none'});
-    i.addEventListener('change',async()=>{const f=i.files[0];i.remove();if(!f)return;try{const text=await f.text();
-     const r=await K.importText(text);let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;const g=await pick();if(IT&&!g)return;
+   btn(T('mgrImport'),()=>{if(!upd())return Sec.denied();const i=el('input',{type:'file',accept:K.accept||'.xml,.json',style:'display:none'});
+    i.addEventListener('change',async()=>{const f=i.files[0];i.remove();if(!f)return;try{
+     const r=K.importFile?await K.importFile(f):await K.importText(await f.text());let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;const g=await pick();if(IT&&!g)return;
      const ch=await audit('created',n,'');if(!ch)return;K.put(r.obj);if(IT)IT.set(K.id,n,g);ch.commit();selected=n;draw();
      message(K.imported+(r.note?'\n'+r.note:''))}catch(e){message(e.message)}});
     document.body.append(i);i.click()},'mgrImportBtn'),
-   btn(T('mgrExport'),async()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));try{download(m.name+'.xml',await K.exportText(m),'application/xml')}catch(e){message(e.message)}},'mgrExportBtn'),
-   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(!upd())return Sec.denied();if(IT&&!IT.need(K.id,selected,'delete'))return;if(K.count()<=1)return message(T('mgrKeepOne'));
+   btn(T('mgrExport'),async()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));try{if(K.exportFile){const x=await K.exportFile(m);download(x.name,x.blob,x.blob.type)}else download(m.name+'.xml',await K.exportText(m),'application/xml')}catch(e){message(e.message)}},'mgrExportBtn'),
+   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(!upd())return Sec.denied();if(IT&&!IT.need(K.id,selected,'delete'))return;if(!K.allowEmpty&&K.count()<=1)return message(T('mgrKeepOne'));
     ask(fmt(K.confirmDelete,selected)).then(async ok=>{if(ok){const ch=await audit('deleted',selected,selected);if(!ch)return;K.remove(selected);if(IT)IT.remove(K.id,selected);ch.commit();selected=null;draw()}})}),
    ...(IT?[btn(T('scChangeGroup'),async()=>{if(!selected)return message(T('selectRow'));if(!IT.need(K.id,selected,'control'))return;const cur=IT.get(K.id,selected);
      const g=await Sec.chooseGroup(cur.group);if(!g||g===cur.group)return;const ch=await audit('modified',selected,selected);if(!ch)return;IT.set(K.id,selected,g,cur.owner);ch.commit();draw()},'mgrGroupBtn')]:[])))};
  draw();return d}
 
-window.Methods={init(p){post=p},list,get,put,remove,ensureDefault,factory,openEditor,openManager,ask,download,
+window.Methods={init(p){post=p},post:(...a)=>post(...a),list,get,put,remove,ensureDefault,factory,openEditor,openManager,ask,download,
  registerKind(f){KINDS.push(f)}};
 })();

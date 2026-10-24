@@ -382,6 +382,14 @@ en:{
  dspDone:'Sample files associated: {0} of {1}.',dspMissing:'Not found in the selected folder:',
  dspDiffers:'A file with this name was found, but its contents differ from the analysed sample file:',
  addChooseFolder:'Add Folder...',
+ arsMnf:'Matrix not found (MNF)',mgrMatrices:'Matrices',mxEditor:'Matrix Editor',mxName:'Matrix Name:',mxDescription:'Description:',mxNumberOfDyes:'Number of Dyes:',
+ mxSettings:'Matrix Settings',mxResult:'Matrix Result',mxSelectFiles:'Select the Matrix Standard Sample File:',mxFile:'Sample file',mxStartAt:'Start At:',mxPoints:'Points:',
+ mxCreate:'Create',mxCreating:'Creating matrix....',mxNoFile:'(no file)',mxNoFileFor:'No File Selected for "{0}" Data',mxNumbers:'Start At and Points must be whole numbers.',
+ mxNoResult:'Select a matrix standard sample file for every dye, then click Create.',mxCreateFirst:'Please create matrix before saving.',
+ mxEnterName:'Enter a matrix name and try again',mxNameTooLong:'This Matrix Name is too long. Please enter a Matrix Name with less than 256 characters.',
+ mxNameInvalid:'Matrix name <{0}> contains invalid characters.',mxNameExists:'<{0}> is already in use. Enter a unique matrix name and try again',
+ mxDyes:'Number of dyes must be 4 or 5.',mxValues:'Please enter numeric values between 0 and 2',mxUntitled:'Matrix',mxImported:'Matrix imported.',
+ mxConfirmDelete:'Delete matrix {0}?',siMatrixInFile:'matrix stored in the sample file',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -772,6 +780,14 @@ ru:{
  dspSelect:'Выделите образцы в таблице образцов, затем выберите папку с их файлами.',dspChecking:'Проверка файлов образцов...',dspDone:'Связано файлов образцов: {0} из {1}.',
  dspMissing:'Не найдены в выбранной папке:',dspDiffers:'Файл с таким именем найден, но его содержимое отличается от проанализированного файла образца:',
  addChooseFolder:'Добавить папку...',
+ arsMnf:'Матрица не найдена (MNF)',mgrMatrices:'Матрицы',mxEditor:'Редактор матриц',mxName:'Имя матрицы:',mxDescription:'Описание:',mxNumberOfDyes:'Количество красителей:',
+ mxSettings:'Параметры матрицы',mxResult:'Результат матрицы',mxSelectFiles:'Выберите файл образца матричного стандарта:',mxFile:'Файл образца',mxStartAt:'Начать с:',
+ mxPoints:'Точек:',mxCreate:'Создать',mxCreating:'Создание матрицы....',mxNoFile:'(файл не выбран)',mxNoFileFor:'Не выбран файл для данных "{0}"',
+ mxNumbers:'«Начать с» и «Точек» должны быть целыми числами.',mxNoResult:'Выберите файл матричного стандарта для каждого красителя и нажмите «Создать».',
+ mxCreateFirst:'Создайте матрицу перед сохранением.',mxEnterName:'Введите имя матрицы и повторите',mxNameTooLong:'Имя матрицы слишком длинное: не более 255 символов.',
+ mxNameInvalid:'Имя матрицы <{0}> содержит недопустимые символы.',mxNameExists:'<{0}> уже используется. Введите уникальное имя матрицы',
+ mxDyes:'Количество красителей должно быть 4 или 5.',mxValues:'Введите числа от 0 до 2',mxUntitled:'Матрица',mxImported:'Матрица импортирована.',
+ mxConfirmDelete:'Удалить матрицу {0}?',siMatrixInFile:'матрица из файла образца',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

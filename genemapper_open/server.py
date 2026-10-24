@@ -209,12 +209,42 @@ def _measure_morphology_channel(channel, threshold,spike_definition=None,detecto
         'height_mode': 'explicit', 'original_runtime_validated': False}
 
 
+def _apply_matrix(sample, channels, matrix):
+    """310 Genetic Analyzer data: raw filter traces are multicomponented with the sample's matrix
+    (ID-X Matrix column; a matrix stored in the sample file is used when no matrix is chosen).
+    Other instruments store dye-separated data and need no matrix (MNF not applicable)."""
+    from .matrix import is_310, embedded_matrix, validate_matrix, invert, multicomponent
+    if isinstance(matrix, str):
+        matrix = json.loads(matrix) if matrix.strip() else None
+    if not is_310(sample):
+        return None
+    inverse, source = None, None
+    if matrix is not None:
+        inverse, source = invert(validate_matrix(matrix)), 'library'
+    else:
+        inverse = embedded_matrix(sample)
+        source = 'sample_file' if inverse is not None else None
+    if inverse is None:
+        raise ValueError('Matrix not found (MNF): 310 sample files need a matrix (Matrix column of the Samples table)')
+    n = len(inverse)
+    raw = sorted((ch for ch in channels if ch['group'] == 'raw' and ch['dye_index'] and ch['dye_index'] <= n),
+                 key=lambda ch: ch['dye_index'])
+    if len(raw) != n:
+        raise ValueError('Matrix has wrong dimension for this sample file')
+    int16 = all(sample.tags[(ch['tag'][:4], ch['number'])].element_type == 4 for ch in raw)
+    mixed = multicomponent([ch['values'] for ch in raw], inverse, int16=int16)
+    for ch, values in zip(raw, mixed):
+        ch['values'] = values
+        ch['multicomponented'] = True
+    return {'instrument': '310', 'source': source, 'dyes': n, 'applied': True}
+
+
 def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
             sizing_mode="", standard_channel="", standard_bp="", max_residual_bp=5.0,
             standard_start=0, standard_end=None, calibration_model="linear",
             analysis_engine="residual", height_mode="explicit", quality_threshold=0.75,
             num_extra_peaks=25,spike_definition=None,sizing_quality_definition=None,pullup_definition=None,
-            channel_thresholds=None,detector=None,analysis_range=None,sizing_override=None,normalization=False):
+            channel_thresholds=None,detector=None,analysis_range=None,sizing_override=None,normalization=False,matrix=None):
     from .calibration import MODEL_IDS, build_calibration, CalibrationError
     detector = _detector_settings(detector)
     channel_thresholds = _channel_thresholds(channel_thresholds)
@@ -265,6 +295,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
     channels = sample.channels()
     if not channels:
         raise AbifError("No supported numeric DATA traces found; unknown DATA types remain opaque")
+    matrix_info = _apply_matrix(sample, channels, matrix)
     for ch in channels:
         if any(not math.isfinite(value) for value in ch["values"]):
             raise AbifError(f"{ch['tag']}: non-finite numeric values")
@@ -450,6 +481,8 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                                   'analysis_engine': analysis_engine, 'selected_data_group': selected_group,
                                   'height_mode': height_mode if analysis_engine == 'morphology_ratio' else 'explicit'},
                                "research_only": True}
+    if matrix_info is not None:
+        output['matrix'] = matrix_info
     output['normalization'] = {'sample_file': sfn['status'], 'factor': sfn['factor'], 'requested': bool(normalization),
                                'applied': norm_scale is not None,
                                'scope': 'sample dye channels (size standard unscaled)' if norm_scale is not None else None}
@@ -487,7 +520,7 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js", "plotsettings.js")}
+                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js", "plotsettings.js", "matrices.js")}
     for page_name in ("project.html", "panels.html", "plot.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
@@ -535,7 +568,7 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
                                    "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit",
-                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture", "/api/security", "/api/sample-info"):
+                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture", "/api/security", "/api/sample-info", "/api/matrix"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -606,6 +639,9 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                 if parsed.path == '/api/profiles':
                     from .profiles import profile_request
                     return self.respond(200,profile_request(json.loads(raw)))
+                if parsed.path == '/api/matrix':
+                    from .matrix import matrix_request
+                    return self.respond(200, matrix_request(json.loads(raw)))
                 if parsed.path == '/api/analysis-method':
                     from .analysis_method import method_request
                     return self.respond(200,method_request(json.loads(raw)))
@@ -719,7 +755,8 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                                  detector=params.get('detector',[None])[0],
                                  analysis_range=_parse_analysis_range(params.get('analysis_range',[None])[0]),
                                  sizing_override=params.get('sizing_override',[None])[0],
-                                 normalization=params.get('normalization',['false'])[0])
+                                 normalization=params.get('normalization',['false'])[0],
+                                 matrix=params.get('matrix',[None])[0])
                 return self.respond(200, result)
             except AccessDenied as exc:
                 return self.respond(403, {"error": str(exc), "access_denied": True})

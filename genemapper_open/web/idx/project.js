@@ -161,8 +161,13 @@ function statusIcon(s){
  return `<svg viewBox="0 0 14 14" width="14" height="14"><path d="M3 2l9 5-9 5z" fill="${color}" stroke="#555"/></svg>`}
 // ---------- table cells (columns chosen by the active Table Setting) ----------
 const PQV_NUM={pass:0,check:1,low:2,na:-2,override:0.5};
+// MNF (Matrix Not Found): only 310 Genetic Analyzer data need a matrix; a matrix stored in the sample file is used when
+// the Matrix column is empty. Newer instruments save dye-separated data (N/A).
+function mnfFlag(s){const i=s.inst;if(!i||!i.is310)return 'na';if(s.matrix)return Matrices.get(s.matrix)?'pass':'low';return i.embedded?'pass':'low'}
+async function sniffSamples(list){let any=false;for(const s of list)if(s.blob&&!s.inst){s.inst=await Matrices.sniff(s.blob)||{is310:false,embedded:false,model:''};any=true}if(any)render()}
 function arnmCodes(s){const r=[];
- if(!s.blob&&s.method!==EXAMPLE_METHOD)r.push('arsSfnf'); // ID-X SFNF: the .fsa is not available (re-associate with Edit > Define New Sample File Path)
+ if(!s.blob&&s.method!==EXAMPLE_METHOD)r.push('arsSfnf');
+ if(mnfFlag(s)==='low')r.push('arsMnf'); // ID-X SFNF: the .fsa is not available (re-associate with Edit > Define New Sample File Path)
  if(s.method!==EXAMPLE_METHOD&&!Methods.get(s.method))r.push('arnmMethod');
  if(!SIZE_STANDARDS[s.sizeStd]&&s.method!==EXAMPLE_METHOD)r.push('arnmStandard');
  if(!s.panelKey)r.push('arnmPanel');
@@ -170,7 +175,7 @@ function arnmCodes(s){const r=[];
  return r}
 const arnmReasons=s=>arnmCodes(s).map(k=>T(k));
 // Requirements without which a sample cannot be analyzed at all (ID-X: non-optional requirements).
-const BLOCKING=new Set(['arsSfnf','arnmMethod','arnmStandard']);
+const BLOCKING=new Set(['arsSfnf','arsMnf','arnmMethod','arnmStandard']);
 const blocked=s=>arnmCodes(s).some(k=>BLOCKING.has(k));
 // MIX PQV (ID-X help): two or more markers with three or more alleles, or one such marker and two or more
 // markers with a PHR flag, or any edited marker -> Check; ladders and samples without labels -> NA.
@@ -205,7 +210,7 @@ function spikeArtifacts(s){const kit=sampleKit(s);if(!kit)return [];const ch=new
 function omrFlag(s){if(s.type==='ladder'||!s.report||!sampleKit(s))return 'na';if(activeEdits(s).some(e=>e.action!=='override_cgq'&&e.action!=='pli'))return 'check';return omrPeaks(s).length?'check':'pass'}
 function sampleFlags(s){const q=samplePqv(s);
  const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';if(s.report&&q.SQ!=='low'){q.MIX=mixFlag(s,eff);q.OMR=omrFlag(s)}
- return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.method===EXAMPLE_METHOD)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
+ return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:mnfFlag(s),SFNF:(s.blob||s.method===EXAMPLE_METHOD)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
 // Inline text cell (Sample ID, Comment, Profile ID, UD1-UD9): edits mark the project dirty.
@@ -230,7 +235,9 @@ function sampleCell(id,s,flags){
    return {value:s.panel||'',node:sel}}
   case 'sizeStandard':{const sel=el('select');for(const k of Object.keys(SIZE_STANDARDS))sel.append(new Option(k,k));sel.value=s.sizeStd;
    sel.addEventListener('change',()=>{s.sizeStd=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.sizeStd,node:sel}}
-  case 'matrix':return {value:''};
+  case 'matrix':{if(!s.inst?.is310)return {value:''};const sel=el('select');sel.append(new Option('',''));
+   for(const n of Matrices.names())sel.append(new Option(n,n));if(s.matrix&&!Matrices.get(s.matrix))sel.append(new Option(s.matrix,s.matrix));sel.value=s.matrix||'';
+   sel.addEventListener('change',()=>{s.matrix=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.matrix||'',node:sel}}
   case 'runName':return {value:info.run_name||''};
   case 'instrumentType':return {value:info.instrument_type||''};
   case 'instrumentID':return {value:info.instrument_id||''};
@@ -513,8 +520,8 @@ function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.leng
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
  return {comment:state.project.comment||'',security_group:state.project.securityGroup||Sec.defaultGroup(),run_folders:state.project.runFolders,bin_offsets:state.project.binOffsets||[],reports:state.project.reports||[],mixture:state.project.mixture||{},
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
-   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},origin:s.origin||'',ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
-  snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
+   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},origin:s.origin||'',matrix:s.matrix||'',inst:s.inst||null,ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
+  snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),matrices:state.project.samples.map(s=>s.matrix&&Matrices.get(s.matrix)).filter((m,i,a)=>m&&a.indexOf(m)===i),tableSetting:TableSettings.active(),
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
 async function writeProject(name,{create=false}={}){
@@ -575,6 +582,7 @@ async function loadProject(name){
  try{progress(0,1,T('opening'));const meta=await jsonPost('/api/idx-project',{action:'open',name});
   const notes=[];const snap=meta.snapshots||{};
   for(const m of snap.methods||[])if(!Methods.get(m.name)){Methods.put(m);notes.push(T('mgrMethods')+': '+m.name)}
+  for(const m of snap.matrices||[])if(!Matrices.get(m.name)){try{Matrices.put(m);notes.push(T('mgrMatrices')+': '+m.name)}catch(e){}}
   if(snap.kits&&snap.kits.length){const db=KitStore.load();let added=false;for(const k of snap.kits)if(!db.kits.some(x=>x.name===k.name)){db.kits.push(k);added=true;notes.push(T('panelMgrTitle')+': '+k.name)}
    if(added){KitStore.save(db);dropCaches()}}
   if(snap.tableSetting&&!TableSettings.get(snap.tableSetting.name)){try{TableSettings.put(snap.tableSetting);notes.push(T('mgrTables')+': '+snap.tableSetting.name)}catch(e){}}
@@ -583,12 +591,12 @@ async function loadProject(name){
   const samples=[];let i=0;state.nextId=1;
   for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
    const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
-    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},origin:m.origin||'',ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
+    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},origin:m.origin||'',matrix:m.matrix||'',inst:m.inst||null,ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:slimAnalysis(data.analysis||null),compact:data.compact?slimAnalysis(data.compact):null,report:slimReport(data.report||null),rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{securityGroup:meta.security_group||Sec.DEFAULT_GROUP,owner:meta.owner||'',mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],binOffsets:Array.isArray(meta.bin_offsets)?meta.bin_offsets:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
-  state.lastMessage=T('projectOpened')+': '+meta.name;rememberProject(meta.name);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
+  state.lastMessage=T('projectOpened')+': '+meta.name;sniffSamples(state.project.samples);rememberProject(meta.name);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
  catch(e){message(e.message)}finally{state.busy=false;render()}}
 function rememberProject(name){try{localStorage.setItem('opentrace.lastProject',name)}catch(e){}}
 async function closeProject(){if(!(await confirmDiscard()))return;
@@ -655,6 +663,7 @@ function addSamples(){
      state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),
       runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
     Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
+    sniffSamples(state.project.samples);
     state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
 
 // ---------- Edit > Define New Sample File Path ----------
@@ -671,9 +680,9 @@ async function associateFiles(targets,files){
   const want=s.analysis?.source_sha256||s.compact?.source_sha256;let pick=null;
   if(want){for(const f of cands){try{if((await sha256Hex(f))===want){pick=f;break}}catch(e){}}if(!pick){res.differs.push(s.file);continue}}
   else pick=cands[0];
-  const was=s.origin||'';s.blob=pick;s.origin=originOf(pick)||was;s.rev=(s.rev||0)+1;res.ok.push(s);
+  const was=s.origin||'';s.blob=pick;s.inst=null;s.origin=originOf(pick)||was;s.rev=(s.rev||0)+1;res.ok.push(s);
   Sec.record([{map:'Sample',attribute:'sample file path',instance:`${s.runFolder}/${s.file}`,old:was,new:s.origin||pick.name,event:'Define New Sample File Path'}])}
- if(res.ok.length){state.project.dirty=true;SampleViews?.invalidate?.()}
+ if(res.ok.length){state.project.dirty=true;SampleViews?.invalidate?.();sniffSamples(res.ok)}
  return res}
 function defineSamplePath(){
  const targets=state.project.samples.filter(s=>state.selected.has(s.id)&&s.method!==EXAMPLE_METHOD);
@@ -732,6 +741,7 @@ async function analyze(scope){
    progress(i,order.length,`${T('analyzing')}: ${s.file}`);
    if(s.blob){const p=new URLSearchParams({...(await analyzeSettings(s.method,s.sizeStd)),filename:s.file});
     if(s.sqOverride)p.set('sizing_override',JSON.stringify(s.sqOverride));
+    if(s.inst?.is310&&s.matrix&&Matrices.get(s.matrix))p.set('matrix',JSON.stringify(Matrices.get(s.matrix).values));
     let r;try{r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob})}
     catch(e){throw Error(`${s.file}: `+T('serverUnreachable').replace('{0}','/api/analyze')+' ('+e.message+')')}
     let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=slimAnalysis(j);s.compact=null;s.rev=(s.rev||0)+1}
@@ -1141,7 +1151,7 @@ function sampleExtra(s){const m=Methods.get(s.method)||{};const p=m.peak_detecto
  const th=p.thresholds?Object.entries(p.thresholds).map(([k,v])=>`${T('dyeLetter_'+k)} ${v}`).join(', '):'';
  const errors=[...arnmReasons(s)];if(s.analysis?.sizing&&s.analysis.sizing.status&&s.analysis.sizing.status!=='accepted')errors.push(`${T('siSizing')}: ${s.analysis.sizing.status}`);
  return {status:STATUS_TEXT[s.status]||s.status,sampleType:TYPE_TEXT[s.type]||s.type,errors,settings:[
-  [T('si_sampleType'),TYPE_TEXT[s.type]||s.type],[T('colPanel'),s.panel||''],[T('colSizeStandard'),s.sizeStd],[T('si_matrix'),T('siNoMatrix')],
+  [T('si_sampleType'),TYPE_TEXT[s.type]||s.type],[T('colPanel'),s.panel||''],[T('colSizeStandard'),s.sizeStd],[T('si_matrix'),s.inst?.is310?(s.matrix||(s.inst.embedded?T('siMatrixInFile'):'—')):T('siNoMatrix')],
   [T('colAnalysisMethod'),s.method],[T('si_sizeCalling'),p.size_calling||''],[T('si_analysisRange'),ar.full?T('amFullRange'):`${ar.start} – ${ar.stop}`],
   [T('si_sizingRange'),sr.all?T('amAllSizes'):`${sr.start_bp} – ${sr.stop_bp}`],[T('si_baseline'),p.baseline_window??''],[T('si_smoothing'),p.smoothing??''],
   [T('si_thresholds'),th],[T('si_polyDegree'),p.polynomial_degree??''],[T('si_windowSize'),p.peak_window??''],[T('si_minHalfWidth'),p.min_half_width??''],
