@@ -70,6 +70,14 @@ async function jsonPost(url,data){
  catch(e){throw Error(T('serverUnreachable').replace('{0}',url)+' ('+e.message+')')}
  let j;try{j=await r.json()}catch(e){throw Error(`${url}: HTTP ${r.status}`)}
  if(!r.ok)throw Error(j.error||'Error');return j}
+// Memory: a 48-file GlobalFiler folder held ~2 GB of per-attempt pull-up traces and ladder-matching details in the tab
+// (renderer "Out of Memory"). Only verdicts are kept: pull-up classification without its event list, run ladders
+// reduced to identity and quality code (all the project window reads from them).
+function slimPullup(p){const pc=p&&p.pullup_classification;if(pc&&Array.isArray(pc.events)){const {events,...rest}=pc;p.pullup_classification={...rest,event_count:events.length}}return p}
+function slimAnalysis(a){if(a&&Array.isArray(a.channels))for(const c of a.channels)for(const p of c.peaks||[])slimPullup(p);return a}
+const LADDER_KEEP=['ladder_id','identity','status','reasons','quality_code','quality_code_source','provenance'];
+function slimReport(r){if(!r)return r;for(const p of r.peaks||[])slimPullup(p);
+ const q=r.quality;if(q&&Array.isArray(q.run_ladders))q.run_ladders=q.run_ladders.map(l=>Object.fromEntries(LADDER_KEEP.filter(k=>k in l).map(k=>[k,l[k]])));return r}
 function compactAnalysis(a){const out={};for(const k of ['source_sha256','analysis_version','peak_settings','sizing','standard_definition_context','pullup_detection'])
  if(a[k]!==undefined)out[k]=a[k];// Pull-up classification keeps its verdict; its per-attempt event trace (several KB per peak, unused after analysis) is dropped,
  // otherwise a run cohort (sample + every ladder of the folder) grows to tens of MB per genotyping request.
@@ -551,7 +559,7 @@ async function loadProject(name){
   for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
    const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
     status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
-    blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:data.analysis||null,compact:data.compact||null,report:data.report||null,rev:0,savedRev:0});
+    blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:slimAnalysis(data.analysis||null),compact:data.compact?slimAnalysis(data.compact):null,report:slimReport(data.report||null),rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
@@ -656,7 +664,7 @@ async function analyze(scope){
     if(s.sqOverride)p.set('sizing_override',JSON.stringify(s.sqOverride));
     let r;try{r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob})}
     catch(e){throw Error(`${s.file}: `+T('serverUnreachable').replace('{0}','/api/analyze')+' ('+e.message+')')}
-    let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=j;s.compact=null;s.rev=(s.rev||0)+1}
+    let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=slimAnalysis(j);s.compact=null;s.rev=(s.rev||0)+1}
    s.status='analyzed';i++;progress(i,order.length)}
   finished=await genotype();
   const any=state.project.samples.some(s=>s.panelKey);
@@ -722,7 +730,7 @@ async function genotype(){
     if(s.type==='sample'&&k.mq.amel_marker&&accW>0)def={...k.mq,schema_version:2,sample_type:'Sample',control_mode:'none',amel_cross_check:{weight:accW}};
     rep=await jsonPost('/api/marker-quality',{report:rep,definition:def})}
    if(rep.allele_calling&&(s.type==='positive'||s.type==='negative')){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
-   s.report=rep;s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
+   s.report=slimReport(rep);s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
  return true}
 
 async function loadExample(){
