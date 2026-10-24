@@ -17,6 +17,8 @@ from .demo import demo_bytes, sizing_demo_bytes, pipeline_demo_bytes
 
 from . import __version__
 
+MAX_JSON_BYTES = 1024 * 1024 * 1024
+
 ANALYSIS_VERSION = "OpenTrace/" + __version__
 
 
@@ -509,8 +511,24 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if length < 0 or length > MAX_FILE_BYTES:
-                    return self.respond(413, {"error": "Maximum upload is 64 MiB"})
+                # FSA uploads stay at 64 MiB; JSON requests carry whole run cohorts (a sample plus every
+                # ladder of the run folder with all peak annotations) and routinely exceed that.
+                limit = MAX_FILE_BYTES if parsed.path in ("/api/analyze", "/api/sample-info") else MAX_JSON_BYTES
+                if length < 0 or length > limit:
+                    # drain what the client is already sending so the browser receives the 413 instead of a
+                    # reset connection; a client that only sent headers is answered after a short wait
+                    self.connection.settimeout(1)
+                    left = max(0, min(length, 2 * MAX_JSON_BYTES))
+                    try:
+                        while left > 0:
+                            chunk = self.rfile.read1(min(left, 1 << 20))
+                            if not chunk:
+                                break
+                            left -= len(chunk)
+                    except OSError:
+                        pass
+                    self.close_connection = True
+                    return self.respond(413, {"error": f"Request too large: {length} bytes (limit {limit // (1024 * 1024)} MiB)"})
                 params = urllib.parse.parse_qs(parsed.query)
                 self.connection.settimeout(30)
                 raw = self.rfile.read(length)
@@ -671,6 +689,13 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                 return self.respond(403, {"error": str(exc), "access_denied": True})
             except (AbifError, ValueError, OverflowError, TimeoutError, TypeError, KeyError, RecursionError) as exc:
                 return self.respond(400, {"error": str(exc)})
+            except Exception as exc:  # never drop the connection: the browser would only report "Failed to fetch"
+                import traceback
+                traceback.print_exc()
+                try:
+                    return self.respond(500, {"error": f"{parsed.path}: {type(exc).__name__}: {exc}"})
+                except OSError:
+                    return None
 
     class LocalServer(ThreadingHTTPServer):
         # Avoid Windows allowing two process instances to share one port.

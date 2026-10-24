@@ -330,6 +330,8 @@ en:{
  maFilterKnown:'Filter on Known Match',maShowAllCombos:'Show All Combinations',maKnownContrib:'known',
  securityGroupLbl:'Security Group',duplicateKit:'Duplicate Kit...',duplicateKitTitle:'New Kit',duplicatePanel:'Duplicate Panel',stutterNode:'Stutter Ratio & Distance',
  clearBtn:'Clear',newMarkerHint:'File > New Marker adds a marker row; click a cell of the selected row to type its value and press Enter.',
+ genotypeErrors:'Some samples could not be genotyped:',
+ serverUnreachable:'No response from the OpenTrace server for {0}: the server may have stopped or the connection was dropped.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -669,6 +671,8 @@ ru:{
  securityGroupLbl:'Группа безопасности',duplicateKit:'Дублировать набор...',duplicateKitTitle:'Новый набор',duplicatePanel:'Дублировать панель',
  stutterNode:'Доля и расстояние статтера',clearBtn:'Удалить',
  newMarkerHint:'Файл > Новый маркер добавляет строку маркера; щёлкните ячейку выбранной строки, введите значение и нажмите Enter.',
+ genotypeErrors:'Не удалось генотипировать часть образцов:',
+ serverUnreachable:'Нет ответа сервера OpenTrace на {0}: сервер остановлен или соединение разорвано.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

@@ -124,6 +124,19 @@ class HttpTests(unittest.TestCase):
         code, _ = self.post("api/analyze", extra={"Content-Length": str(64 * 1024 * 1024 + 1)})
         self.assertEqual(code, 413)
 
+    def test_json_requests_above_upload_limit_accepted(self):
+        # a run cohort (sample + all ladders of the folder) can exceed the 64 MiB FSA upload limit
+        body = b'{"action":"session","pad":"' + b"x" * (65 * 1024 * 1024) + b'"}'
+        code, data = self.post("api/security", data=body, extra={"Content-Type": "application/json"})
+        self.assertEqual(code, 200, data)
+
+    def test_unexpected_server_error_is_reported(self):
+        # an unhandled exception type must still answer with JSON instead of dropping the connection
+        code, data = self.post("api/str-run", data=b'{"sample": 1, "ladders": 2, "kit": []}',
+                               extra={"Content-Type": "application/json"})
+        self.assertIn(code, (400, 500))
+        self.assertIn("error", data)
+
 
 if __name__ == "__main__":
     unittest.main()

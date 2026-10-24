@@ -66,10 +66,15 @@ function panelSelect(value,onChange){const sel=el('select');sel.append(new Optio
  sel.value=value||'';sel.addEventListener('change',()=>onChange(sel.value));sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 
 async function jsonPost(url,data){
- const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'Content-Type':'application/json'},body:JSON.stringify(data)});
- const j=await r.json();if(!r.ok)throw Error(j.error||'Error');return j}
+ let r;try{r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'Content-Type':'application/json'},body:JSON.stringify(data)})}
+ catch(e){throw Error(T('serverUnreachable').replace('{0}',url)+' ('+e.message+')')}
+ let j;try{j=await r.json()}catch(e){throw Error(`${url}: HTTP ${r.status}`)}
+ if(!r.ok)throw Error(j.error||'Error');return j}
 function compactAnalysis(a){const out={};for(const k of ['source_sha256','analysis_version','peak_settings','sizing','standard_definition_context','pullup_detection'])
- if(a[k]!==undefined)out[k]=a[k];out.channels=a.channels.map(c=>({tag:c.tag,group:c.group,peaks:c.peaks}));return out}
+ if(a[k]!==undefined)out[k]=a[k];// Pull-up classification keeps its verdict; its per-attempt event trace (several KB per peak, unused after analysis) is dropped,
+ // otherwise a run cohort (sample + every ladder of the folder) grows to tens of MB per genotyping request.
+ const slim=p=>{const pc=p.pullup_classification;if(!pc||!pc.events)return p;const {events,...rest}=pc;return {...p,pullup_classification:{...rest,event_count:events.length}}};
+ out.channels=a.channels.map(c=>({tag:c.tag,group:c.group,peaks:(c.peaks||[]).map(slim)}));return out}
 
 // ---------- quality mapping ----------
 const ranges={pass:.75,low:.25};
@@ -640,7 +645,7 @@ async function analyze(scope){
  const edited=targets.filter(s=>activeEdits(s).length);
  if(edited.length){if(!(await Methods.ask(T('reanalyzeDropsEdits').replace('{0}',edited.length))))return;
   for(const s of edited)for(const e of s.edits)if(!e.undone){e.undone=true;e.undoneAt=new Date().toISOString();e.undoneBy='reanalysis'}}
- state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;state.binSetNote=null;render();
+ state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;state.binSetNote=null;state.genotypeErrors=[];render();
  const order=[...targets].sort((a,b)=>(a.type==='ladder'?0:1)-(b.type==='ladder'?0:1)); // ladders first
  let i=0,finished=false;
  try{
@@ -649,13 +654,15 @@ async function analyze(scope){
    progress(i,order.length,`${T('analyzing')}: ${s.file}`);
    if(s.blob){const p=new URLSearchParams({...(await analyzeSettings(s.method,s.sizeStd)),filename:s.file});
     if(s.sqOverride)p.set('sizing_override',JSON.stringify(s.sqOverride));
-    const r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob});
-    const j=await r.json();if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=j;s.compact=null;s.rev=(s.rev||0)+1}
+    let r;try{r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob})}
+    catch(e){throw Error(`${s.file}: `+T('serverUnreachable').replace('{0}','/api/analyze')+' ('+e.message+')')}
+    let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=j;s.compact=null;s.rev=(s.rev||0)+1}
    s.status='analyzed';i++;progress(i,order.length)}
   finished=await genotype();
   const any=state.project.samples.some(s=>s.panelKey);
   const skipped=state.project.samples.filter(s=>s.alasSkipped).length;
   state.lastMessage=skipped?T('alasSkippedMsg').replace('{0}',skipped):state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone')+(state.binSetNote?' — '+T('binSetSubstituted')+' '+state.binSetNote:''):T('noKit');
+  if(state.genotypeErrors.length)message(T('genotypeErrors')+'\n'+state.genotypeErrors.slice(0,20).join('\n')+(state.genotypeErrors.length>20?'\n…':''));
   Sec.record([{map:'Project',attribute:'analyzed',instance:state.project.name||'',old:'',new:`${i}/${order.length}`,event:'Analyze Project'}]);
  }catch(err){message(err.message)}
  finally{state.busy=false;state.project.dirty=true;
@@ -705,12 +712,16 @@ async function genotype(){
    const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
    const policy=g.pass?k.policy:'reference_bins';
-   let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy});
-   if(k.mq){let def=k.mq;const accW=Number(Methods.get(s.method)?.sq_gq?.weights?.acc||0);
+   let rep;
+   try{rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy})}
+   catch(e){s.report=null;s.genotypeError=e.message;state.genotypeErrors=(state.genotypeErrors||[]).concat([`${s.file}: ${e.message}`]);s.rev=(s.rev||0)+1;continue}
+   s.genotypeError=null;
+   // A sample that failed sizing (or another sample check) has no allele calls: keep the report with its reasons, skip GQ/control scoring.
+   if(rep.allele_calling&&k.mq){let def=k.mq;const accW=Number(Methods.get(s.method)?.sq_gq?.weights?.acc||0);
     // Samples: AMEL cross check weight of the method enters GQ (ID-X: "Effect on GQ (samples only)").
     if(s.type==='sample'&&k.mq.amel_marker&&accW>0)def={...k.mq,schema_version:2,sample_type:'Sample',control_mode:'none',amel_cross_check:{weight:accW}};
     rep=await jsonPost('/api/marker-quality',{report:rep,definition:def})}
-   if(s.type==='positive'||s.type==='negative'){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
+   if(rep.allele_calling&&(s.type==='positive'||s.type==='negative')){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
    s.report=rep;s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
  return true}
 
