@@ -328,6 +328,8 @@ en:{
  maDeleteKnownWarn:'Known genotype {0} will be removed from the Mixture Analysis tool and the Known column is set to None for all samples that use it. Continue?',
  maImportKnown:'Import...',maImportOption:'Import...',maKnownImported:'imported known genotype',maKnownProfile:'Lab Reference from the Profile Manager',
  maFilterKnown:'Filter on Known Match',maShowAllCombos:'Show All Combinations',maKnownContrib:'known',
+ securityGroupLbl:'Security Group',duplicateKit:'Duplicate Kit...',duplicateKitTitle:'New Kit',duplicatePanel:'Duplicate Panel',stutterNode:'Stutter Ratio & Distance',
+ clearBtn:'Clear',newMarkerHint:'File > New Marker adds a marker row; click a cell of the selected row to type its value and press Enter.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -664,6 +666,9 @@ ru:{
  maDeleteKnownWarn:'Известный генотип {0} будет удалён из инструмента анализа смесей, а у всех образцов, где он выбран, в колонке «Известный» будет «Нет». Продолжить?',
  maImportKnown:'Импорт...',maImportOption:'Импорт...',maKnownImported:'импортированный известный генотип',maKnownProfile:'эталон из менеджера профилей',
  maFilterKnown:'Фильтр по совпадению с известным',maShowAllCombos:'Показать все комбинации',maKnownContrib:'известный',
+ securityGroupLbl:'Группа безопасности',duplicateKit:'Дублировать набор...',duplicateKitTitle:'Новый набор',duplicatePanel:'Дублировать панель',
+ stutterNode:'Доля и расстояние статтера',clearBtn:'Удалить',
+ newMarkerHint:'Файл > Новый маркер добавляет строку маркера; щёлкните ячейку выбранной строки, введите значение и нажмите Enter.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

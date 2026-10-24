@@ -52,6 +52,14 @@ class DefaultModelTests(unittest.TestCase):
             self.assertEqual(st.session_user(None)['name'], 'Administrator')
             self.assertTrue(SecurityStore(d).doc_path.exists())
 
+    def test_session_view_lists_security_groups(self):
+        # Panel Manager New Kit / Duplicate Kit offer the security groups for the kit
+        with tempfile.TemporaryDirectory() as d:
+            st = SecurityStore(d)
+            view = st.session_view(st.session_user(None))
+            self.assertIn('GeneMapper ID-X Security Group', view['security_groups'])
+            self.assertEqual(len(view['security_groups']), len(st.doc['security_groups']))
+
 
 class AuthenticationTests(unittest.TestCase):
     def setUp(self):

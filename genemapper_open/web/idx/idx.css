@@ -301,3 +301,8 @@ table.g.sitable{width:100%}table.g.sitable td.k{width:260px;color:#444;backgroun
 .dlg .body.artdlg{width:380px}.artdlg select{width:100%}
 .matab td.kmatch{background:#3fd34a!important}.matab td.kunknown{background:#ffef3a!important}.matab td.kmatch.pale{background:#c9f2cc!important}.matab td.kunknown.pale{background:#fff8b8!important}
 .dlg .body.knowndlg{width:420px}.knowndlg .magrid{height:300px}
+/* Panel Manager in-place editing (0.39) */
+table.g.editable td.ed{cursor:text}
+table.g.editable tr.sel td.ed:hover{outline:1px dotted #0a246a;outline-offset:-2px}
+table.g.editable td input[type=text],table.g.editable td select{width:100%;height:17px;border:1px solid #7f9db9;background:#fff;padding:0 2px;font:inherit}
+table.g td.c{text-align:center}

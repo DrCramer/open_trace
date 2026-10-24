@@ -44,6 +44,12 @@ const ICONS={
  sizingTable:svg('<rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#555"/><path d="M1.5 5h13M1.5 8.5h13M1.5 12h13M6 1.5v13" stroke="#999"/><rect x="1.5" y="1.5" width="13" height="3.5" fill="#f5c542" stroke="#555"/>'),
  genotypesTable:svg('<rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#555"/><path d="M1.5 5h13M1.5 8.5h13M1.5 12h13M6 1.5v13" stroke="#999"/><rect x="1.5" y="1.5" width="13" height="3.5" fill="#4caf50" stroke="#555"/>'),
  noTable:svg('<rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#999" stroke-dasharray="2 1"/>'),
+ newItem:svg('<path d="M3 1.5h6l3 3v10H3z" fill="#fff" stroke="#556"/><path d="M11 9v6M8 12h6" stroke="#2ea043" stroke-width="2"/>'),
+ clearItem:svg('<path d="M3 3l10 10M13 3L3 13" stroke="#d93025" stroke-width="2.2"/>'),
+ addBin:svg('<rect x="2.5" y="3.5" width="6" height="10" fill="#cfcfcf" stroke="#777"/><path d="M12 4v6M9 7h6" stroke="#2ea043" stroke-width="2"/>'),
+ deleteBin:svg('<rect x="2.5" y="3.5" width="6" height="10" fill="#cfcfcf" stroke="#777"/><path d="M10 5l5 5M15 5l-5 5" stroke="#d93025" stroke-width="1.8"/>'),
+ editBin:svg('<rect x="2.5" y="3.5" width="6" height="10" fill="#cfcfcf" stroke="#777"/><path d="M9 13l1-3 4-4 2 2-4 4z" fill="#f2c94c" stroke="#8a6d00"/>'),
+ newBinSet:svg('<rect x="1.5" y="4.5" width="3" height="9" fill="#cfcfcf" stroke="#777"/><rect x="5.5" y="4.5" width="3" height="9" fill="#f6c6d8" stroke="#777"/><path d="M12 2v6M9 5h6" stroke="#2ea043" stroke-width="2"/>'),
  plotSettingEditor:svg('<rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#555"/><path d="M2 12l2-6 2 6 2-8 2 8 2-4 2 4" stroke="#1f4fd6" fill="none"/><circle cx="12" cy="4" r="2.5" fill="#999" stroke="#555"/>'),
 };
 window.icon=name=>ICONS[name]||ICONS.sample;

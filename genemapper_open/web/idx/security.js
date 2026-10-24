@@ -20,7 +20,7 @@ function makeCore(){
   const r=await fetch('/api/security',{method:'POST',headers:{'X-Session-Token':window.OT_TOKEN,'X-User-Ticket':getTicket(),'Content-Type':'application/json'},
    body:JSON.stringify({action,...body})});
   const j=await r.json();if(!r.ok){const e=Error(j.error||'Error');e.denied=!!j.access_denied;throw e}return j}
- function apply(v){for(const k of ['require_login','user','rights','audit','esig','policies','login_users','groups'])if(k in v)S[k]=v[k];window.dispatchEvent(new Event('opentrace-security'))}
+ function apply(v){for(const k of ['require_login','user','rights','audit','esig','policies','login_users','groups','security_groups'])if(k in v)S[k]=v[k];window.dispatchEvent(new Event('opentrace-security'))}
  async function refresh(){apply(await api('session'))}
  return {S,api,apply,refresh}}
 const core=(()=>{try{if(window.opener&&window.opener!==window&&window.opener.Sec&&window.opener.Sec.core)return window.opener.Sec.core}catch(e){}return makeCore()})();
@@ -304,5 +304,5 @@ async function esigAdmin(){
  draw();return d}
 
 window.Sec={core,init,can,need,denied,auditState,change,record,esign,reasonDialog,loginDialog,logout,changePassword,securityManager,auditSettings,auditHistory,
- auditCount,auditBackup,auditRestore,auditDelete,esigAdmin,ticket:getTicket,get user(){return S.user},get state(){return S},refresh:()=>core.refresh()};
+ auditCount,auditBackup,auditRestore,auditDelete,esigAdmin,ticket:getTicket,securityGroups:()=>(S.security_groups&&S.security_groups.length?S.security_groups:['GeneMapper ID-X Security Group']),get user(){return S.user},get state(){return S},refresh:()=>core.refresh()};
 })();

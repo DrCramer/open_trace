@@ -905,7 +905,8 @@ class SecurityStore:
                 'audit': {'enabled': d['audit']['enabled'], 'maps': d['audit']['maps'], 'reasons': d['audit']['reasons'],
                           'free_text': d['audit']['free_text']},
                 'esig': d['esig'], 'policies': {'min_length': d['policies']['min_length']},
-                'login_users': [u['name'] for u in d['users'] if not u['disabled']]}
+                'login_users': [u['name'] for u in d['users'] if not u['disabled']],
+                'security_groups': [g['name'] for g in d['security_groups']]}
 
 
 # ---------------------------------------------------------------- HTTP dispatch
