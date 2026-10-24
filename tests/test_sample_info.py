@@ -6,7 +6,9 @@ from pathlib import Path
 from genemapper_open.sample_info import sample_info
 from genemapper_open.demo import demo_bytes
 
-REAL = sorted(glob.glob('/home/claude/mix/Mixture Analysis/MA_SGM/*.fsa'))
+_DIRS = [Path(__file__).resolve().parents[2] / 'research/extracted/payload/AppliedBiosystems/GeneMapperID-X/Example Data/Mixture Analysis/MA_SGM',
+         Path('/home/claude/mix/Mixture Analysis/MA_SGM')]
+REAL = next((sorted(str(f) for f in d.glob('*.fsa')) for d in _DIRS if d.is_dir() and any(d.glob('*.fsa'))), [])
 
 
 class SampleInfoTests(unittest.TestCase):
