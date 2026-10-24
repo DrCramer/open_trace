@@ -155,32 +155,34 @@ function paint(cv,items,x0,x1,onlyMarker){
    g.fillStyle='#000';g.fillText(String(+(+mbp).toFixed(1)),Xc(v),Math.max(top+fs,Y(m.height||0)-4))}}}
  g.restore();
  // allele labels in boxes under the axis
- const labelBoxes=[];
+ const labelBoxes=[];let noRoom=false;
  if(view.labels!=='none'){g.textAlign='center';const placed=[];g.font=`${fs}px ${LS.font||'Tahoma'}`;
   for(const t of traces){const calls=(t.sample.report?.calls||[]).filter(c=>c.channel===t.tag&&(dp?c.scan>=x0&&c.scan<=x1:c.size_bp>=x0&&c.size_bp<=x1));
    const dyeCol=DYE_COLORS[t.tag]==='#000000'?'#7a6a00':(DYE_COLORS[t.tag]||'#000');
    for(const c of calls){const x=Xc(pos(c.size_bp,c.scan));const lines=labelLines(c,t.sample);
-    const w=Math.max(18,...lines.map(l=>g.measureText(l).width+8));let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<(p.w+w)/2+2))row++;placed.push({x,row,w});
+    const w=Math.max(18,...lines.map(l=>g.measureText(l).width+8));let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<(p.w+w)/2+2))row++;if(row>1){noRoom=true;continue}placed.push({x,row,w});
     const y=bottom+6+row*(labelH+2);const h=lines.length*lineH+2;
     const border=(c.flags||[]).length?'#e040a0':LS.color==='bw'?'#000':dyeCol;g.strokeStyle=border;g.fillStyle='#fff';g.fillRect(x-w/2,y,w,h);g.strokeRect(x-w/2+.5,y+.5,w-1,h-1);
     g.fillStyle=view.alleleChanges&&c.user_edited?'#b00060':LS.color==='dyeAll'?dyeCol:'#000';lines.forEach((l,i)=>g.fillText(l,x,y+lineH*(i+1)-2));
     g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#999';g.stroke();
     labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+h,call:c,sample:t.sample})}
-   for(const o of (t.sample.omr||[]).filter(o=>{const v=pos(o.size_bp,o.scan);return o.channel===t.tag&&v>=x0&&v<=x1})){const x=X(o.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;placed.push({x,row});
+   for(const o of (t.sample.omr||[]).filter(o=>{const v=pos(o.size_bp,o.scan);return o.channel===t.tag&&v>=x0&&v<=x1})){const x=X(o.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;if(row>1){noRoom=true;continue}placed.push({x,row});
     const y=bottom+6+row*16,w=g.measureText('OMR').width+8;g.strokeStyle='#d0700a';g.fillStyle='#fff3e0';g.fillRect(x-w/2,y,w,14);g.strokeRect(x-w/2+.5,y+.5,w-1,13);
     g.fillStyle='#a04f00';g.fillText('OMR',x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#d0700a';g.stroke()}
    // artifact labels (user-assigned and automatic SPK) have a pink border
    const arts=[...(t.sample.report?.artifacts||[]).map(a=>({...a,user:true})),...(t.sample.spk||[]).map(a=>({...a,label:'SPK'}))];
-   for(const a of arts.filter(a=>{const v=pos(a.size_bp,a.scan);return a.channel===t.tag&&v>=x0&&v<=x1})){const x=X(a.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;placed.push({x,row});
+   for(const a of arts.filter(a=>{const v=pos(a.size_bp,a.scan);return a.channel===t.tag&&v>=x0&&v<=x1})){const x=X(a.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;if(row>1){noRoom=true;continue}placed.push({x,row});
     const y=bottom+6+row*16,w=Math.max(18,g.measureText(a.label).width+8);g.strokeStyle='#e040a0';g.fillStyle='#fff';g.fillRect(x-w/2,y,w,14);g.lineWidth=1.5;g.strokeRect(x-w/2+.5,y+.5,w-1,13);g.lineWidth=1;
     g.fillStyle='#b0006a';g.fillText(a.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#e040a0';g.stroke();
     if(a.user)labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,artifact:a,sample:t.sample})}}}
+ // ID-X "No room for labels": labels that do not fit in the label rows are not drawn
+ if(noRoom){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null)continue;const v=pos(pk.size_bp,pk.scan);if(v>=x0&&v<=x1)peakPts.push({x:Xc(v),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample})}
  // selected peaks (ID-X: "the peak fills in when it is selected")
  for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
   g.save();g.globalAlpha=.35;g.fillStyle=col;g.beginPath();g.moveTo(pp.x-4,bottom);g.lineTo(pp.x,pp.y);g.lineTo(pp.x+4,bottom);g.closePath();g.fill();g.restore();
   g.fillStyle=col;g.beginPath();g.arc(pp.x,pp.y,4,0,7);g.fill();g.strokeStyle='#000';g.stroke()}
- cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,dp,curve:cur,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
+ cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,dp,curve:cur,noRoom,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }
 // trace points of one pane item in the current coordinate (bp or data points)
 function traceData(it,x0,x1){const a=it.sample.analysis,c=curveOf(a),out=[];
@@ -223,7 +225,10 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
  const near=nearPeak(G,x);const multi=e.ctrlKey||e.metaKey||e.shiftKey;
  if(!near){if(!multi&&view.selPeaks.size){view.selPeaks.clear();draw()}return}
  const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
- else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw()});
+ else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw();showPhr()});
+// Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
+function showPhr(){const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
+ if(sel.length!==2){c.textContent='';return}const [a,b]=sel.map(p=>p.peak.height);c.textContent=fmt('phrStatus',(Math.min(a,b)/Math.max(a,b)).toFixed(2),Math.round(a),Math.round(b))}
 document.addEventListener('mouseup',e=>{if(!drag)return;const G=drag.cv._geom,r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left;
  const inv=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0);const a=inv(Math.min(drag.x0,x)),b=inv(Math.max(drag.x0,x));drag=null;
  if(b-a>1){view.x0=a;view.x1=b;view.userZoom=true;draw()}});
@@ -316,6 +321,15 @@ async function artifactMany(list){if(window.Sec&&!Sec.can('UPDATE_PROJECT'))retu
  const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
  for(const x of specs){try{await window.opener.OT.edit(x.sample.id,{...x.spec,reason:ch.reason})}catch(e){message(String(e.message||e));break}}
  view.selPeaks.clear();try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}
+// Multiple Dye Plot: all dyes of a sample within the range of the selected (or first) marker
+function multipleDyePlot(){
+ const cv=[...document.querySelectorAll('#plotarea canvas')].find(c=>c._geom&&(view.selSample==null||c._geom.sample.id===view.selSample))||document.querySelector('#plotarea canvas');
+ const G=cv?._geom;if(!G)return message(T('selectSamplesFirst'));const s=G.sample;
+ const m=G.markers.find(x=>x.name===view.selMarker)||(isGeno()?G.markers[0]:null);if(!m)return message(T('selectMarkerHeader'));
+ const tags=(s.analysis?.channels||[]).filter(c=>c.group!=='auxiliary'&&DYE_KEYS.includes(c.tag)&&c.tag!==s.analysis?.sizing?.reference_channel).map(c=>c.tag);
+ dialog(fmt('multipleDyeTitle',m.name,s.name),b=>{b.classList.add('mdpdlg');const c=el('canvas',{style:'width:900px;max-width:86vw'});c.height=320;b.append(c);
+  const mg=setting?.display?.markerMargin??5,cur=curveOf(s.analysis);let a=m.min_bp-mg,z=m.max_bp+mg;if(view.xAxis==='dp'){a=bpToScan(cur,a);z=bpToScan(cur,z)}
+  requestAnimationFrame(()=>paint(c,[{sample:s,dyes:tags}],a,z,m))},[[T('ok'),()=>true,true]])}
 function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
@@ -363,7 +377,7 @@ function build(){
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('copy'),sc:'Ctrl+C',disabled:true}]},
   {label:T('view'),items:[{label:T('sampleInfo'),disabled:true},{label:T('rawData'),disabled:true},{label:T('eptData'),disabled:true},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
-  {label:T('plots'),items:[{label:T('zoom'),sub:[{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('fullView'),run:()=>{view.x0=view.x1=null;draw()}}]},
+  {label:T('plots'),items:[{label:T('multipleDyePlot'),run:multipleDyePlot},'-',{label:T('zoom'),sub:[{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('fullView'),run:()=>{view.x0=view.x1=null;draw()}}]},
    {label:T('xAxis'),sub:[{label:T('basepairs'),checked:view.xAxis==='bp',run:()=>{view.xAxis='bp';view.x0=view.x1=null;build();draw()}},{label:T('dataPoints'),checked:view.xAxis==='dp',run:()=>{view.xAxis='dp';view.x0=view.x1=null;build();draw()}}]},
    {label:T('yAxis'),sub:[{label:T('scaleInd'),checked:view.yAxis==='individual',run:()=>{view.yAxis='individual';build();draw()}},{label:T('scaleMaxY'),checked:view.yAxis==='max',run:()=>{view.yAxis='max';build();draw()}},
     {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},
@@ -392,6 +406,7 @@ function build(){
   tg('noLabels',T('noLabels'),ck('labels','none'),set('labels','none')),tg('hLabels',T('hLabels'),ck('labels','h'),set('labels','h')),tg('vLabels',T('vLabels'),ck('labels','v'),set('labels','v')),
   tg('bins',T('showBins'),view.bins,set('bins',!view.bins)),tsep(),tbutton('fullView',T('fullView'),()=>{view.x0=view.x1=null;draw()}),tsep(),
   tg('combine',T('combine'),ck('layout','combine'),set('layout','combine')),tg('separate',T('separate'),ck('layout','separate'),set('layout','separate')),tg('overlay',T('overlay'),ck('layout','overlay'),set('layout','overlay')),tsep(),
+  tbutton('combine',T('multipleDyePlot'),multipleDyePlot,{id:'tbMultiDye'}),tsep(),
   tg('noTable',T('noTable'),ck('table','none'),set('table','none')),tg('sizingTable',T('sizingTable'),ck('table','sizing'),set('table','sizing')),tg('genotypesTable',T('genotypesTable'),ck('table','genotypes'),set('table','genotypes')));
  t2.style.display=view.toolbar?'':'none';
  const H=(isGeno()?setting?.genotypeHeader:setting?.sampleHeader)||{};const on=k=>H[k]!==false;

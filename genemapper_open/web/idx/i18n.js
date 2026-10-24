@@ -364,6 +364,8 @@ en:{
  psCol_dyeSamplePeak:'Dye/Sample Peak',psCol_minutes:'Minutes',psCol_size:'Size',psCol_height:'Height',psCol_area:'Area',psCol_dataPoint:'Data Point',
  psCol_alleleCall:'Allele Call',
  selectMarkersFirst:'Select genotypes (markers) in the Genotypes table first.',
+ multipleDyePlot:'Multiple Dye Plot',multipleDyeTitle:'Multiple Dye Plots — {0} ({1})',selectMarkerHeader:'Click a marker header first.',
+ phrStatus:'Peak Height Ratio = {0} ({1} / {2} RFU)',noRoomLabels:'No room for labels',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -737,6 +739,8 @@ ru:{
  psCol_marker:'Маркер',psCol_dyeSamplePeak:'Краситель/пик',psCol_minutes:'Минуты',psCol_size:'Размер',psCol_height:'Высота',psCol_area:'Площадь',psCol_dataPoint:'Точка данных',
  psCol_alleleCall:'Аллель',
  selectMarkersFirst:'Сначала выберите генотипы (маркеры) в таблице генотипов.',
+ multipleDyePlot:'Все красители в диапазоне маркера',multipleDyeTitle:'Все красители — {0} ({1})',selectMarkerHeader:'Сначала щёлкните заголовок маркера.',
+ phrStatus:'Соотношение высот пиков = {0} ({1} / {2} RFU)',noRoomLabels:'Нет места для меток',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}
