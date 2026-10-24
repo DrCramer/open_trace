@@ -13,6 +13,7 @@ const DEFAULTS={
  lowQualityTop:false,
  metrics:'symbols',        // 'symbols' | 'numbers' for SQ and GQ
  dupHomo:false,            // show a single autosomal allele twice
+ securityGroup:'GeneMapper ID-X Security Group', // default security group of new data items
 };
 const clone=x=>JSON.parse(JSON.stringify(x));
 function load(){let v=null;try{v=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
@@ -42,7 +43,9 @@ function open(ctx){
      radio('startup','new',T('optStartNew'),o.startup,v=>o.startup=v),radio('startup','last',T('optStartLast'),o.startup,v=>o.startup=v)),
     el('fieldset',{},el('legend',{text:T('optPlots')}),check('updatePlots',T('optUpdatePlots'),o.updatePlots,v=>o.updatePlots=v),
      check('printComment',T('optPrintComment'),o.printComment,v=>{o.printComment=v;cm.disabled=!v})),
-    el('fieldset',{},el('legend',{text:T('optSecurity')}),el('select',{disabled:''},new Option('GeneMapper ID-X Security Group'))));
+    el('fieldset',{},el('legend',{text:T('optSecurity')}),(()=>{const s=el('select',{id:'optGroup'});
+      const gs=window.Sec?Sec.groupNames():[o.securityGroup];for(const g of gs)s.append(new Option(g,g));if(!gs.includes(o.securityGroup))s.append(new Option(o.securityGroup,o.securityGroup));
+      s.value=o.securityGroup;s.addEventListener('change',()=>{o.securityGroup=s.value});return s})()));
    const cm=el('input',{type:'text',id:'optComment',maxlength:'200',value:o.comment});cm.disabled=!o.printComment;cm.addEventListener('input',()=>{o.comment=cm.value});
    page.children[1].append(el('div',{class:'field'},el('label',{text:T('optComment')}),cm))}
   else if(tab==='add'){

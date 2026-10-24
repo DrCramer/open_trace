@@ -141,32 +141,42 @@ function openManager(tab){
  const draw=()=>{const b=d.body;b.replaceChildren();const kinds=[methodKind(),...KINDS.map(f=>f())];const K=kinds.find(k=>k.id===kindId)||kinds[0];
   const tabs=el('div',{class:'tabs dtabs'});
   for(const k of kinds){const x=el('div',{class:'tab'+(k===K?' on':''),text:k.label,'data-kind':k.id});x.addEventListener('mousedown',()=>{kindId=k.id;selected=null;draw()});tabs.append(x)}
-  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...[T('colName'),T('colLastSaved'),...K.heads].map(h=>el('th',{text:h})))));
-  const tb=el('tbody');for(const r of K.rows()){const tr=el('tr',{class:r.name===selected?'sel':''});
-   tr.append(el('td',{text:r.name}),el('td',{text:new Date(r.saved).toLocaleString()}),el('td',{text:r.a||''}),el('td',{text:r.b||''}));
+  const IT=window.Sec&&Sec.items,canItem=(n,op)=>!IT||IT.can(K.id,n,op);
+  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...[T('colName'),T('colLastSaved'),...K.heads,T('securityGroupLbl')].map(h=>el('th',{text:h})))));
+  // only items whose security group the user's user groups may read are listed (ID-X Manager)
+  const tb=el('tbody');for(const r of K.rows().filter(r=>canItem(r.name,'read'))){const tr=el('tr',{class:r.name===selected?'sel':''});
+   tr.append(el('td',{text:r.name}),el('td',{text:new Date(r.saved).toLocaleString()}),el('td',{text:r.a||''}),el('td',{text:r.b||''}),el('td',{text:IT?IT.get(K.id,r.name).group:''}));
    tr.addEventListener('mousedown',()=>{selected=r.name;tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});tr.addEventListener('dblclick',()=>openSel());tb.append(tr)}
   t.append(tb);
   const btn=(label,fn,id)=>{const x=el('button',{class:'btn',type:'button',text:label,...(id?{id}:{})});x.addEventListener('click',fn);return x};
   const sec=K.sec,can=f=>!sec||!window.Sec||Sec.can(f),upd=()=>can(sec?.update);
   const audit=async(attribute,name,old)=>{if(!sec||!window.Sec)return {commit(){}};const A={created:'CREATE_',modified:'MODIFY_',deleted:'DELETE_'}[attribute]+sec.noun;
    return Sec.change({map:sec.map,attribute,instance:name,old:old||'',new:attribute==='deleted'?'':name,event:{created:'Add ',modified:'Modify ',deleted:'Delete '}[attribute]+sec.title,esig:{group:sec.group,action:A}})};
-  const restrict=()=>!sec||upd()?null:sec.ranges&&window.Sec&&(Sec.can('UPDATE_ANALYSIS_RANGE')||Sec.can('UPDATE_SIZING_RANGE'))?'ranges':'read';
-  const openSel=()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));if(sec&&!can(sec.read))return Sec.denied();K.edit(m,{restrict:restrict(),onSave:(mm,prev)=>{K.put(mm,prev);selected=mm.name;draw()}})};
+  const restrict=()=>!canItem(selected,'update')?'read':!sec||upd()?null:sec.ranges&&window.Sec&&(Sec.can('UPDATE_ANALYSIS_RANGE')||Sec.can('UPDATE_SIZING_RANGE'))?'ranges':'read';
+  const openSel=()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));if(sec&&!can(sec.read))return Sec.denied();if(IT&&!IT.need(K.id,selected,'read'))return;
+   K.edit(m,{restrict:restrict(),onSave:(mm,prev)=>{K.put(mm,prev);if(IT)IT.rename(K.id,prev||m.name,mm.name);selected=mm.name;draw()}})};
+  const pick=async cur=>!IT?null:await Sec.chooseGroup(cur);
   b.append(tabs,el('div',{class:'grid mgrgrid'},t),el('div',{class:'btnrow'},
-   btn(T('mgrNew'),async()=>{if(!upd())return Sec.denied();try{const f=await K.create();K.edit(f,{title:K.newTitle,onSave:(mm)=>{K.put(mm);selected=mm.name;draw()}})}catch(e){message(e.message)}},'mgrNewBtn'),
+   btn(T('mgrNew'),async()=>{if(!upd())return Sec.denied();const g=await pick();if(IT&&!g)return;
+    try{const f=await K.create();K.edit(f,{title:K.newTitle,onSave:(mm)=>{K.put(mm);if(IT)IT.set(K.id,mm.name,g);selected=mm.name;draw()}})}catch(e){message(e.message)}},'mgrNewBtn'),
    btn(T('mgrOpen'),openSel,'mgrOpenBtn'),
    btn(T('mgrSaveAs'),()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));if(!upd()&&!(sec?.saveAs&&can(sec.saveAs)))return Sec.denied();
-    dialog(T('mgrSaveAs'),bb=>bb.append(row(T('amName'),el('input',{type:'text',id:'saName',value:m.name+' copy'}))),
+    const groups=IT?Sec.groupNames().filter(g=>Sec.objectCan(g,'create')):[];if(IT&&!groups.length)return message(T('scNoCreateGroup'));
+    const gs=el('select',{id:'saGroup'});for(const g of groups)gs.append(new Option(g,g));if(IT)gs.value=groups.includes(IT.get(K.id,m.name).group)?IT.get(K.id,m.name).group:groups[0];
+    dialog(T('mgrSaveAs'),bb=>{bb.append(row(T('amName'),el('input',{type:'text',id:'saName',value:m.name+' copy'})));if(IT)bb.append(row(T('securityGroupLbl'),gs))},
      [[T('ok'),async bb=>{const n=bb.querySelector('#saName').value.trim();if(!n)return false;if(K.get(n)){message(fmt('methodNameExists',n));return false}
-       const ch=await audit('created',n,m.name);if(!ch)return false;try{K.put({...clone(m),name:n})}catch(e){message(e.message);return false}ch.commit();selected=n;draw()},true],[T('cancel'),()=>true]])}),
+       const ch=await audit('created',n,m.name);if(!ch)return false;try{K.put({...clone(m),name:n})}catch(e){message(e.message);return false}if(IT)IT.set(K.id,n,gs.value);ch.commit();selected=n;draw()},true],[T('cancel'),()=>true]])}),
    btn(T('mgrImport'),()=>{if(!upd())return Sec.denied();const i=el('input',{type:'file',accept:'.xml,.json',style:'display:none'});
     i.addEventListener('change',async()=>{const f=i.files[0];i.remove();if(!f)return;try{const text=await f.text();
-     const r=await K.importText(text);let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;const ch=await audit('created',n,'');if(!ch)return;K.put(r.obj);ch.commit();selected=n;draw();
+     const r=await K.importText(text);let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;const g=await pick();if(IT&&!g)return;
+     const ch=await audit('created',n,'');if(!ch)return;K.put(r.obj);if(IT)IT.set(K.id,n,g);ch.commit();selected=n;draw();
      message(K.imported+(r.note?'\n'+r.note:''))}catch(e){message(e.message)}});
     document.body.append(i);i.click()},'mgrImportBtn'),
    btn(T('mgrExport'),async()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));try{download(m.name+'.xml',await K.exportText(m),'application/xml')}catch(e){message(e.message)}},'mgrExportBtn'),
-   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(!upd())return Sec.denied();if(K.count()<=1)return message(T('mgrKeepOne'));
-    ask(fmt(K.confirmDelete,selected)).then(async ok=>{if(ok){const ch=await audit('deleted',selected,selected);if(!ch)return;K.remove(selected);ch.commit();selected=null;draw()}})})))};
+   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(!upd())return Sec.denied();if(IT&&!IT.need(K.id,selected,'delete'))return;if(K.count()<=1)return message(T('mgrKeepOne'));
+    ask(fmt(K.confirmDelete,selected)).then(async ok=>{if(ok){const ch=await audit('deleted',selected,selected);if(!ch)return;K.remove(selected);if(IT)IT.remove(K.id,selected);ch.commit();selected=null;draw()}})}),
+   ...(IT?[btn(T('scChangeGroup'),async()=>{if(!selected)return message(T('selectRow'));if(!IT.need(K.id,selected,'control'))return;const cur=IT.get(K.id,selected);
+     const g=await Sec.chooseGroup(cur.group);if(!g||g===cur.group)return;const ch=await audit('modified',selected,selected);if(!ch)return;IT.set(K.id,selected,g,cur.owner);ch.commit();draw()},'mgrGroupBtn')]:[])))};
  draw();return d}
 
 window.Methods={init(p){post=p},list,get,put,remove,ensureDefault,factory,openEditor,openManager,ask,download,

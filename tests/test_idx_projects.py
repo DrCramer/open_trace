@@ -24,6 +24,35 @@ class LibraryTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_security_group_access(self):
+        allowed = {('Casework Security Group', 'read')}
+        calls = []
+
+        def access(op, group, owner, check=False):
+            calls.append((op, group, owner))
+            ok = (group, op) in allowed or group == 'GeneMapper ID-X Security Group'
+            if check:
+                return ok
+            if not ok:
+                raise PermissionError(op)
+            return True
+
+        self.lib.save_meta('open', META, create=True, access=access, user_name='u1')
+        with self.assertRaises(PermissionError):
+            self.lib.save_meta('secret', {**META, 'security_group': 'Casework Security Group'}, create=True, access=access, user_name='u1')
+        self.lib.save_meta('secret', {**META, 'security_group': 'Casework Security Group'}, create=True, user_name='u2')
+        listed = self.lib.list(access)
+        self.assertEqual({r['name']: (r['security_group'], r['owner']) for r in listed},
+                         {'open': ('GeneMapper ID-X Security Group', 'u1'), 'secret': ('Casework Security Group', 'u2')})
+        allowed.clear()
+        self.assertEqual([r['name'] for r in self.lib.list(access)], ['open'])
+        with self.assertRaises(PermissionError):
+            self.lib.open('secret', access)
+        with self.assertRaises(PermissionError):
+            self.lib.delete('secret', access)
+        # owner is kept on later saves by another user
+        self.assertEqual(self.lib.save_meta('open', META, access=access, user_name='u3')['owner'], 'u1')
+
     def test_save_list_open_sample_round_trip(self):
         self.assertEqual(self.lib.list(), [])
         saved = self.lib.save_meta('Проект GF-1', META, create=True, overwrite=False)

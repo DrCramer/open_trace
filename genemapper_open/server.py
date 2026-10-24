@@ -589,7 +589,14 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                         security.require(user, 'UPDATE_PROJECT')
                     elif action in ('list', 'open', 'open_sample'):
                         security.require(user, 'READ_PROJECT')
-                    return self.respond(200,library.request(request))
+                    def access(op, group, owner, check=False):
+                        ok = security.object_allows(user, group or 'GeneMapper ID-X Security Group', op, owner)
+                        if check:
+                            return ok
+                        if not ok:
+                            security.require_object(user, group or 'GeneMapper ID-X Security Group', op, owner)
+                        return True
+                    return self.respond(200,library.request(request, access, user['name'] if user else None))
                 if parsed.path == '/api/codis':
                     from .codis import codis_request
                     return self.respond(200,codis_request(json.loads(raw)))

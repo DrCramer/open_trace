@@ -20,7 +20,7 @@ function makeCore(){
   const r=await fetch('/api/security',{method:'POST',headers:{'X-Session-Token':window.OT_TOKEN,'X-User-Ticket':getTicket(),'Content-Type':'application/json'},
    body:JSON.stringify({action,...body})});
   const j=await r.json();if(!r.ok){const e=Error(j.error||'Error');e.denied=!!j.access_denied;throw e}return j}
- function apply(v){for(const k of ['require_login','user','rights','audit','esig','policies','login_users','groups','security_groups'])if(k in v)S[k]=v[k];window.dispatchEvent(new Event('opentrace-security'))}
+ function apply(v){for(const k of ['require_login','user','rights','audit','esig','policies','login_users','groups','security_groups','object_rights'])if(k in v)S[k]=v[k];window.dispatchEvent(new Event('opentrace-security'))}
  async function refresh(){apply(await api('session'))}
  return {S,api,apply,refresh}}
 const core=(()=>{try{if(window.opener&&window.opener!==window&&window.opener.Sec&&window.opener.Sec.core)return window.opener.Sec.core}catch(e){}return makeCore()})();
@@ -30,6 +30,35 @@ function can(name){const r=S.rights||[];return r.includes(name)||r.some(k=>k.end
 function auditState(map,attr){const a=S.audit;if(!a||!a.enabled)return 'off';const m=(a.maps||[]).find(x=>x.name===map);if(!m||!m.enabled)return 'off';
  const at=m.attributes.find(x=>x.name===attr);return !at||!at.auditable?'off':at.state}
 function denied(){message(T('scNoRights'))}
+
+// ---------- data items and security groups ----------
+// Every analysis method, table setting, size standard, report setting, kit and project belongs to a security group;
+// what a user may do with it is the union of his user groups' rights in that group (Security Manager > Security
+// Groups). Owners (creator) additionally get owner_update / owner_delete. Browser-side items keep their group and
+// owner in one map keyed by kind and name.
+const DEFAULT_GROUP='GeneMapper ID-X Security Group';
+const IKEY='opentrace.objectGroups.v1';
+function groupNames(){return S.security_groups&&S.security_groups.length?S.security_groups:[DEFAULT_GROUP]}
+function defaultGroup(){let g='';try{g=window.ProjectOptions?ProjectOptions.get().securityGroup:''}catch(e){}return groupNames().includes(g)?g:DEFAULT_GROUP}
+function objectRights(group){const r=S.object_rights||{};if(!Object.keys(r).length)return ['read','update','create','delete','control','owner_update','owner_delete'];
+ return r[group]||r[DEFAULT_GROUP]||[]}
+function objectCan(group,op,owner){const r=objectRights(group||DEFAULT_GROUP);if(r.includes(op))return true;
+ return (op==='update'||op==='delete')&&!!owner&&owner===S.user?.name&&r.includes('owner_'+op)}
+function itemsLoad(){try{const v=JSON.parse(localStorage.getItem(IKEY)||'{}');return v&&typeof v==='object'?v:{}}catch(e){return {}}}
+function itemsStore(v){try{localStorage.setItem(IKEY,JSON.stringify(v))}catch(e){}}
+const items={
+ get(kind,name){const v=itemsLoad()[kind]?.[name];return {group:v?.group||DEFAULT_GROUP,owner:v?.owner||''}},
+ set(kind,name,group,owner){const v=itemsLoad();(v[kind]=v[kind]||{})[name]={group:group||DEFAULT_GROUP,owner:owner??(S.user?.name||'')};itemsStore(v)},
+ rename(kind,from,to){if(from===to)return;const v=itemsLoad();if(v[kind]?.[from]){v[kind][to]=v[kind][from];delete v[kind][from];itemsStore(v)}},
+ remove(kind,name){const v=itemsLoad();if(v[kind]?.[name]){delete v[kind][name];itemsStore(v)}},
+ can(kind,name,op){const i=items.get(kind,name);return objectCan(i.group,op,i.owner)},
+ need(kind,name,op){if(items.can(kind,name,op))return true;message(fmt('scItemDenied',name,items.get(kind,name).group,T('scOp_'+op)));return false}};
+// "Choose Security Group" (CSH/Project/Choose_Security_Group): groups in which the user may create items.
+function chooseGroup(current){return new Promise(res=>{const usable=groupNames().filter(g=>objectCan(g,'create'));
+ if(!usable.length){message(T('scNoCreateGroup'));return res(null)}
+ const sel=el('select',{id:'csgSel'});for(const g of usable)sel.append(new Option(g,g));sel.value=usable.includes(current)?current:usable.includes(defaultGroup())?defaultGroup():usable[0];
+ dialog(T('scChooseGroup'),b=>{b.classList.add('csgdlg');b.append(el('p',{text:T('scChooseGroupText')}),field(T('securityGroupLbl'),sel))},
+  [[T('ok'),()=>{res(sel.value);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
 function need(name){if(can(name))return true;denied();return false}
 
 // ---------- login / logout / password ----------
@@ -304,5 +333,5 @@ async function esigAdmin(){
  draw();return d}
 
 window.Sec={core,init,can,need,denied,auditState,change,record,esign,reasonDialog,loginDialog,logout,changePassword,securityManager,auditSettings,auditHistory,
- auditCount,auditBackup,auditRestore,auditDelete,esigAdmin,ticket:getTicket,securityGroups:()=>(S.security_groups&&S.security_groups.length?S.security_groups:['GeneMapper ID-X Security Group']),get user(){return S.user},get state(){return S},refresh:()=>core.refresh()};
+ auditCount,auditBackup,auditRestore,auditDelete,esigAdmin,ticket:getTicket,objectCan,objectRights,items,chooseGroup,defaultGroup,groupNames,DEFAULT_GROUP,securityGroups:()=>(S.security_groups&&S.security_groups.length?S.security_groups:['GeneMapper ID-X Security Group']),get user(){return S.user},get state(){return S},refresh:()=>core.refresh()};
 })();

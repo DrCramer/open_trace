@@ -335,6 +335,9 @@ en:{
  nwTitle:'Samples Not Normalized',nwAll:'Sample(s) are not normalized.',nwSome:'Some sample(s) are not normalized.',
  nwNotApplied:'A normalization factor will not be applied to {0} un-normalized sample(s).',nwHide:'Don\'t show again until the next session.',
  colT_ssNormFactor:'SS Normalization Factor',
+ scItemDenied:'{0}: the security group "{1}" does not allow your user groups to {2} this item.',scOp_read:'read',scOp_create:'create',scOp_update:'modify',scOp_delete:'delete',
+ scOp_control:'change the security group of',scNoCreateGroup:'None of the security groups allows your user groups to create items.',scChooseGroup:'Choose Security Group',
+ scChooseGroupText:'Select the security group to assign to the item.',scChangeGroup:'Security Group...',owner:'Owner',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -679,6 +682,9 @@ ru:{
  nwTitle:'Образцы не нормализованы',nwAll:'Образцы не нормализованы.',nwSome:'Часть образцов не нормализована.',
  nwNotApplied:'Коэффициент нормализации не будет применён к {0} ненормализованным образцам.',nwHide:'Не показывать до следующего сеанса.',
  colT_ssNormFactor:'Коэффициент нормализации по стандарту',
+ scItemDenied:'{0}: группа безопасности «{1}» не разрешает вашим группам пользователей {2} этот элемент.',scOp_read:'открывать',scOp_create:'создавать',scOp_update:'изменять',
+ scOp_delete:'удалять',scOp_control:'менять группу безопасности у',scNoCreateGroup:'Ни одна группа безопасности не разрешает вашим группам пользователей создавать элементы.',
+ scChooseGroup:'Выбор группы безопасности',scChooseGroupText:'Выберите группу безопасности для элемента.',scChangeGroup:'Группа безопасности...',owner:'Владелец',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

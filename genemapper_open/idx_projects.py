@@ -77,18 +77,23 @@ class ProjectLibrary:
                 continue
         return None
 
-    def list(self):
+    def list(self, access=None):
         out = []
         for folder in self._dirs():
             try:
                 meta = self._read_meta(folder)
             except (ValueError, OSError):
                 continue
+            # Open Project lists only projects whose security group the logged-in user may read
+            if access and not access('read', meta.get('security_group'), meta.get('owner'), check=True):
+                continue
             out.append({'name': meta['name'], 'created': meta.get('created'), 'modified': meta.get('modified'),
-                        'samples': len(meta.get('samples', [])), 'comment': meta.get('comment', '')})
+                        'samples': len(meta.get('samples', [])), 'comment': meta.get('comment', ''),
+                        'security_group': meta.get('security_group') or 'GeneMapper ID-X Security Group',
+                        'owner': meta.get('owner', '')})
         return sorted(out, key=lambda r: r['name'].lower())
 
-    def save_meta(self, name, project, *, create=False, overwrite=True):
+    def save_meta(self, name, project, *, create=False, overwrite=True, access=None, user_name=None):
         _check_name(name)
         if not isinstance(project, dict) or not isinstance(project.get('samples'), list):
             raise ValueError('Project with a samples list required')
@@ -99,6 +104,18 @@ class ProjectLibrary:
         if folder is not None and create and not overwrite:
             raise ValueError(f'{name} has already been used, please enter a new name.')
         now = time.strftime('%Y-%m-%dT%H:%M:%S')
+        group = project.get('security_group') or 'GeneMapper ID-X Security Group'
+        if folder is not None:
+            old = self._read_meta(folder)
+            owner = old.get('owner') or user_name or ''
+            if access:
+                access('update', old.get('security_group'), old.get('owner'))
+                if group != (old.get('security_group') or 'GeneMapper ID-X Security Group'):
+                    access('create', group, None)
+        else:
+            owner = user_name or ''
+            if access:
+                access('create', group, None)
         if folder is None:
             self.root.mkdir(parents=True, exist_ok=True)
             slug, k = _slug(name), 1
@@ -110,7 +127,8 @@ class ProjectLibrary:
             created = now
         else:
             created = self._read_meta(folder).get('created', now)
-        meta = {**project, 'schema': SCHEMA, 'name': name, 'created': created, 'modified': now}
+        meta = {**project, 'schema': SCHEMA, 'name': name, 'created': created, 'modified': now, 'security_group': group,
+                'owner': owner}
         data = json.dumps(meta, ensure_ascii=False, allow_nan=False).encode('utf-8')
         if len(data) > MAX_META_BYTES:
             raise ValueError('Project metadata exceeds 8 MiB')
@@ -120,12 +138,18 @@ class ProjectLibrary:
             stem = path.name.split('.', 1)[0]
             if stem not in keep and not path.name.endswith('.tmp'):
                 path.unlink()
-        return {'name': name, 'created': created, 'modified': now}
+        return {'name': name, 'created': created, 'modified': now, 'security_group': group, 'owner': owner}
 
-    def save_sample(self, name, sample_id, *, fsa_b64=None, data=None):
+    def _guard(self, folder, access, op):
+        if access:
+            meta = self._read_meta(folder)
+            access(op, meta.get('security_group'), meta.get('owner'))
+
+    def save_sample(self, name, sample_id, *, fsa_b64=None, data=None, access=None):
         folder = self._find(name)
         if folder is None:
             raise ValueError(f'{name} does not exist.')
+        self._guard(folder, access, 'update')
         if not SAMPLE_ID.match(str(sample_id)):
             raise ValueError('Invalid sample id')
         samples = folder / 'samples'
@@ -142,10 +166,11 @@ class ProjectLibrary:
             _atomic_write(samples / f'{sample_id}.json.gz', gzip.compress(encoded, 6))
         return {'id': sample_id}
 
-    def open(self, name):
+    def open(self, name, access=None):
         folder = self._find(name)
         if folder is None:
             raise ValueError(f'{name} does not exist.')
+        self._guard(folder, access, 'read')
         meta = self._read_meta(folder)
         stored = {p.name for p in (folder / 'samples').iterdir()} if (folder / 'samples').is_dir() else set()
         for sample in meta.get('samples', []):
@@ -154,10 +179,11 @@ class ProjectLibrary:
             sample['has_data'] = f'{sid}.json.gz' in stored
         return meta
 
-    def open_sample(self, name, sample_id):
+    def open_sample(self, name, sample_id, access=None):
         folder = self._find(name)
         if folder is None:
             raise ValueError(f'{name} does not exist.')
+        self._guard(folder, access, 'read')
         if not SAMPLE_ID.match(str(sample_id)):
             raise ValueError('Invalid sample id')
         out = {'id': sample_id, 'fsa_b64': None, 'data': None}
@@ -172,29 +198,32 @@ class ProjectLibrary:
             out['data'] = json.loads(raw)
         return out
 
-    def delete(self, name):
+    def delete(self, name, access=None):
         folder = self._find(name)
         if folder is None:
             raise ValueError(f'{name} does not exist.')
+        self._guard(folder, access, 'delete')
         shutil.rmtree(folder)
         return {'deleted': name}
 
-    def request(self, request):
+    def request(self, request, access=None, user_name=None):
+        """access(op, security_group, owner, check=False) raises (or, with check=True, returns False) when the
+        current user's user groups lack that right in the project's security group."""
         if not isinstance(request, dict):
             raise ValueError('Project request must be an object')
         action = request.get('action')
         if action == 'list':
-            return {'root': str(self.root), 'projects': self.list()}
+            return {'root': str(self.root), 'projects': self.list(access)}
         if action == 'save_meta':
             return self.save_meta(request.get('name'), request.get('project'), create=bool(request.get('create')),
-                                  overwrite=bool(request.get('overwrite', True)))
+                                  overwrite=bool(request.get('overwrite', True)), access=access, user_name=user_name)
         if action == 'save_sample':
             return self.save_sample(request.get('name'), request.get('id'), fsa_b64=request.get('fsa_b64'),
-                                    data=request.get('data'))
+                                    data=request.get('data'), access=access)
         if action == 'open':
-            return self.open(request.get('name'))
+            return self.open(request.get('name'), access)
         if action == 'open_sample':
-            return self.open_sample(request.get('name'), request.get('id'))
+            return self.open_sample(request.get('name'), request.get('id'), access)
         if action == 'delete':
-            return self.delete(request.get('name'))
+            return self.delete(request.get('name'), access)
         raise ValueError('action must be list, save_meta, save_sample, open, open_sample or delete')

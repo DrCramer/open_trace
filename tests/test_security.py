@@ -61,6 +61,31 @@ class DefaultModelTests(unittest.TestCase):
             self.assertEqual(len(view['security_groups']), len(st.doc['security_groups']))
 
 
+class ObjectAccessTests(unittest.TestCase):
+    def test_security_group_rights_of_default_accounts(self):
+        with tempfile.TemporaryDirectory() as d:
+            st = SecurityStore(d)
+            admin, case = st.user('Administrator'), st.user('Casework Tech')
+            practice = st.user('Practice User')
+            # Administrators: full rights in the Admin group; Casework users: read/update only in their group
+            self.assertTrue(st.object_allows(admin, 'Admin Security Group', 'delete'))
+            self.assertFalse(st.object_allows(case, 'Admin Security Group', 'read'))
+            self.assertTrue(st.object_allows(case, 'Casework Security Group', 'update'))
+            self.assertFalse(st.object_allows(case, 'Casework Security Group', 'create'))
+            self.assertFalse(st.object_allows(case, 'Databasing Security Group', 'read'))
+            # All Users get full rights in the default group; a missing group falls back to it
+            self.assertTrue(st.object_allows(case, 'GeneMapper ID-X Security Group', 'create'))
+            self.assertTrue(st.object_allows(case, 'No such group', 'read'))
+            # Practice group: everyone may update/delete only their own items
+            self.assertFalse(st.object_allows(practice, 'Practice Security Group', 'delete', owner='someone'))
+            self.assertTrue(st.object_allows(practice, 'Practice Security Group', 'delete', owner='Practice User'))
+            view = st.session_view(case)
+            self.assertEqual(view['object_rights']['Admin Security Group'], [])
+            self.assertIn('read', view['object_rights']['Casework Security Group'])
+            with self.assertRaises(AccessDenied):
+                st.require_object(case, 'Admin Security Group', 'read')
+
+
 class AuthenticationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -12,6 +12,10 @@ const ui={sel:{type:'root'},binSet:null,selBin:null,selRow:null,dirty:false,view
 
 const fmt=(key,...a)=>T(key).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
 const kitOf=name=>work.kits.find(k=>k.name===name);
+// Kits are data items of a security group: unreadable kits are hidden; Apply checks create/update/delete/control.
+const me=()=>window.Sec&&Sec.user?Sec.user.name:'';
+const kitCan=(k,op)=>!window.Sec||!Sec.objectCan||Sec.objectCan(k.security_group||'GeneMapper ID-X Security Group',op,k.owner);
+const visKits=()=>work.kits.filter(k=>kitCan(k,'read'));
 const selKit=()=>ui.sel.kit?kitOf(ui.sel.kit):null;
 const selPanel=()=>{const k=selKit();return k&&ui.sel.panel?k.panels.find(p=>p.name===ui.sel.panel):null};
 const selMarker=()=>{const p=selPanel();return p&&ui.sel.marker?p.markers.find(m=>m.name===ui.sel.marker):null};
@@ -71,13 +75,13 @@ function groupField(b,cur){const s=el('select',{id:'nkGroup'});for(const g of gr
  b.append(el('div',{class:'field'},el('label',{text:T('securityGroupLbl')}),s))}
 function uniqueName(base,taken){if(!taken.includes(base))return base;for(let i=2;;i++)if(!taken.includes(`${base} ${i}`))return `${base} ${i}`}
 function newKit(){askName(T('newKitTitle'),T('kitName'),'',(v,b)=>{if(kitOf(v)){message(fmt('kitExists',v));return false}
- work.kits.push({name:v,type:'MICROSATELLITE',comment:'',security_group:b.querySelector('#nkGroup').value,panelsVersion:'GMID-X v 1.4',panels:[],binSets:[],stutter:null});
+ work.kits.push({name:v,type:'MICROSATELLITE',comment:'',security_group:b.querySelector('#nkGroup').value,owner:me(),panelsVersion:'GMID-X v 1.4',panels:[],binSets:[],stutter:null});
  ui.sel={type:'kit',kit:v};touch();render()},
  b=>{b.append(el('div',{class:'field'},el('label',{text:T('kitType')}),el('select',{disabled:''},new Option('Microsatellite','MICROSATELLITE'))));groupField(b)})}
 // Duplicate Kit: New Kit dialog; panels, bin sets and marker stutter are copied with the kit.
 function duplicateKit(){const k=selKit();if(!k)return message(T('selectKitFirst'));
  askName(T('duplicateKitTitle'),T('kitName'),uniqueName(k.name+' - dup',work.kits.map(x=>x.name)),(v,b)=>{if(kitOf(v)){message(fmt('kitExists',v));return false}
-  const c=KitStore.clone(k);c.name=v;c.security_group=b.querySelector('#nkGroup').value;work.kits.push(c);ui.sel={type:'kit',kit:v};ui.expanded.add(v);touch();render()},
+  const c=KitStore.clone(k);c.name=v;c.security_group=b.querySelector('#nkGroup').value;c.owner=me();work.kits.push(c);ui.sel={type:'kit',kit:v};ui.expanded.add(v);touch();render()},
   b=>groupField(b,k.security_group))}
 function targetKit(){return selKit()}
 // New Panel creates "New Panel" in the kit; the name is then typed in the Panel Name cell (help: Creating a Custom Panel).
@@ -180,7 +184,7 @@ function node(iconName,text,sel,onClick,kids){
 function renderNavigator(){
  const s=ui.sel;const nav=$('navigator');nav.classList.toggle('hidden',!!ui.hideNav);nav.replaceChildren();
  const root=el('ul',{class:'tree root'});
- const kits=work.kits.map(k=>node('kit',k.name,s.type==='kit'&&s.kit===k.name,()=>go({type:'kit',kit:k.name}),
+ const kits=visKits().map(k=>node('kit',k.name,s.type==='kit'&&s.kit===k.name,()=>go({type:'kit',kit:k.name}),
   (s.kit===k.name||ui.expanded.has(k.name))?k.panels.map(p=>node('panel',p.name,s.type==='panel'&&s.kit===k.name&&s.panel===p.name,()=>go({type:'panel',kit:k.name,panel:p.name}),
    (s.kit===k.name&&s.panel===p.name)?p.markers.map(m=>node('marker',m.name,s.type==='marker'&&s.marker===m.name,()=>go({type:'marker',kit:k.name,panel:p.name,marker:m.name}),
     s.marker===m.name?[node('stutter',T('stutterNode'),s.type==='stutter',()=>go({type:'stutter',kit:k.name,panel:p.name,marker:m.name}))]:[])):[])):[]));
@@ -361,10 +365,11 @@ function stutterTables(k,p,m){
 function renderContent(){
  const c=$('pmContent');c.replaceChildren();const s=ui.sel;const k=selKit(),p=selPanel(),m=selMarker();
  if(s.type==='root'){
-  const E=(f,type,options)=>({type,options,value:i=>work.kits[i][f]||'',set:(i,v)=>{const x=work.kits[i];if(f==='name')return renameKit(x,v);x[f]=v;return ''}});
+  const vk=visKits();
+  const E=(f,type,options)=>({type,options,value:i=>vk[i][f]||'',set:(i,v)=>{const x=vk[i];if(f==='name')return renameKit(x,v);x[f]=v;return ''}});
   c.append(el('div',{class:'grid pmgrid'},table([[T('kitName'),260,E('name','text')],[T('comments'),260,E('comment','text')],[T('kitType'),140],[T('securityGroupLbl'),220,E('security_group','select',groups().map(g=>[g,g]))]],
-   work.kits.map(x=>[x.name,x.comment||'','MICROSATELLITE',x.security_group||groups()[0]]),i=>{ui.selRow=i},ui.selRow,{editable:true,open:i=>go({type:'kit',kit:work.kits[i].name})})));
-  if(!work.kits.length)c.append(el('div',{class:'empty',text:T('panelHint')}));
+   vk.map(x=>[x.name,x.comment||'','MICROSATELLITE',x.security_group||groups()[0]]),i=>{ui.selRow=i},ui.selRow,{editable:true,open:i=>go({type:'kit',kit:vk[i].name})})));
+  if(!vk.length)c.append(el('div',{class:'empty',text:T('panelHint')}));
  }else if(s.type==='kit'&&k){
   const E=f=>({type:'text',value:i=>k.panels[i][f]||'',set:(i,v)=>f==='name'?renamePanel(k,k.panels[i],v):(k.panels[i][f]=v,'')});
   c.append(el('div',{class:'grid pmgrid'},table([[T('panelName'),260,E('name')],[T('comments'),260,E('comment')],[T('markersCol'),80],[T('binSets'),260]],
@@ -395,6 +400,14 @@ function render(){renderNavigator();renderBinSetCombo();renderContent();updateTo
 // ---------- commit ----------
 async function apply(){
  if(window.Sec&&!Sec.can('UPDATE_PANEL')){Sec.denied();return false}
+ for(const k of work.kits){if(!k.security_group)k.security_group=window.Sec&&Sec.defaultGroup?Sec.defaultGroup():'GeneMapper ID-X Security Group';if(k.owner===undefined)k.owner=me()}
+ {const old=new Map(saved.kits.map(k=>[k.name,k]));const bad=[];
+  for(const k of work.kits){const o=old.get(k.name);
+   if(!o){if(!kitCan(k,'create'))bad.push([k.name,k.security_group,'create'])}
+   else if(JSON.stringify(o)!==JSON.stringify(k)){if(!kitCan(o,'update'))bad.push([k.name,o.security_group,'update']);
+    if((o.security_group||'GeneMapper ID-X Security Group')!==k.security_group&&!kitCan(o,'control'))bad.push([k.name,o.security_group,'control'])}}
+  for(const o of saved.kits)if(!kitOf(o.name)&&!kitCan(o,'delete'))bad.push([o.name,o.security_group,'delete']);
+  if(bad.length){message(bad.map(([n,g,op])=>fmt('scItemDenied',n,g||'GeneMapper ID-X Security Group',T('scOp_'+op))).join('\n'));return false}}
  const before=new Map(saved.kits.map(k=>[k.name,JSON.stringify(k)])),after=new Map(work.kits.map(k=>[k.name,JSON.stringify(k)]));const items=[];
  for(const [n,v] of after)if(!before.has(n))items.push({map:'Kit',attribute:'created',instance:n,old:'',new:n,event:'Add Chemistry Kit'});else if(before.get(n)!==v)items.push({map:'Kit',attribute:'modified',instance:n,old:n,new:n,event:'Modify Chemistry Kit'});
  for(const n of before.keys())if(!after.has(n))items.push({map:'Kit',attribute:'deleted',instance:n,old:n,new:'',event:'Delete Chemistry Kit'});

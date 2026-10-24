@@ -106,6 +106,7 @@ DEFAULT_USER_GROUPS = [
     {'name': 'Databasing User Group', 'description': '', 'all_users': False},
     {'name': 'Practice User Group', 'description': 'For use with Getting Started Guide only', 'all_users': False},
 ]
+DEFAULT_SECURITY_GROUP = 'GeneMapper ID-X Security Group'
 RIGHT_NAMES = ['read', 'update', 'create', 'delete', 'control', 'owner_update', 'owner_delete']
 _FULL = dict.fromkeys(RIGHT_NAMES, True)
 _RU = {'read': True, 'update': True, 'create': False, 'delete': False, 'control': False, 'owner_update': False, 'owner_delete': False}
@@ -285,6 +286,34 @@ class SecurityStore:
 
     def groups_of(self, user):
         return [g['name'] for g in self.doc['user_groups'] if g.get('all_users') or g['name'] in user.get('groups', [])]
+
+    # -------------------------------------------------------- data-item access (security groups)
+    def object_rights(self, user, group):
+        """Rights of the user's user groups in one security group (union over the groups the user belongs to).
+        An item whose security group no longer exists falls back to the default GeneMapper ID-X group."""
+        if user is None:
+            return set()
+        sg = next((g for g in self.doc['security_groups'] if g['name'] == group), None)
+        if sg is None:
+            sg = next((g for g in self.doc['security_groups'] if g['name'] == DEFAULT_SECURITY_GROUP), None)
+        if sg is None:
+            return set()
+        mine = set(self.groups_of(user))
+        return {r for ug, rights in sg.get('rights', {}).items() if ug in mine for r, on in rights.items() if on}
+
+    def object_allows(self, user, group, op, owner=None):
+        """op: read | create | update | delete | control. Owners may update/delete with owner_update/owner_delete."""
+        rights = self.object_rights(user, group)
+        if op in rights:
+            return True
+        if op in ('update', 'delete') and owner and user and owner == user['name'] and f'owner_{op}' in rights:
+            return True
+        return False
+
+    def require_object(self, user, group, op, owner=None):
+        if not self.object_allows(user, group, op, owner):
+            raise AccessDenied(f'Access to an item of security group "{group or DEFAULT_SECURITY_GROUP}" ({op}) is not allowed '
+                               'for your user groups.')
 
     # -------------------------------------------------------- authentication
     def _locked(self, u, now):
@@ -906,7 +935,9 @@ class SecurityStore:
                           'free_text': d['audit']['free_text']},
                 'esig': d['esig'], 'policies': {'min_length': d['policies']['min_length']},
                 'login_users': [u['name'] for u in d['users'] if not u['disabled']],
-                'security_groups': [g['name'] for g in d['security_groups']]}
+                'security_groups': [g['name'] for g in d['security_groups']],
+                'object_rights': {g['name']: sorted(self.object_rights(user, g['name'])) for g in d['security_groups']}
+                if user else {}}
 
 
 # ---------------------------------------------------------------- HTTP dispatch
