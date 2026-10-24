@@ -18,6 +18,7 @@
 <script src="/idx/reports.js"></script>
 <script src="/idx/profiles.js"></script>
 <script src="/idx/mixture.js"></script>
+<script src="/idx/sampleviews.js"></script>
 </head>
 <body>
 <div class="menubar" id="menubar"></div>
@@ -26,9 +27,13 @@
   <nav class="navigator" id="navigator" aria-label="Navigator"></nav>
   <div class="content">
     <div class="tabs" role="tablist" id="tabs"></div>
-    <section class="tabpage" id="page-samples"><div class="filterbar" id="filterBar" hidden></div><div class="grid" id="samplesGrid"></div></section>
+    <div class="filterbar" id="filterBar" hidden></div>
+    <section class="tabpage" id="page-samples"><div class="grid" id="samplesGrid"></div></section>
     <section class="tabpage" id="page-summary" hidden><div class="summary" id="summary"></div></section>
     <section class="tabpage" id="page-genotypes" hidden><div class="grid" id="genotypesGrid"></div></section>
+    <section class="tabpage sipage" id="page-info" hidden></section>
+    <section class="tabpage sipage" id="page-raw" hidden></section>
+    <section class="tabpage sipage" id="page-ept" hidden></section>
   </div>
 </div>
 <div class="statusbar">

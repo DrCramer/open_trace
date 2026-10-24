@@ -97,7 +97,7 @@ function markerRows(s){
   return {sample:s,marker:m.name,channel:m.channel,calls,gq:score,gqCat:g?code(g.category?.code):'na',status:m.status}})}
 
 // ---------- tabs ----------
-const TABS=[['samples','samples'],['summary','analysisSummary'],['genotypes','genotypes']];
+const TABS=[['samples','samples'],['summary','analysisSummary'],['genotypes','genotypes'],['info','tabInfo'],['raw','tabRaw'],['ept','tabEpt']];
 function renderTabs(){const t=$('tabs');t.replaceChildren();
  for(const [id,key] of TABS){const b=el('div',{class:'tab'+(state.tab===id?' on':''),role:'tab',text:T(key)});b.addEventListener('mousedown',()=>showTab(id));t.append(b)}
  for(const [id] of TABS)$('page-'+id).hidden=state.tab!==id}
@@ -322,9 +322,19 @@ function genoColumns(){const ts=TableSettings.active();const by=Object.fromEntri
   if(c.kind==='allele')for(let i=0;i<ts.genotypes.numAlleles;i++)out.push({...c,base:id,index:i,head:`${c.head} ${i+1}`,title:`${title} ${i+1}`});
   else out.push({...c,base:id,title})}
  return out}
-function sortedSamples(){const list=visibleSamples();if(state.lowQualityTop)return list;
- const flags=new Map(list.map(s=>[s.id,sampleFlags(s)]));return sortRows(list,currentSort('samples'),(id,s)=>sampleCell(id,s,flags.get(s.id)))}
-function sortedGenoRows(){const rows=visibleSamples().flatMap(genoRows);return sortRows(rows,currentSort('genotypes'),(id,r)=>genoCell(id,r,0))}
+// Table-setting column filters (Filtering column of the Table Setting Editor).
+function sampleRaw(id,s,fl){if(id==='status')return s.status;if(id==='sampleType')return s.type;if(id==='specimenCategory')return s.specimenCategory||'No Export';
+ if(id==='sampleFileNorm')return 'na';const sp=TableSettings.filterSpec('samples',id);if(sp&&sp.type==='enum')return fl[id]??'na';return String(exportSampleValue(id,s,fl)??'')}
+const ALLELE_COLS=new Set(['allele','size','height','area','dataPoint']);
+function genoRaw(id,r){if(id==='dye')return dyeLetter(r.channel);const sp=TableSettings.filterSpec('genotypes',id);if(sp&&sp.type==='enum')return r.flags[id]??'na';
+ if(ALLELE_COLS.has(id))return r.calls.map((c,i)=>genoCell(id,r,i).value).join(' ');return String(genoCell(id,r,0).value??'')}
+function tsFilter(kind,list,raw){const fs=TableSettings.activeFilters(kind);state.tsCount=state.tsCount||{};
+ if(!fs.length){delete state.tsCount[kind];return list}
+ const out=list.filter(x=>fs.every(([id,f])=>TableSettings.matches(kind,id,f,raw(id,x))));state.tsCount[kind]=[out.length,list.length,fs.map(([id])=>id)];return out}
+function sortedSamples(){let list=visibleSamples();const flags=new Map(list.map(s=>[s.id,sampleFlags(s)]));
+ list=tsFilter('samples',list,(id,s)=>sampleRaw(id,s,flags.get(s.id)));if(state.lowQualityTop)return list;
+ return sortRows(list,currentSort('samples'),(id,s)=>sampleCell(id,s,flags.get(s.id)))}
+function sortedGenoRows(){const rows=tsFilter('genotypes',visibleSamples().flatMap(genoRows),genoRaw);return sortRows(rows,currentSort('genotypes'),(id,r)=>genoCell(id,r,0))}
 function renderSamples(){
  const grid=$('samplesGrid');grid.replaceChildren();const cols=sampleColumns();const t=tableHead('samples',cols);
  const tb=el('tbody');const list=sortedSamples();
@@ -400,17 +410,20 @@ function renderSummary(){
   if(refBins.length)nt.append(el('tr',{},el('td',{text:T('sumRefBins')}),el('td',{},filterLink(refBins.map(s=>s.id),T('sumRefBins')))));
   box.append(el('h3',{text:T('sumGenotyping')}),nt)}}
 function renderFilterBar(){const bar=$('filterBar');if(!bar)return;const f=state.filter;
- bar.hidden=!(f&&f.ids);bar.replaceChildren();if(bar.hidden)return;
+ const tc=state.tsCount?.[state.tab==='genotypes'?'genotypes':'samples'];
+ bar.hidden=!(f&&f.ids)&&!tc;bar.replaceChildren();if(bar.hidden)return;
+ if(tc){bar.append(el('span',{class:'tsf',text:`${T('tfFilteredBy')} «${TableSettings.active().name}» (${tc[2].join(', ')}): ${tc[0]} / ${tc[1]} `}))}
+ if(!(f&&f.ids))return;
  const all=el('a',{text:T('showAllSamples'),id:'clearFilter'});all.addEventListener('click',()=>{state.filter=null;render()});
  bar.append(document.createTextNode(`${T('filtered')}: ${f.label||''} (${f.ids.size}) `),all)}
 
 // ---------- render ----------
 function renderTitle(){document.title=`${T('app')}${Sec.user&&Sec.state.require_login?' ['+Sec.user.name+']':''} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`}
 function render(){
- document.title=`${T('app')} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`;
+ renderTitle();
  renderNavigator();
+ if(state.tab==='samples')renderSamples();else if(state.tab==='summary')renderSummary();else if(state.tab==='genotypes')renderGenotypes();else SampleViews.render(state.tab);
  renderFilterBar();
- if(state.tab==='samples')renderSamples();else if(state.tab==='summary')renderSummary();else renderGenotypes();
  const any=state.project.samples.length>0;
  for(const id of ['tbAnalyze','tbPlots','tbExport'])if($(id))$(id).disabled=!any||state.busy;
  $('stopBtn').disabled=!state.busy;
@@ -884,7 +897,7 @@ function buildChrome(){
    {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:()=>{state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}},{label:T('nonConcordantTop'),disabled:true},'-',
    {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch},{label:T('binOffsets'),run:notYet}]},
   {label:T('view'),items:[{label:T('samples'),checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
-   {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),run:notYet},{label:T('rawData'),run:notYet},{label:T('eptData'),run:notYet},'-',
+   {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
@@ -943,6 +956,17 @@ function mixSamples(){return state.project.samples.map(s=>{const eff=s.report?ef
   eligibleBase:!!eff&&s.type==='sample'&&['pass','check','override'].includes(q)&&markers.length>0,ol:markers.some(m=>m.alleles.some(a=>a.label.toUpperCase()==='OL'))}})}
 Mixture.init({post:jsonPost,samples:mixSamples,plot:keys=>{const set=new Set(keys);state.selected=new Set(state.project.samples.filter(s=>set.has(s.runFolder+'/'+s.file)).map(s=>s.id));render();displayPlots()},results:()=>JSON.parse(JSON.stringify(state.project.mixture||{})),
  saveResults:r=>{state.project.mixture=r;state.project.dirty=true;render()},knowns:()=>Profiles.profiles()});
+// Info / Raw Data / EPT Data tabs: selected samples in table order; settings from the analysis method.
+function sampleExtra(s){const m=Methods.get(s.method)||{};const p=m.peak_detector||{};const ar=p.analysis_range||{},sr=p.sizing_range||{};
+ const th=p.thresholds?Object.entries(p.thresholds).map(([k,v])=>`${T('dyeLetter_'+k)} ${v}`).join(', '):'';
+ const errors=[...arnmReasons(s)];if(s.analysis?.sizing&&s.analysis.sizing.status&&s.analysis.sizing.status!=='accepted')errors.push(`${T('siSizing')}: ${s.analysis.sizing.status}`);
+ return {status:STATUS_TEXT[s.status]||s.status,sampleType:TYPE_TEXT[s.type]||s.type,errors,settings:[
+  [T('si_sampleType'),TYPE_TEXT[s.type]||s.type],[T('colPanel'),s.panel||''],[T('colSizeStandard'),s.sizeStd],[T('si_matrix'),T('siNoMatrix')],
+  [T('colAnalysisMethod'),s.method],[T('si_sizeCalling'),p.size_calling||''],[T('si_analysisRange'),ar.full?T('amFullRange'):`${ar.start} – ${ar.stop}`],
+  [T('si_sizingRange'),sr.all?T('amAllSizes'):`${sr.start_bp} – ${sr.stop_bp}`],[T('si_baseline'),p.baseline_window??''],[T('si_smoothing'),p.smoothing??''],
+  [T('si_thresholds'),th],[T('si_polyDegree'),p.polynomial_degree??''],[T('si_windowSize'),p.peak_window??''],[T('si_minHalfWidth'),p.min_half_width??''],
+  [T('si_slopes'),p.slope_start!=null?`${p.slope_start} / ${p.slope_end}`:''],[T('si_analysisVersion'),s.analysis?.analysis_version||'—']]}}
+SampleViews.init({samples:()=>sortedSamples().filter(s=>state.selected.has(s.id)),extra:sampleExtra});
 Methods.init(jsonPost);
 buildChrome();render();
 window.addEventListener('opentrace-security',()=>{buildChrome();render()});

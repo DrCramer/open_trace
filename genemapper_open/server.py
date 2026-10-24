@@ -457,7 +457,7 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js")}
+                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js")}
     for page_name in ("project.html", "panels.html", "plot.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
@@ -505,7 +505,7 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
                                    "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit",
-                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture", "/api/security"):
+                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture", "/api/security", "/api/sample-info"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -530,6 +530,9 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                     if not isinstance(request,dict):raise ValueError('Marker quality request must be an object')
                     return self.respond(200,attach_marker_quality(request.get('report'),request.get('definition')))
                 ticket = self.headers.get("X-User-Ticket", "")
+                if parsed.path == '/api/sample-info':
+                    from .sample_info import sample_info
+                    return self.respond(200, sample_info(raw, params.get("filename", ["sample.fsa"])[0]))
                 if parsed.path == '/api/security':
                     return self.respond(200, security_request(security, ticket, json.loads(raw)))
                 if parsed.path == '/api/idx-project':
