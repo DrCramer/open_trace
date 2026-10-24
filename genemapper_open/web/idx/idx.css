@@ -236,3 +236,12 @@ body.printwin{background:#808080;display:flex;flex-direction:column;height:100vh
 .ecdlg .ind{margin-left:22px}.ecdlg fieldset{margin:6px 0}.ecdlg label.chk{display:block;margin:2px 0}
 .reportwin .grid{flex:1}.reportwin td.cust{background:#fffff0}.reportwin td.cust input{width:100%;border:0;background:transparent;font:inherit}
 .reportwin .rptitle{padding:3px 8px;font-size:11px;color:#333;border-bottom:1px solid #aca899}
+/* 0.30: profile manager, profile comparison, CODIS */
+.twisty{display:inline-block;width:11px;height:11px;line-height:9px;border:1px solid #7f9db9;background:#fff;font-size:10px;text-align:center;cursor:pointer;user-select:none}
+tr.sub td{background:#f7f7f2;color:#333}
+.pm-match{color:#1f4fd6}
+.pmgrdlg .mgrgrid,.pcdlg .pcgrid{min-width:640px;height:320px;overflow:auto;background:#fff;border:1px solid #7f9db9}
+.pcdlg .dpage{min-width:700px}.pcbar{display:flex;gap:6px;align-items:center;margin:6px 0}.pcbar input.num{width:56px}.pcbar input[type=text]{width:90px}
+.pcsel{max-height:110px;overflow:auto;border:1px solid #ccc;padding:2px 6px;margin-bottom:6px;columns:2}
+.pcdlg td.cust input{width:100%;border:0;background:transparent;font:inherit}
+.codisdlg .dpage{min-width:460px;min-height:260px}.codisdlg .rsbody{display:flex;gap:8px}.codisdlg .rslist{width:280px;height:220px}.codisdlg .rscol{display:flex;flex-direction:column;gap:6px;width:200px}

@@ -15,7 +15,7 @@ const SAMPLE_COLS=[
  ['SFNF','fileNotFound','SFNF',42,'pqv'],['MNF','matrixNotFound','MNF',38,'pqv'],['SNF','sizeStdNotFound','SNF',38,'pqv'],
  ['SOS','offscale','SOS',38,'pqv'],['SQ','sizeStdQuality','SQ',38,'pqv'],['SSPK','spikeSamplePqvQuality','SSPK',42,'pqv'],
  ['MIX','mixedSamplePqvQuality','MIX',38,'pqv'],['OMR','omrSamplePqvQuality','OMR',42,'pqv'],['customControl','customControl','Custom Control',100,'text'],
- ['CGQ','smplGenoTypeQuality','CGQ',42,'pqv'],['profileId','profileId','Profile ID',90,'text'],
+ ['CGQ','smplGenoTypeQuality','CGQ',42,'pqv'],['specimenCategory','specimenType','Specimen Category',140,'edit'],['profileId','profileId','Profile ID',90,'text'],
  ...[1,2,3,4,5,6,7,8,9].map(i=>['UD'+i,'userDefinedColumn'+i,'UD'+i,60,'text'])];
 const GENO_COLS=[
  ['sampleFile','sampleFile','Sample File',160,'text'],['sampleName','sampleName','Sample Name',120,'text'],['sampleID','sampleID','Sample ID',80,'text'],

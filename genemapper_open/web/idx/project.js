@@ -185,7 +185,12 @@ function sampleCell(id,s,flags){
   case 'well':return {value:info.well||''};
   case 'lane':return {value:info.capillary??'',cls:'num'};
   case 'sampleFileNorm':return {value:''};
-  case 'customControl':return {value:''};
+  case 'customControl':{const sel=el('select');sel.append(new Option('',''));for(const p of Profiles.customControls())sel.append(new Option(p.id,p.id));
+   if(s.customControl&&!Profiles.getProfile(s.customControl))sel.append(new Option(s.customControl,s.customControl));sel.value=s.customControl||'';
+   sel.addEventListener('change',()=>{s.customControl=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.customControl||'',node:sel}}
+  case 'specimenCategory':{const sel=el('select');const types=Profiles.specimenTypes();for(const v of types)sel.append(new Option(v,v));
+   const cur=s.specimenCategory||'No Export';if(!types.includes(cur))sel.append(new Option(cur,cur));sel.value=cur;
+   sel.addEventListener('change',()=>{s.specimenCategory=sel.value;state.project.dirty=true;render()});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:cur,node:sel}}
   case 'profileId':return textEdit(s,'profileId',s.profileId||'');
   default:
    if(/^UD\d$/.test(id))return textEdit(s,'ud.'+id,(s.ud||{})[id]||'');
@@ -240,6 +245,12 @@ function labelEditViewer(){
    tr.addEventListener('mousedown',()=>{sel=r;draw()});tb.append(tr)}
   t.append(tb);b.append(el('div',{class:'grid mgrgrid'},t));if(!rows.length)b.append(el('div',{class:'note',text:T('noEdits')}))};
  draw()}
+// Control Concordance: positive/negative controls checked against the custom control profile or the panel's control alleles.
+function ccFlag(rep,marker){const row=(rep.quality?.controls?.markers||[]).find(x=>x.marker===marker);if(!row||!row.comparison_performed)return 'na';return row.cc===0?'pass':'low'}
+function controlDefinition(s){const kit=sampleKit(s);if(!kit)return null;const prof=s.customControl?Profiles.getProfile(s.customControl):null;
+ const markers={};for(const m of kit.markers){const exp=prof?(prof.markers[m.name]||[]):(m.control_alleles||[]);
+  markers[m.name]={expected_alleles:s.type==='negative'?[]:exp,quality_sensor:!!m.internal_qc,is_y_marker:!!m.y_marker}}
+ return {schema_version:1,sample_type:s.type==='negative'?'Negative Control':'Positive Control',markers}}
 function genoRows(s){
  const rep=s.report;if(!rep||!rep.allele_calling)return [];
  const gq=Object.fromEntries((rep.quality?.marker_gq?.markers||[]).map(m=>[m.marker,m]));const eff=effective(s);
@@ -247,7 +258,7 @@ function genoRows(s){
   const g=gq[m.name];const metrics=g?.score?.metrics||{};
   const f=k=>metrics[k]===1?'check':metrics[k]===0?'pass':'na';
   const flags={OS:f('offscale'),BIN:f('binning'),PHR:f('ratio'),LPH:f('absolute_height'),MPH:f('high_height'),SPK:f('spike'),
-   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:'na',CC:'na',MEC:'na',ADO:'na',ME:eff.edited.has(m.name)?'check':'pass',
+   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:'na',CC:ccFlag(rep,m.name),MEC:'na',ADO:'na',ME:eff.edited.has(m.name)?'check':'pass',
    GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
   return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||''}})}
 function genoCell(id,r,i){
@@ -400,7 +411,7 @@ function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.leng
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
  return {comment:state.project.comment||'',run_folders:state.project.runFolders,reports:state.project.reports||[],
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
-   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
+   sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
   snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
@@ -458,7 +469,7 @@ async function loadProject(name){
   const samples=[];let i=0;state.nextId=1;
   for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
    const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
-    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
+    status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:data.analysis||null,compact:data.compact||null,report:data.report||null,rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{reports:Array.isArray(meta.reports)?meta.reports:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
@@ -614,6 +625,7 @@ async function genotype(){
    const policy=g.pass?k.policy:'reference_bins';
    let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy});
    if(k.mq)rep=await jsonPost('/api/marker-quality',{report:rep,definition:k.mq});
+   if(s.type==='positive'||s.type==='negative'){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
    s.report=rep;s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
  return true}
 
@@ -830,7 +842,7 @@ function buildChrome(){
   {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},{label:T('closeProject'),run:closeProject},
    {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},'-',
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
-   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:notYet},'-',
+   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),disabled:true},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
@@ -844,7 +856,7 @@ function buildChrome(){
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
-   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
+   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},'-',{label:T('addProfile'),sub:[{label:T('pfLab'),run:()=>addProfile('Lab Reference')},{label:T('pfCustom'),run:()=>addProfile('Custom Control')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
    {label:T('esig'),disabled:true},{label:T('databaseManager'),disabled:true}]},
@@ -874,6 +886,19 @@ document.addEventListener('keydown',e=>{
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
+function qcSamples(){return state.project.samples.map(s=>{const eff=s.report?effective(s):null;const markers={},dye={};
+ if(eff)for(const c of eff.calls){if(!c.label)continue;(markers[c.marker]=markers[c.marker]||[]).push(String(c.label));dye[c.marker]=dyeLetter(c.channel)}
+ const q=samplePqv(s).SQ;const ol=Object.values(markers).some(a=>a.some(x=>/^OL$/i.test(x)));const ud=s.ud||{};const info=s.analysis?.run_info||{};
+ return {id:s.file,file:s.file,name:s.name,type:s.type,analyzed:!!s.report,profileId:(s.profileId||'').trim(),markers,dye,category:s.specimenCategory||'No Export',
+  eligible:!!s.report&&s.type!=='ladder'&&['pass','check','override'].includes(q)&&!ol&&Object.keys(markers).length>0,
+  codis:{sample_name:s.name,specimen_id:ud.UD1||s.name,category:s.specimenCategory||'No Export',panel:s.panel||'',batch_id:ud.UD2||info.plate||'',case_id:ud.UD3||'',
+   comment:ud.UD4||'',partial:ud.UD5||'',source_id:ud.UD6||'',ncic:ud.UD7||'',vicap:ud.UD8||'',loci:Object.entries(markers).map(([marker,alleles])=>({marker,alleles}))}}})}
+function addProfile(type){const list=qcSamples().filter(x=>state.selected.has(state.project.samples.find(s=>s.file===x.file)?.id));
+ if(!list.length)return message(T('selectSamplesFirst'));Profiles.addFromSamples(list,type);render()}
+Profiles.init({post:jsonPost,samples:qcSamples,plot:files=>reportApi.plot(files),user:()=>{try{return localStorage.getItem('opentrace.user')||''}catch(e){return ''}},
+ setUser:u=>{try{localStorage.setItem('opentrace.user',u)}catch(e){}}});
+window.addEventListener('opentrace-profiles',()=>render());window.addEventListener('opentrace-codis',()=>{Profiles.codisCatalog().then(()=>render()).catch(()=>{})});
+Profiles.codisCatalog().then(()=>render()).catch(()=>{});
 Methods.init(jsonPost);
 buildChrome();render();
 Methods.ensureDefault().then(()=>{render();
