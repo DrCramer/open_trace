@@ -299,3 +299,5 @@ table.g.sitable{width:100%}table.g.sitable td.k{width:260px;color:#444;backgroun
 .sistatus{padding:2px 8px;font:11px Tahoma,sans-serif;color:#333;border-top:1px solid #ccd;min-height:16px}
 .siept{padding:4px 8px}.eptrow{margin-bottom:4px}.eptlab{font-weight:bold;font-size:11px;margin:2px 0}
 .dlg .body.artdlg{width:380px}.artdlg select{width:100%}
+.matab td.kmatch{background:#3fd34a!important}.matab td.kunknown{background:#ffef3a!important}.matab td.kmatch.pale{background:#c9f2cc!important}.matab td.kunknown.pale{background:#fff8b8!important}
+.dlg .body.knowndlg{width:420px}.knowndlg .magrid{height:300px}

@@ -324,6 +324,10 @@ en:{
  noPredefined:'There are no predefined artifact labels.',act_to_artifact:'Change to artifact label',act_add_artifact:'Add artifact label',
  act_rename_artifact:'Rename artifact label',act_delete_artifact:'Delete artifact label',act_artifact_to_allele:'Artifact to allele label',act_pli:'Partial Locus Indicator',
  peakRawData:'Peak Raw Data',addArtifactMany:'Add Artifact Label ({0} selected peaks)',siPeakAt:'peak at data point',
+ maKnownGenotypes:'Known Genotypes',maDeleteKnown:'Delete Known',
+ maDeleteKnownWarn:'Known genotype {0} will be removed from the Mixture Analysis tool and the Known column is set to None for all samples that use it. Continue?',
+ maImportKnown:'Import...',maImportOption:'Import...',maKnownImported:'imported known genotype',maKnownProfile:'Lab Reference from the Profile Manager',
+ maFilterKnown:'Filter on Known Match',maShowAllCombos:'Show All Combinations',maKnownContrib:'known',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -656,6 +660,10 @@ ru:{
  act_add_artifact:'Добавление метки артефакта',act_rename_artifact:'Переименование метки артефакта',act_delete_artifact:'Удаление метки артефакта',
  act_artifact_to_allele:'Артефакт → аллель',act_pli:'Индикатор неполного локуса',
  peakRawData:'Исходные данные пика',addArtifactMany:'Добавить метку артефакта ({0} выделенных пиков)',siPeakAt:'пик в точке',
+ maKnownGenotypes:'Известные генотипы',maDeleteKnown:'Удалить известный генотип',
+ maDeleteKnownWarn:'Известный генотип {0} будет удалён из инструмента анализа смесей, а у всех образцов, где он выбран, в колонке «Известный» будет «Нет». Продолжить?',
+ maImportKnown:'Импорт...',maImportOption:'Импорт...',maKnownImported:'импортированный известный генотип',maKnownProfile:'эталон из менеджера профилей',
+ maFilterKnown:'Фильтр по совпадению с известным',maShowAllCombos:'Показать все комбинации',maKnownContrib:'известный',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

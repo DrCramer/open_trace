@@ -12,6 +12,25 @@ async function factory(){if(!FACTORY)FACTORY=(await ctx.post('/api/mixture',{act
 async function methods(){const db=read();const f=await factory();const list=db.methods.filter(m=>m.name!==f.name);return [f,...list]}
 const getMethod=async name=>(await methods()).find(m=>m.name===name)||await factory();
 const popdbs=()=>read().popdbs||[];
+// Known genotypes imported into the Mixture Analysis tool (plus Lab References of the Profile Manager).
+const KKEY='opentrace.knownGenotypes.v1';
+const importedKnowns=()=>{try{const v=JSON.parse(localStorage.getItem(KKEY)||'[]');return Array.isArray(v)?v:[]}catch(e){return []}};
+const saveKnowns=l=>{try{localStorage.setItem(KKEY,JSON.stringify(l));return true}catch(e){message(T('storageFull'));return false}};
+const allKnowns=()=>{const imp=importedKnowns().map(k=>({...k,imported:true}));const ids=new Set(imp.map(k=>k.id));return [...imp,...ctx.knowns().filter(p=>!ids.has(p.id))]};
+async function importKnown(){const f=await pickFile('.txt,.csv');if(!f)return null;
+ try{const k=await ctx.post('/api/mixture',{action:'parse_known',text:f.text,filename:f.name});const list=importedKnowns();const i=list.findIndex(x=>x.id.toLowerCase()===k.id.toLowerCase());
+  let saved=k;if(i>=0){saved=await ctx.post('/api/mixture',{action:'merge_known',existing:list[i],new:k});list[i]=saved}else list.push(k);
+  if(!saveKnowns(list))return null;return saved}catch(e){message(e.message);return null}}
+function knownDialog(id,onChange){const show=()=>allKnowns().find(k=>k.id===id);
+ const d=dialog(T('maKnownGenotypes'),()=>{},[[T('ok'),()=>true,true]]);
+ const draw=()=>{const b=d.body;b.replaceChildren();b.classList.add('knowndlg');const k=show();
+  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},el('th',{text:T('colMarker')}),el('th',{text:T('maAlleles')}))));const tb=el('tbody');
+  for(const [m,a] of Object.entries(k?.markers||{}))tb.append(el('tr',{},el('td',{text:m}),el('td',{text:a.join(', ')})));t.append(tb);
+  const del=el('button',{class:'btn',type:'button',text:T('maDeleteKnown'),id:'maDelKnown'});del.disabled=!k?.imported;
+  del.addEventListener('click',()=>{dialog(T('alert'),bb=>bb.append(el('p',{style:'max-width:420px',text:fmt('maDeleteKnownWarn',id)})),[[T('ok'),()=>{saveKnowns(importedKnowns().filter(x=>x.id!==id));onChange(null);d.close();return true},true],[T('cancel'),()=>true]])});
+  const imp=el('button',{class:'btn',type:'button',text:T('maImportKnown'),id:'maImportKnown2'});imp.addEventListener('click',async()=>{const k2=await importKnown();if(k2){id=k2.id;onChange(id);draw()}});
+  b.append(el('div',{class:'mabar'},el('b',{text:`${T('maKnown')}: ${id}`}),k?.imported?el('span',{class:'note',text:T('maKnownImported')}):el('span',{class:'note',text:T('maKnownProfile')})),el('div',{class:'grid magrid'},t),el('div',{class:'btnrow'},imp,del))};
+ draw()}
 const fShow=a=>/^F[123]$/.test(a)?'F':a;
 const gt=g=>g.map(fShow).join(', ');
 const q=v=>v==null?'NA':v;
@@ -94,7 +113,9 @@ async function open(){
    for(const r of groups[st.tab]){const s=all.find(x=>x.key===r.id);const res=st.results[r.id];const cells=[];
     if(st.tab===2)cells.push(el('td',{class:'ic',html:res?.extraction?.status==='extracted'?'':pqv('check')}),el('td',{text:res?.review?'TRUE':'FALSE'}));
     cells.push(el('td',{text:s.runFolder}),el('td',{text:s.file}),el('td',{text:s.name}),el('td',{text:st.methodOf[r.id]}),el('td',{text:reasonText(r)}));
-    if(st.tab===2){const ks=el('select');ks.append(new Option(T('maNone'),''));for(const p of ctx.knowns())ks.append(new Option(p.id,p.id));ks.value=st.known[r.id]||'';ks.addEventListener('change',()=>{st.known[r.id]=ks.value});cells.push(el('td',{},ks))}
+    if(st.tab===2){const ks=el('select',{'data-known':r.id});ks.append(new Option(T('maNone'),''));for(const p of allKnowns())ks.append(new Option(p.id,p.id));ks.append(new Option(T('maImportOption'),'__import__'));
+     ks.value=st.known[r.id]||'';ks.addEventListener('change',async()=>{if(ks.value==='__import__'){const k=await importKnown();if(k){st.known[r.id]=k.id;knownDialog(k.id,v=>{st.known[r.id]=v||'';draw()})}draw();return}st.known[r.id]=ks.value});
+     const td=el('td',{},ks);td.addEventListener('dblclick',()=>{if(st.known[r.id])knownDialog(st.known[r.id],v=>{const old=st.known[r.id];if(!v){for(const sid of Object.keys(st.known))if(st.known[sid]===old)st.known[sid]=''}else st.known[r.id]=v;draw()})});cells.push(td)}
     tb.append(el('tr',{},...cells))}
    t.append(tb);b.append(el('h3',{text:T('maSegTitle')}),tabs,el('div',{class:'grid magrid'},t),el('p',{class:'note',text:T('maSegNote'+st.tab)}));
    const exp=()=>download('Sample Segregation.csv',csv([[T('maContributors'),T('colSampleFile'),T('colSampleName'),T('maMethod'),T('maReason')],...st.seg.filter(r=>r.contributors).map(r=>[r.contributors===3?'3+':r.contributors,r.id,all.find(x=>x.key===r.id).name,st.methodOf[r.id],reasonText(r)])]));
@@ -106,7 +127,7 @@ async function open(){
    st.seg=out;for(const r of out){const prev=st.results[r.id];const mit=(await getMethod(st.methodOf[r.id])).mit;if(!prev||prev.method!==st.methodOf[r.id]||prev.contributors!==r.contributors)st.results[r.id]={method:st.methodOf[r.id],mit,contributors:r.contributors,adbi:r.adbi_markers,reason:r.reason}}
    st.tab=[2,1,3].find(k=>out.some(r=>r.contributors===k))||1;st.page='segregate';draw()}catch(e){message(e.message)}}
  async function extractAll(groups){
-  for(const r of groups[2]){const res=st.results[r.id];const kn=st.known[r.id]?ctx.knowns().find(p=>p.id===st.known[r.id]):null;
+  for(const r of groups[2]){const res=st.results[r.id];const kn=st.known[r.id]?allKnowns().find(p=>p.id===st.known[r.id]):null;
    if(res.extraction&&res.knownId===(kn?.id||''))continue;
    const s=all.find(x=>x.key===r.id);try{res.extraction=await ctx.post('/api/mixture',{action:'extract',method:await getMethod(res.method),sample:{id:s.key,markers:s.markers},known:kn?kn.markers:null});res.knownId=kn?.id||'';res.review=false}catch(e){message(e.message);return}}
   for(const k of [1,3])for(const r of groups[k]){const res=st.results[r.id];res.options=res.options||{}}
@@ -140,7 +161,7 @@ async function open(){
   for(const [m,al] of Object.entries(alleles(s,res)))if(al.length)tb.append(el('tr',{},el('td',{text:m}),el('td',{text:al.join(', ')})));t.append(tb);page.append(el('p',{class:'note',text:T('maSegNote3')}),el('div',{class:'grid magrid'},t))}
  function twoContributors(page,s,res){const x=res.extraction;
   if(!x||x.status!=='extracted'){page.append(el('p',{text:x?.message||T('maNotExtracted')}));return}
-  st.filter=st.filter||{marker:'All',iq:'all',show:'both'};const f=st.filter;
+  st.filter=st.filter||{marker:'All',iq:'all',show:'both',known:false};const f=st.filter;const kc=x.known_contributor;
   const hdr=el('div',{class:'mabar'},el('span',{text:`${T('maAvgMx')}: ${num(x.average_mx,4)}`,id:'maAvgMx'}),el('span',{text:`${T('maResidualThr')}: ${x.residual_threshold}`}),
    el('span',{text:`${T('maKnown')}: ${res.knownId||T('maNone')}`}),el('span',{text:`${T('maKnownMatch')}: ${x.known_match||'N/A'}`}));
   const mk=el('select',{id:'maFilterMarker'});mk.append(new Option(T('maAll'),'All'));for(const m of [...new Set(x.rows.map(r=>r.marker))])mk.append(new Option(m,m));mk.value=f.marker;mk.addEventListener('change',()=>{f.marker=mk.value;draw()});
@@ -149,11 +170,13 @@ async function open(){
   const rev=el('input',{type:'checkbox',id:'maReview'});rev.checked=!!res.review;rev.addEventListener('change',()=>{res.review=rev.checked;draw()});
   page.append(hdr,el('div',{class:'mabar'},el('label',{text:T('maFilterMarker')}),mk,el('label',{text:T('maFilterIq')}),iq,el('label',{text:T('maTables')}),show,el('label',{class:'chk'},rev,document.createTextNode(' '+T('maReviewComplete')))));
   const selRows=new Set();
-  const table=(selected,title)=>{const rows=x.rows.filter(r=>r.selected===selected&&(f.marker==='All'||r.marker===f.marker)&&(selected||f.iq==='all'||r.iq===f.iq));
+  const table=(selected,title)=>{const rows=x.rows.filter(r=>r.selected===selected&&(f.marker==='All'||r.marker===f.marker)&&(selected||f.iq==='all'||r.iq===f.iq)&&(selected||!f.known||!r.known?.length||(kc?r.known_match?.includes(kc.toUpperCase()):!!r.known_match)));
    const t=el('table',{class:'g matab'});const heads=[T('colMarker'),'C1 (Major)','C2 (Minor)',T('maInc')+' C1',T('maInc')+' C2','ADBI','Mx',T('maResidual'),'PHR1','PHR2',T('maResStatus'),T('maPhrStatus'),'IQ'];if(x.known_match)heads.push(T('maKnownGt'));
    t.append(el('thead',{},el('tr',{},...heads.map(h=>el('th',{text:h})))));const tb=el('tbody');
    for(const r of rows){const ci=r.inconclusive;const inc=k=>{const c=el('input',{type:'checkbox'});c.checked=!!ci[k];c.disabled=!selected;c.addEventListener('change',()=>{ci[k]=c.checked;res.stats=null});c.addEventListener('mousedown',e=>e.stopPropagation());return el('td',{class:'ic'},c)};
-    const tr=el('tr',{class:(r.known_match?'known ':'')},el('td',{text:r.marker}),el('td',{text:gt(r.c1)}),el('td',{text:gt(r.c2)}),inc('c1'),inc('c2'),
+    // ID-X: matched contributor bright green, unknown contributor bright yellow (pale when undetermined)
+    const kcls=c=>{if(!x.known_match||!r.known?.length)return '';const pale=kc?'':' pale';const k=kc||(r.known_lean||'C1').toLowerCase();if(!r.known_match?.includes(k.toUpperCase()))return '';return (c===k?'kmatch':'kunknown')+pale};
+    const tr=el('tr',{class:(r.known_match?'known ':'')},el('td',{text:r.marker}),el('td',{text:gt(r.c1),class:kcls('c1')}),el('td',{text:gt(r.c2),class:kcls('c2')}),inc('c1'),inc('c2'),
      el('td',{class:'ic',html:pqv(r.adbi)}),el('td',{class:'num',text:r.mx?num(r.mx):'N/A'}),el('td',{class:'num',text:num(r.residual,4)}),el('td',{class:'num',text:num(r.phr1)}),el('td',{class:'num',text:num(r.phr2)}),
      el('td',{class:'ic',html:pqv(r.residual_status)}),el('td',{class:'ic',html:pqv(r.phr_status)}),el('td',{class:'ic',html:pqv(r.iq)}));
     if(x.known_match)tr.append(el('td',{text:r.known?.length?r.known.join(', '):''}));
@@ -161,7 +184,9 @@ async function open(){
    t.append(tb);return el('div',{},el('div',{class:'cap',text:`${title} (${rows.length})`}),el('div',{class:'grid magrid'+(selected?' sel':'')},t))};
   const move=to=>{if(!selRows.size)return message(T('selectRow'));for(const r of selRows){r.selected=to;if(!to)r.inconclusive={c1:false,c2:false}}x.missing_markers=[...new Set(x.rows.map(r=>r.marker))].filter(m=>!x.rows.some(r=>r.marker===m&&r.selected)).sort();res.stats=null;draw()};
   const bar=el('div',{class:'btnrow'});const bt=(text,fn,id)=>{const z=el('button',{class:'btn',type:'button',text,id});z.addEventListener('click',fn);return z};
-  bar.append(bt(T('maUnselect'),()=>move(false),'maUnselect'),bt(T('maSelect'),()=>move(true),'maSelectBtn'),bt(T('maMissing'),()=>message(x.missing_markers.length?T('maMissingList')+'\n'+x.missing_markers.join(', '):T('maMissingNone')),'maMissingBtn'));
+  const missing=()=>[...new Set([...x.missing_markers,...(x.known_missing_markers||[])])].sort();
+  bar.append(bt(T('maUnselect'),()=>move(false),'maUnselect'),bt(T('maSelect'),()=>move(true),'maSelectBtn'),bt(T('maMissing'),()=>message(missing().length?T('maMissingList')+'\n'+missing().join(', '):T('maMissingNone')),'maMissingBtn'));
+  if(x.known_match){const fk=bt(f.known?T('maShowAllCombos'):T('maFilterKnown'),()=>{f.known=!f.known;draw()},'maFilterKnown');bar.append(fk)}
   if(f.show!=='unselected')page.append(table(true,T('maSelectedTable')));
   page.append(bar);
   if(f.show!=='selected')page.append(table(false,T('maUnselectedTable')))}
@@ -173,15 +198,16 @@ async function open(){
    [[T('ok'),async()=>{const db=dbs[di].data,names=[...pops];if(!names.length)return message(T('maPickPop')),false;res.stats={database:db.database,populations:names};res.lr=null;
      try{if(res.contributors===1)res.stats.rmp=await ctx.post('/api/mixture',{action:'statistics',kind:'single',population_db:db,populations:names,markers:alleles(s,res),options:res.options});
       if(res.contributors===2){const x=res.extraction;if(x?.status!=='extracted')return message(T('maNotExtracted')),false;
-       res.stats.rmp=await ctx.post('/api/mixture',{action:'statistics',kind:'two',population_db:db,populations:names,c1:contributorProfile(res,'c1'),c2:contributorProfile(res,'c2')});
+       res.stats.rmp=await ctx.post('/api/mixture',{action:'statistics',kind:'two',population_db:db,populations:names,c1:contributorProfile(res,'c1'),c2:contributorProfile(res,'c2'),known_contributor:x.known_contributor||null});
        const drop=[...new Set(x.rows.filter(r=>r.selected&&r.dropout).map(r=>r.marker))];
        res.stats.cpi=await ctx.post('/api/mixture',{action:'statistics',kind:'cpi',population_db:db,populations:names,markers:alleles(s,res),dropout_markers:drop})}
       if(res.contributors===3)res.stats.cpi=await ctx.post('/api/mixture',{action:'statistics',kind:'cpi',population_db:db,populations:names,markers:alleles(s,res)});
       st.vtab=res.stats.rmp?'rmp':'cpi';draw();return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]])}
  const big=v=>v==null?'N/A':v>=1e6?Number(v).toExponential(3):Math.round(v).toLocaleString();
- function rmpView(page,res){const r=res.stats.rmp;const two=r.kind==='two';const t=el('table',{class:'g'});
+ function rmpView(page,res){const r=res.stats.rmp;const two=r.kind==='two';const t=el('table',{class:'g'});const KN={known:true,profile_frequency:null,rmp:null,missing_markers:[],details:[]};
+  if(two)r.results=r.results.map(p=>({...p,c1:p.c1||KN,c2:p.c2||KN}));const pf=c=>c.known?T('maKnownContrib'):c.profile_frequency.toExponential(4),rm=c=>c.known?'—':'1 / '+big(c.rmp);
   t.append(el('thead',{},el('tr',{},...[T('maPopulation'),'θ',...(two?['C1 '+T('maProfileFreq'),'C1 RMP','C2 '+T('maProfileFreq'),'C2 RMP']:[T('maProfileFreq'),'RMP']),T('maMissingPop')].map(h=>el('th',{text:h})))));const tb=el('tbody');
-  for(const p of r.results){const cells=two?[p.c1.profile_frequency.toExponential(4),'1 / '+big(p.c1.rmp),p.c2.profile_frequency.toExponential(4),'1 / '+big(p.c2.rmp)]:[p.profile_frequency.toExponential(4),'1 / '+big(p.rmp)];
+  for(const p of r.results){const cells=two?[pf(p.c1),rm(p.c1),pf(p.c2),rm(p.c2)]:[p.profile_frequency.toExponential(4),'1 / '+big(p.rmp)];
    tb.append(el('tr',{},el('td',{text:p.population}),el('td',{text:String(p.theta)}),...cells.map(c=>el('td',{class:'num',text:c})),el('td',{text:(two?[...new Set([...p.c1.missing_markers,...p.c2.missing_markers])]:p.missing_markers).join(', ')})))}
   t.append(tb);page.append(el('div',{class:'cap',text:`${T('maRmpSummary')} — ${r.database}`}),el('div',{class:'grid'},t));
   const d=el('table',{class:'g'});d.append(el('thead',{},el('tr',{},...[T('maPopulation'),T('colMarker'),...(two?['C1','C1 '+T('maCombFreq'),'C2','C2 '+T('maCombFreq')]:[T('maAlleles'),T('maGenoFreq')])].map(h=>el('th',{text:h})))));const db=el('tbody');
@@ -197,7 +223,7 @@ async function open(){
  // ---------- likelihood ratio ----------
  const hypText=(h,r1,r2)=>{const U=T('maUnknown'),UU=T('maTwoUnknown');const mix=(a,b)=>fmt('maMixtureOf',a,b);
   return {single:[`C1: ${r1}`,`C1: ${U}`],major:[`C1: ${r1}`,`C1: ${U}`],h1:[mix(r1,r2),mix(r1,U)],h2:[mix(r1,r2),mix(r2,U)],h3:[mix(r1,r2),UU],h4:[mix(r1,U),UU],h5:[mix(r2,U),UU]}[h]};
- function lrView(page,s,res){const L=res.lr=res.lr||{r1:res.knownId||'',r2:'',useC1:false,result:null,checked:null};const two=res.contributors===2;const knowns=ctx.knowns();
+ function lrView(page,s,res){const L=res.lr=res.lr||{r1:res.knownId||'',r2:'',useC1:false,result:null,checked:null};const two=res.contributors===2;const knowns=allKnowns();
   const refSel=(key,id,other)=>{const x=el('select',{id});x.append(new Option(T('maNone'),''));for(const p of knowns)if(p.id!==L[other])x.append(new Option(p.id,p.id));x.value=L[key];x.addEventListener('change',()=>{L[key]=x.value;L.result=null;draw()});return x};
   const bar=el('div',{class:'mabar'},el('span',{text:'LR = Pr(E | Hp) / Pr(E | Hd)'}),el('label',{text:T('maRef1')}),refSel('r1','maRef1','r2'));
   if(two){const c=el('input',{type:'checkbox',id:'maUseC1'});c.checked=L.useC1;c.addEventListener('change',()=>{L.useC1=c.checked;if(c.checked)L.r2='';L.result=null;draw()});

@@ -4,7 +4,8 @@ import unittest
 
 from genemapper_open.mixture import (FACTORY_METHOD, phr_threshold, segregate, extract, eligible, parse_population_db,
                                      genotype_frequency, combined_frequency, rmp, rmp_single, cpi, mixture_request,
-                                     validate_method)
+                                     validate_method, known_genotype_match, normalize_known, parse_known_genotypes,
+                                     merge_known, statistics)
 
 
 def sample(markers, sid='S'):
@@ -97,9 +98,45 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(extract(sample({'A': [('1', 900), ('2', 300)]}), FACTORY_METHOD)['status'], 'no_mx')
 
     def test_known_match(self):
-        s = sample({'A': [('1', 800), ('2', 800), ('3', 200), ('4', 200)], 'B': [('5', 820), ('6', 780), ('7', 210), ('8', 190)]})
+        s = sample({'A': [('1', 800), ('2', 800), ('3', 200), ('4', 200)], 'B': [('5', 820), ('6', 780), ('7', 210), ('8', 190)],
+                    'C': [('9', 800), ('10', 800), ('11', 400)]})
         r = extract(s, FACTORY_METHOD, known={'A': ['3', '4'], 'B': ['7', '8']})
-        self.assertEqual(r['known_match'], 'C2 (Minor)')
+        self.assertEqual((r['known_match'], r['known_contributor']), ('C2 (Minor)', 'c2'))
+        sel = [x for x in r['rows'] if x['selected']]
+        # known markers: only IQ-pass combinations whose C2 carries the known genotype stay selected
+        self.assertTrue(all(sorted(x['c2']) == ['3', '4'] for x in sel if x['marker'] == 'A'))
+        self.assertTrue(all(x['iq'] == 'pass' for x in sel))
+        # marker C is not in the known profile: its IQ-pass combinations stay selected and it is listed
+        self.assertTrue(any(x['marker'] == 'C' for x in sel))
+        self.assertEqual(r['known_missing_markers'], ['C'])
+        r = extract(s, FACTORY_METHOD, known={'A': ['1', '2'], 'B': ['5', '6']})
+        self.assertEqual(r['known_match'], 'C1 (Major)')
+        r = extract(s, FACTORY_METHOD, known={'A': ['1', '3'], 'B': ['5', '6']})
+        self.assertEqual((r['known_match'], r['known_contributor']), ('Undetermined', None))
+
+    def test_known_genotype_rules(self):
+        # mamodule AnalysisManager.a(String, String)
+        self.assertTrue(known_genotype_match(['12', '14'], ['14', '12']))
+        self.assertTrue(known_genotype_match(['F1', 'F2'], ['9', '10']))
+        self.assertTrue(known_genotype_match(['12', 'F1'], ['12', '15']))
+        self.assertFalse(known_genotype_match(['13', 'F1'], ['12', '15']))
+        self.assertFalse(known_genotype_match(['12', '13'], ['12', '15']))
+        self.assertEqual(normalize_known({'A': ['14'], 'B': [], 'C': ['1', '2']}), {'A': ['14', '14'], 'C': ['1', '2']})
+        with self.assertRaisesRegex(ValueError, 'tri-allelic'):
+            normalize_known({'A': ['1', '2', '3']})
+        text = ('Sample File\tSample Name\tMarker\tAllele 1\tAllele 2\n'
+                'H4.fsa\tH4\tD3S1358\t15\t16\nH4.fsa\tH4\tTH01\t7\t\nH4.fsa\tH4\tFGA\t\t\n')
+        k = parse_known_genotypes(text, 'C:/data/H4 known.txt')
+        self.assertEqual(k, {'id': 'H4 known', 'markers': {'D3S1358': ['15', '16'], 'TH01': ['7', '7']}, 'sample': 'H4'})
+        self.assertEqual(parse_known_genotypes(text.replace('\t', ','), 'k.csv')['markers']['TH01'], ['7', '7'])
+        with self.assertRaisesRegex(ValueError, 'more than one sample'):
+            parse_known_genotypes(text + 'X.fsa\tX\tvWA\t14\t15\n', 'k.txt')
+        with self.assertRaises(ValueError):
+            parse_known_genotypes(text, 'Import.txt')
+        merged = merge_known(k, {'id': 'H4 known', 'markers': {'vWA': ['14', '17'], 'D3S1358': ['16', '15']}})
+        self.assertEqual(sorted(merged['markers']), ['D3S1358', 'TH01', 'vWA'])
+        with self.assertRaisesRegex(ValueError, 'conflicts'):
+            merge_known(k, {'id': 'H4 known', 'markers': {'D3S1358': ['15', '17']}})
 
 
 class StatisticsTests(unittest.TestCase):
@@ -120,6 +157,12 @@ class StatisticsTests(unittest.TestCase):
         self.assertAlmostEqual(genotype_frequency(self.pop, 'vWA', '15', '15'), 0.025 ** 2 + 0.025 * 0.975 * 0.01)
         with self.assertRaises(ValueError):
             parse_population_db('nonsense')
+
+    def test_known_contributor_statistics(self):
+        prof = {'D3S1358': {'genotypes': [['15', '16']], 'inconclusive': False}}
+        r = statistics({'kind': 'two', 'population_db': self.db, 'c1': prof, 'c2': prof, 'known_contributor': 'c1'})['results'][0]
+        self.assertIsNone(r['c1'])
+        self.assertIsNotNone(r['c2'])
 
     def test_rmp_and_cpi(self):
         prof = {'D3S1358': {'genotypes': [['15', '16']]}, 'D16S539': {'genotypes': [['12', '12']]}, 'AMEL': {'genotypes': [['X', 'Y']]},

@@ -136,6 +136,13 @@ document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');
  $('xy').textContent=`[X ${bp.toFixed(2)}  Y ${Math.round(v)}]`;
  const m=G.markers.find(m=>bp>=m.min_bp&&bp<=m.max_bp);$('markerInfo').textContent=m?`[${T('colMarker')}: ${m.name} (${m.min_bp.toFixed(2)}-${m.max_bp.toFixed(2)})]`:''});
 // ---------- allele label editing (context menu) ----------
+// File > Export Table: genotypes of the samples shown (ID-X: export one single-source sample as a known genotype file).
+function exportPlotTable(){const ss=(payload?.samples||[]).filter(s=>s.markers?.length);if(!ss.length)return message(T('selectSamplesFirst'));
+ const n=Math.max(2,...ss.flatMap(s=>s.markers.map(m=>m.calls.filter(c=>c.label).length)));
+ const head=['Sample File','Sample Name','Marker',...Array.from({length:n},(_,i)=>'Allele '+(i+1))];
+ const rows=ss.flatMap(s=>s.markers.map(m=>{const al=m.calls.filter(c=>c.label).map(c=>String(c.label));return [s.file,s.name,m.marker,...Array.from({length:n},(_,i)=>al[i]||'')]}));
+ const text=[head,...rows].map(r=>r.join('\t')).join('\r\n')+'\r\n';const name=(ss.length===1?ss[0].name:'Genotypes')+'.txt';
+ const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 const fmt=(key,...a)=>T(key).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
 function ctxMenu(x,y,items){document.querySelectorAll('.menu.ctx').forEach(m=>m.remove());
  const m=el('div',{class:'menu ctx show',style:`left:${x}px;top:${y}px`});
@@ -248,7 +255,7 @@ function build(){
  const ck=(k,v)=>view[k]===v;
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',disabled:true},'-',{label:T('pageSetup'),disabled:true},{label:T('printPreview'),disabled:true},{label:T('print'),sc:'Ctrl+P',run:()=>window.print()},'-',{label:T('closePlot'),run:()=>window.close()}]},
+  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},'-',{label:T('pageSetup'),disabled:true},{label:T('printPreview'),disabled:true},{label:T('print'),sc:'Ctrl+P',run:()=>window.print()},'-',{label:T('closePlot'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('copy'),sc:'Ctrl+C',disabled:true}]},
   {label:T('view'),items:[{label:T('sampleInfo'),disabled:true},{label:T('rawData'),disabled:true},{label:T('eptData'),disabled:true},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
@@ -282,7 +289,7 @@ function build(){
  const ch=$('colhead');ch.replaceChildren(el('div',{class:'c',style:'width:250px',text:T('colSampleFile')}),el('div',{class:'c',style:'width:150px',text:T('colSampleName')}),
   ...PQV_KEYS.map(k=>el('div',{class:'c',style:'width:46px',text:k})));ch.style.display=view.header?'flex':'none';
 }
-document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}if(e.key==='-'){e.preventDefault();zoom(2)}});
+document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;if(e.key.toLowerCase()==='e'){e.preventDefault();exportPlotTable();return}if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}if(e.key==='-'){e.preventDefault();zoom(2)}});
 window.addEventListener('resize',()=>draw());
 // Follow the project window's selection (Project Options: update plots when the selection changes).
 function refresh(){const before=JSON.stringify(payload?.samples?.map(s=>s.id));let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}

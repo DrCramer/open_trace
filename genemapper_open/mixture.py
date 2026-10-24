@@ -284,6 +284,94 @@ def _is_amel(name):
     return 'AMEL' in name.upper()
 
 
+def known_genotype_match(genotype, known):
+    """mamodule AnalysisManager.a(String, String): exact or reversed pair; F,F matches anything; one F
+    matches when the other allele is one of the known alleles."""
+    g = [('F' if is_f(a) else str(a)) for a in genotype]
+    k = [str(a) for a in known]
+    if len(g) != 2 or len(k) != 2:
+        return False
+    if sorted(g) == sorted(k):
+        return True
+    a, b = g
+    if a == 'F' and b == 'F':
+        return True
+    if a == 'F':
+        return b in k
+    if b == 'F':
+        return a in k
+    return False
+
+
+def normalize_known(known):
+    """{marker: [alleles]}: homozygote stored as one label -> doubled; empty markers dropped; >2 alleles rejected
+    (ID-X: "Known genotypes containing tri-allelic markers cannot be imported")."""
+    out = {}
+    for marker, alleles in (known or {}).items():
+        al = [str(a).strip() for a in (alleles or []) if str(a).strip()]
+        if not al:
+            continue
+        if len(al) > 2:
+            raise ValueError(f'Known genotype contains a tri-allelic marker ({marker}); remove it before importing')
+        out[str(marker)] = al * 2 if len(al) == 1 else al
+    return out
+
+
+def parse_known_genotypes(text, filename):
+    """Known genotype file: a Genotypes table exported for one single-source sample (tab or comma separated,
+    columns Sample File / Sample Name / Marker / Allele 1..n)."""
+    import csv
+    import io
+    stem = str(filename or '').rsplit('/', 1)[-1].rsplit('\\', 1)[-1]
+    stem = stem.rsplit('.', 1)[0] if '.' in stem else stem
+    if not stem or stem.lower() == 'import' or any(c in stem for c in '\\/:*?<>|"'):
+        raise ValueError('Invalid known genotype file name')
+    lines = text.splitlines()
+    if not lines:
+        raise ValueError('Empty known genotype file')
+    delim = '\t' if lines[0].count('\t') >= lines[0].count(',') else ','
+    rows = list(csv.reader(io.StringIO(text), delimiter=delim))
+    head = [h.strip() for h in rows[0]]
+    low = [h.lower() for h in head]
+    if 'marker' not in low:
+        raise ValueError('Known genotype file needs a Marker column')
+    mi = low.index('marker')
+    ai = [i for i, h in enumerate(low) if h.startswith('allele')]
+    if not ai:
+        raise ValueError('Known genotype file needs Allele columns')
+    si = low.index('sample name') if 'sample name' in low else (low.index('sample file') if 'sample file' in low else None)
+    samples, markers = set(), {}
+    for r in rows[1:]:
+        if not any(x.strip() for x in r) or len(r) <= mi:
+            continue
+        if si is not None and si < len(r) and r[si].strip():
+            samples.add(r[si].strip())
+        name = r[mi].strip()
+        if not name:
+            continue
+        al = [r[i].strip() for i in ai if i < len(r) and r[i].strip()]
+        if name in markers and markers[name] != al:
+            raise ValueError(f'Marker {name} appears twice with different alleles')
+        markers[name] = al
+    if len(samples) > 1:
+        raise ValueError('The file contains genotypes of more than one sample; export a single-source sample from the Samples Plot')
+    profile = normalize_known(markers)
+    if not profile:
+        raise ValueError('The known genotype file contains no alleles')
+    return {'id': stem, 'markers': profile, 'sample': next(iter(samples), '')}
+
+
+def merge_known(existing, new):
+    """Same name: conflicting markers -> not imported; otherwise markers missing from the existing profile are added."""
+    for m, al in new['markers'].items():
+        if m in existing['markers'] and sorted(existing['markers'][m]) != sorted(al):
+            raise ValueError(f'Known genotype {new["id"]} conflicts with the existing profile at {m}; not imported')
+    merged = dict(existing['markers'])
+    for m, al in new['markers'].items():
+        merged.setdefault(m, al)
+    return {**existing, 'markers': merged}
+
+
 def extract(raw, method, known=None):
     """Two-phase extraction of a 2-contributor sample (mamodule AnalysisManager)."""
     method = validate_method(method)
@@ -346,24 +434,57 @@ def extract(raw, method, known=None):
                 del p['phr']
                 rows.append(p)
     known_match = None
+    known_contributor = None
     if known:
+        known = normalize_known(known)
+        # mamodule AnalysisManager: (1) for markers of the known profile select only IQ-pass combinations whose C1 or
+        # C2 genotype matches the known genotype; (2) count markers where a selected C1 / C2 genotype matches;
+        # (3) both -> C1 (1:1 mixture), C1 / C2 exact, otherwise undetermined; (4) for an exact match keep only the
+        # selected combinations whose matched contributor carries the known genotype; markers missing from the
+        # known profile keep their IQ-pass combinations.
         for r in rows:
-            k = sorted(known.get(r['marker'], []))
-            r['known'] = k
-            r['known_match'] = ('C1' if sorted(r['c1']) == k else '') + ('C2' if sorted(r['c2']) == k else '')
-        markers_k = {r['marker'] for r in rows if r['marker'] in known and not _is_amel(r['marker'])}
-        hits = {}
-        for key in ('C1', 'C2'):
-            hits[key] = sum(1 for mk in markers_k
-                            if any(r['selected'] and key in r['known_match'] for r in rows if r['marker'] == mk))
-        known_match = ('C1 (Major)' if markers_k and hits['C1'] == len(markers_k) else
-                       'C2 (Minor)' if markers_k and hits['C2'] == len(markers_k) else 'Undetermined')
+            k = known.get(r['marker'])
+            r['known'] = list(k) if k else []
+            if k:
+                r['known_match'] = ('C1' if known_genotype_match(r['c1'], k) else '') + ('C2' if known_genotype_match(r['c2'], k) else '')
+                r['selected'] = r['iq'] == 'pass' and bool(r['known_match'])
+            else:
+                r['known_match'] = ''
+        hits = {'C1': 0, 'C2': 0}
+        counted = 0
+        for mk in sorted({m for m in known if any(r['marker'] == m for r in rows)}):
+            sel = [r for r in rows if r['marker'] == mk and r['selected']]
+            any_rows = [r for r in rows if r['marker'] == mk]
+            if not any_rows:
+                continue
+            counted += 1
+            if any('C1' in r['known_match'] for r in sel):
+                hits['C1'] += 1
+            if any('C2' in r['known_match'] for r in sel):
+                hits['C2'] += 1
+        if counted and hits['C1'] == counted:
+            known_contributor = 'c1'
+        elif counted and hits['C2'] == counted:
+            known_contributor = 'c2'
+        if known_contributor:
+            key = known_contributor.upper()
+            for r in rows:
+                if r['selected'] and r['known'] and key not in r['known_match']:
+                    r['selected'] = False
+            known_match = 'C1 (Major)' if key == 'C1' else 'C2 (Minor)'
+        else:
+            known_match = 'Undetermined'
+            known_contributor = None
+            lean = 'C1' if hits['C1'] >= hits['C2'] else 'C2'
+            for r in rows:
+                r['known_lean'] = lean
     present = {r['marker'] for r in rows}
     missing = sorted(present - {r['marker'] for r in rows if r['selected']})
     return {'id': sample['id'], 'status': 'extracted', 'average_mx': avg, 'fallback_3f': fallback,
             'mx_markers': [{'marker': k, 'mx': v, 'peaks': n} for k, v, n in used],
             'residual_threshold': RESIDUAL_THRESHOLD, 'adbi_markers': adbi, 'rows': rows, 'missing_markers': missing,
-            'known_match': known_match}
+            'known_match': known_match, 'known_contributor': known_contributor,
+            'known_missing_markers': sorted(present - set(known or {})) if known else []}
 
 
 # ---------- population databases ----------
@@ -567,8 +688,13 @@ def statistics(request):
         if kind == 'single':
             row.update(rmp_single(request.get('markers') or {}, pop, request.get('options')))
         elif kind == 'two':
-            row['c1'] = rmp(request.get('c1') or {}, pop)
-            row['c2'] = rmp(request.get('c2') or {}, pop)
+            known_c = request.get('known_contributor')
+            if known_c not in (None, 'c1', 'c2'):
+                raise ValueError('known_contributor must be c1 or c2')
+            # ID-X: with a matched known genotype statistics are calculated only for the unknown contributor
+            row['c1'] = None if known_c == 'c1' else rmp(request.get('c1') or {}, pop)
+            row['c2'] = None if known_c == 'c2' else rmp(request.get('c2') or {}, pop)
+            row['known_contributor'] = known_c
         elif kind == 'cpi':
             row.update(cpi(request.get('markers') or {}, pop, set(request.get('dropout_markers') or [])))
         else:
@@ -846,6 +972,10 @@ def mixture_request(request):
         return {'samples': out}
     if action == 'extract':
         return extract(request.get('sample'), request.get('method') or FACTORY_METHOD, request.get('known'))
+    if action == 'parse_known':
+        return parse_known_genotypes(request.get('text') or '', request.get('filename') or '')
+    if action == 'merge_known':
+        return merge_known(request.get('existing') or {}, request.get('new') or {})
     if action == 'parse_popdb':
         return parse_population_db(request.get('text'))
     if action == 'statistics':
