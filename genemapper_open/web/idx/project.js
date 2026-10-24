@@ -13,7 +13,7 @@ const defaultMethod=()=>{let v=null;try{v=localStorage.getItem('opentrace.lastMe
 const state={
  project:{name:null,runFolders:[],samples:[],dirty:false},
  kit:null,ladderQuality:null,markerQuality:null,
- tab:'samples',selected:new Set(),anchor:null,filter:null,lowQualityTop:false,
+ tab:'samples',selected:new Set(),genoSel:[],genoAnchor:null,anchor:null,filter:null,lowQualityTop:false,
  showNavigator:true,busy:false,stop:false,nextId:1,
 };
 const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
@@ -117,7 +117,7 @@ const TABS=[['samples','samples'],['summary','analysisSummary'],['genotypes','ge
 function renderTabs(){const t=$('tabs');t.replaceChildren();
  for(const [id,key] of TABS){const b=el('div',{class:'tab'+(state.tab===id?' on':''),role:'tab',text:T(key)});b.addEventListener('mousedown',()=>showTab(id));t.append(b)}
  for(const [id] of TABS)$('page-'+id).hidden=state.tab!==id}
-function showTab(id){state.tab=id;renderTabs();render()}
+function showTab(id){const was=state.tab;state.tab=id;renderTabs();render();if((was==='genotypes')!==(id==='genotypes')&&(id==='samples'||id==='genotypes'))refreshPlots()}
 
 // ---------- navigator ----------
 function currentKit(){const sel=state.project.samples.find(s=>state.selected.has(s.id)&&sampleKit(s));
@@ -408,17 +408,26 @@ function selectRow(e,id,order){
   state.selected=new Set(order.slice(lo,hi+1))}
  else if(e.ctrlKey||e.metaKey){state.selected.has(id)?state.selected.delete(id):state.selected.add(id);state.anchor=id}
  else{state.selected=new Set([id]);state.anchor=id}
+ // selecting samples selects all their genotypes (in the order the samples were selected)
+ state.genoSel=[...state.selected].flatMap(sid=>{const s=state.project.samples.find(x=>x.id===sid);return s?genoRows(s).map(r=>sid+'|'+r.marker):[]});
  render();refreshPlots()}
+// Genotypes table: one row per sample and marker; the selection order is the display order in the Genotypes plot.
+function selectGeno(e,key,order){
+ if(e.shiftKey&&state.genoAnchor!=null){const a=order.indexOf(state.genoAnchor),b=order.indexOf(key);const [lo,hi]=a<b?[a,b]:[b,a];state.genoSel=order.slice(lo,hi+1)}
+ else if(e.ctrlKey||e.metaKey){state.genoSel=state.genoSel.includes(key)?state.genoSel.filter(k=>k!==key):[...state.genoSel,key];state.genoAnchor=key}
+ else{state.genoSel=[key];state.genoAnchor=key}
+ state.selected=new Set(state.genoSel.map(k=>+k.split('|')[0]));render();refreshPlots()}
 function refreshPlots(){if(!ProjectOptions.get().updatePlots)return;try{const w=state.plotWin;if(w&&!w.closed&&w.otRefresh)w.otRefresh()}catch(e){}}
 
 // ---------- genotypes table ----------
 function renderGenotypes(){
  const grid=$('genotypesGrid');grid.replaceChildren();const cols=genoColumns();const t=tableHead('genotypes',cols);
  const tb=el('tbody');const rows=sortedGenoRows();const order=[...new Set(rows.map(r=>r.sample.id))];
- rows.forEach((r,n)=>{const tr=el('tr',{class:state.selected.has(r.sample.id)?'sel':''});tr.append(el('td',{class:'rh',text:String(n+1)}));
+ const keys=rows.map(r=>r.sample.id+'|'+r.marker);const gs=new Set(state.genoSel);
+ rows.forEach((r,n)=>{const key=keys[n];const tr=el('tr',{class:gs.has(key)?'sel':''});tr.dataset.key=key;tr.append(el('td',{class:'rh',text:String(n+1)}));
   for(const c of cols){const td=el('td');fillCell(td,genoCell(c.base,r,c.index||0));tr.append(td)}
   if(r.calls.length>TableSettings.active().genotypes.numAlleles)tr.title=T('moreAlleles');
-  tr.addEventListener('mousedown',e=>selectRow(e,r.sample.id,order));tr.addEventListener('dblclick',()=>displayPlots());tb.append(tr)});
+  tr.addEventListener('mousedown',e=>selectGeno(e,key,keys));tr.addEventListener('dblclick',()=>displayPlots());tb.append(tr)});
  t.append(tb);grid.append(t)}
 function dyeLetter(tag){const i={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R'}[tag];return i||(tag==='DATA105'?'P':tag==='DATA106'?'O':'')}
 
@@ -775,13 +784,16 @@ async function loadExample(){
 function plotPayload(){
  const samples=state.project.samples.filter(s=>state.selected.has(s.id));
  const po=ProjectOptions.get();
- return {lang:I18N.lang,project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
+ const mode=state.tab==='genotypes'?'genotypes':'samples';
+ if(mode==='genotypes'&&!state.genoSel.length)state.genoSel=state.project.samples.filter(s=>state.selected.has(s.id)).flatMap(s=>genoRows(s).map(r=>s.id+'|'+r.marker));
+ return {lang:I18N.lang,mode,genoSel:mode==='genotypes'?state.genoSel.slice():[],project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
   return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls,artifacts:eff.artifacts}:null,spk:s.report?spikeArtifacts(s):[],kit:sampleKit(s),pqv:sampleFlags(s),omr:s.report?omrPeaks(s):[],
    editReasons:Object.fromEntries(activeEdits(s).map(e=>[e.callId||('u'+e.id),e.reason||''])),
-   markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check',pli:r.flags.PLI==='check'})),editable:!!s.report}})}}
+   markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,flags:r.flags,panel:s.panel||'',calls:r.calls,edited:r.flags.ME==='check',pli:r.flags.PLI==='check'})),editable:!!s.report}})}}
 function openPanelManager(){if(!Sec.need('READ_PANEL'))return;const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
- if(!state.selected.size)return message(T('selectSamplesFirst'));
+ if(state.tab==='genotypes'&&!state.genoSel.length&&state.selected.size)plotPayload();
+ if(state.tab==='genotypes'?!state.genoSel.length:!state.selected.size)return message(T(state.tab==='genotypes'?'selectMarkersFirst':'selectSamplesFirst'));
  const w=window.open('/idx/plot.html','opentrace-plot','width=1100,height=760');
  if(!w)message(T('plotWindowBlocked'));else{state.plotWin=w;w.focus()}}
 

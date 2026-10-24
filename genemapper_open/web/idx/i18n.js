@@ -363,6 +363,7 @@ en:{
  psImported:'Plot setting imported.',psUntitled:'Untitled Plot Setting',psConfirmDelete:'Delete plot setting {0}?',psCol_sampleFileName:'Sample File',psCol_marker:'Marker',
  psCol_dyeSamplePeak:'Dye/Sample Peak',psCol_minutes:'Minutes',psCol_size:'Size',psCol_height:'Height',psCol_area:'Area',psCol_dataPoint:'Data Point',
  psCol_alleleCall:'Allele Call',
+ selectMarkersFirst:'Select genotypes (markers) in the Genotypes table first.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -735,6 +736,7 @@ ru:{
  psImported:'Настройка графика импортирована.',psUntitled:'Новая настройка графика',psConfirmDelete:'Удалить настройку графика {0}?',psCol_sampleFileName:'Файл образца',
  psCol_marker:'Маркер',psCol_dyeSamplePeak:'Краситель/пик',psCol_minutes:'Минуты',psCol_size:'Размер',psCol_height:'Высота',psCol_area:'Площадь',psCol_dataPoint:'Точка данных',
  psCol_alleleCall:'Аллель',
+ selectMarkersFirst:'Сначала выберите генотипы (маркеры) в таблице генотипов.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

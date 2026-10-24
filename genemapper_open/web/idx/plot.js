@@ -24,7 +24,7 @@ function applySetting(name){setting=PlotSettings.get(name)||PlotSettings.factory
   xAxis:D.xAxis,yAxis:D.yAxis,yValue:D.yValue,peakPositions:D.peakPositions,offscale:D.offscale,toolbar:D.toolbar,alleleChanges:D.alleleChanges,
   sizeStdLabels:D.sizeStdLabels,controlsTop:D.controlsTop,laddersTop:D.laddersTop,x0:null,x1:null});
  view.dyes=new Set(Object.entries(D.dyes).filter(([,on])=>on).map(([d])=>NAME_DYE[d]));
- if(!D.allDyes&&D.xAxis==='bp'&&D.end>D.start){view.x0=D.start;view.x1=D.end}
+ view.userZoom=false;if(!D.allDyes&&D.xAxis==='bp'&&D.end>D.start){view.x0=D.start;view.x1=D.end}
  if(D.table==='lev')setTimeout(()=>{try{window.opener.OT.labelEditViewer()}catch(e){}},0)}
 // "Use the display settings last used for this plot": the interactive state is kept when the window closes.
 window.addEventListener('beforeunload',()=>{if(!setting||setting.display.persistence!=='last')return;
@@ -52,8 +52,14 @@ function bpRange(){const ms=payload?.kit?.markers||[];
  return [0,500]}
 
 // ---------- panes ----------
+const isGeno=()=>payload?.mode==='genotypes';
+const GENO_PQV=['AN','BIN','PHR','LPH','MPH','BD','SPK','OS','OVL','ACC','CC','GQ'];
 function paneList(){
  const out=[];
+ // Genotypes plot: one marker per pane, in the order the genotypes were selected
+ if(isGeno()){for(const key of payload.genoSel||[]){const [sid,name]=[+key.split('|')[0],key.slice(key.indexOf('|')+1)];const s=payload.samples.find(x=>x.id===sid);if(!s)continue;
+   const m=((s.kit||payload.kit)?.markers||[]).find(x=>x.name===name);if(!m)continue;out.push({sample:s,dyes:[m.channel],marker:m})}
+  return out}
  // Bring Controls / Ladders to Top: those samples come first
  const rank=s=>(view.laddersTop&&s.type==='ladder')||(view.controlsTop&&(s.type==='positive'||s.type==='negative'))?0:1;
  for(const s of [...(payload?.samples||[])].sort((a,b)=>rank(a)-rank(b))){
@@ -74,11 +80,20 @@ function draw(){
  const extra=view.labels==='none'?0:2*(nl-1)*((LSd?.size||11)+3);
  const h=Math.max(150+extra,Math.floor((area.clientHeight-2)/Math.max(1,view.panes)));
  const [d0,d1]=domain();const x0=view.x0??d0,x1=view.x1??d1;
- view.yGlobal=view.yAxis==='max'?Math.max(1,...panes.flatMap(p=>(p.overlay?p.items:[p]).flatMap(it=>traceData(it,x0,x1).map(t=>t.max)))):null;
+ view.yGlobal=view.yAxis==='max'?Math.max(1,...panes.flatMap(p=>(p.overlay?p.items:[p]).flatMap(it=>{let a=x0,b=x1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5;a=p.marker.min_bp-mg;b=p.marker.max_bp+mg;
+  if(view.xAxis==='dp'){const c=curveOf(it.sample.analysis);a=bpToScan(c,a);b=bpToScan(c,b)}}return traceData(it,a,b).map(t=>t.max)}))):null;
  for(const p of panes){
   const items=p.overlay?p.items:[p];const s=items[0].sample;
   const pane=el('div',{class:'pane'});
-  if(view.header){
+  if(view.header&&p.marker){const head=el('div',{class:'phead'});const G=setting?.genotypeHeader||{};const on=k=>G[k]!==false;
+   const row=(s.markers||[]).find(r=>r.marker===p.marker.name);
+   if(on('sampleFileName'))head.append(el('div',{class:'c',style:'width:250px',text:s.file}));
+   if(on('sampleName'))head.append(el('div',{class:'c',style:'width:150px',text:s.name}));
+   if(on('panel'))head.append(el('div',{class:'c',style:'width:150px',text:row?.panel||s.kit?.name||''}));
+   if(on('marker'))head.append(el('div',{class:'c',style:'width:100px',text:p.marker.name}));
+   for(const k of GENO_PQV.filter(on)){const c=el('div',{class:'c',style:'width:46px;justify-content:center'});c.innerHTML=pqv(row?.flags?.[k]);head.append(c)}
+   head._sample=s;pane.append(head)}
+  else if(view.header){
    const head=el('div',{class:'phead'});
    const H=setting?.sampleHeader||{};const on=k=>H[k]!==false;
    if(on('sampleFileName'))head.append(el('div',{class:'c',style:'width:250px',text:p.overlay?'':s.file}));
@@ -88,10 +103,13 @@ function draw(){
    if(!p.overlay){const lab=el('label',{class:'c',style:'gap:4px'});lab.append(el('input',{type:'checkbox'}),T('markSample'));head.append(lab);head._sample=s;head.title=T('headerMenuHint')}
    pane.append(head)}
   const canvas=el('canvas');canvas.height=h;pane.append(canvas);area.append(pane);
-  requestAnimationFrame(()=>paint(canvas,items,x0,x1))}
+  // the Genotypes plot shows the marker size range plus the Marker Margin of the plot setting
+  let px0=x0,px1=x1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);
+   px0=p.marker.min_bp-mg;px1=p.marker.max_bp+mg;if(view.xAxis==='dp'){px0=bpToScan(c,px0);px1=bpToScan(c,px1)}}
+  requestAnimationFrame(()=>paint(canvas,items,px0,px1,p.marker))}
  renderLower()}
 
-function paint(cv,items,x0,x1){
+function paint(cv,items,x0,x1,onlyMarker){
  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.height;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
  const g=cv.getContext('2d');g.scale(dpr,dpr);g.fillStyle='#fff';g.fillRect(0,0,W,H);g.font='11px Tahoma,Arial';
  const LS=setting?.labels||PlotSettings.base('').labels;const fs=LS.size||11;const lineH=fs+3;
@@ -100,12 +118,13 @@ function paint(cv,items,x0,x1){
  const s=items[0].sample;const cur=curveOf(s.analysis);const dp=view.xAxis==='dp';
  const pos=(bp,scan)=>dp?(scan??bpToScan(cur,bp)):bp;   // plot coordinate of a peak / bin edge
  const Xc=v=>L+(v-x0)/(x1-x0)*(W-L-R);const X=bp=>Xc(dp?bpToScan(cur,bp):bp);
- const markers=((s.kit||payload.kit)?.markers||[]);
+ const markers=((s.kit||payload.kit)?.markers||[]).filter(m=>!onlyMarker||m.name===onlyMarker.name);
  const dyes=items.flatMap(i=>i.dyes);
  // marker headers + bins
  for(const m of markers.filter(m=>dyes.includes(m.channel))){
   const row=(s.markers||[]).find(r=>r.marker===m.name);const xa=X(m.min_bp),xb=X(m.max_bp);
-  if(view.markerRange){g.fillStyle=GQ_FILL[row?.gqCat||'na'];g.fillRect(xa,4,xb-xa,14);g.strokeStyle='#555';g.strokeRect(xa+.5,4.5,xb-xa-1,13);
+  // marker header colour = GQ; grey when its allele labels were edited
+  if(view.markerRange){g.fillStyle=row?.edited?'#a8a8a8':GQ_FILL[row?.gqCat||'na'];g.fillRect(xa,4,xb-xa,14);g.strokeStyle='#555';g.strokeRect(xa+.5,4.5,xb-xa-1,13);
    g.fillStyle='#000';g.save();g.beginPath();g.rect(xa,4,xb-xa,14);g.clip();g.fillText((row?.pli?'** ':'')+m.name,xa+3,15);g.restore();
    m._hit={x0:xa,x1:xb,y0:4,y1:18}}
   if(view.bins)for(const b of m.bins||[]){const ba=X(b.center_bp-(b.left_bp??.5)),bb=X(b.center_bp+(b.right_bp??.5));
@@ -207,8 +226,8 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
  else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw()});
 document.addEventListener('mouseup',e=>{if(!drag)return;const G=drag.cv._geom,r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left;
  const inv=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0);const a=inv(Math.min(drag.x0,x)),b=inv(Math.max(drag.x0,x));drag=null;
- if(b-a>1){view.x0=a;view.x1=b;draw()}});
-document.addEventListener('dblclick',e=>{if(e.target.closest('canvas')){view.x0=view.x1=null;draw()}});
+ if(b-a>1){view.x0=a;view.x1=b;view.userZoom=true;draw()}});
+document.addEventListener('dblclick',e=>{if(e.target.closest('canvas')){view.x0=view.x1=null;view.userZoom=false;draw()}});
 document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');if(!cv?._geom)return;const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const xv=G.x0+(x-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),v=(G.bottom-y)/(G.bottom-G.top)*G.ymax;const bp=G.dp?scanToBp(G.curve,xv):xv;
  $('xy').textContent=`[X ${G.dp?Math.round(xv):xv.toFixed(2)}  Y ${Math.round(v)}]`;
@@ -297,7 +316,7 @@ async function artifactMany(list){if(window.Sec&&!Sec.can('UPDATE_PROJECT'))retu
  const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
  for(const x of specs){try{await window.opener.OT.edit(x.sample.id,{...x.spec,reason:ch.reason})}catch(e){message(String(e.message||e));break}}
  view.selPeaks.clear();try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}
-function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;draw()}
+function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
 function renderLower(){
@@ -314,7 +333,8 @@ function renderLower(){
     const val={sampleFileName:s.file,marker:c.marker,dyeSamplePeak:`${letters[c.channel]||'?'},${nth[c.channel]}`,minutes:'',size:c.size_bp.toFixed(2),
      height:String(Math.round(c.height)),area:String(pk?.area??''),dataPoint:String(Math.round(c.scan)),alleleCall:String(c.label)};
     tb.append(el('tr',{},el('td',{text:s.name}),...scols.map(([id])=>el('td',{class:['size','height','area','dataPoint'].includes(id)?'num':'',text:val[id]}))))}continue}
-  for(const m of s.markers||[]){const tr=el('tr',{class:view.selMarker===m.marker&&view.selSample===s.id?'sel':''});
+  const gsel=isGeno()?new Set(payload.genoSel||[]):null;
+  for(const m of (s.markers||[]).filter(m=>!gsel||gsel.has(s.id+'|'+m.marker))){const tr=el('tr',{class:view.selMarker===m.marker&&view.selSample===s.id?'sel':''});
    const g=el('td',{class:'ic'});g.innerHTML=pqv(m.gqCat);
    tr.append(el('td',{text:s.name}),el('td',{text:m.marker}),el('td',{text:m.calls[0]?.label||''}),el('td',{text:m.calls[1]?.label||''}),g);
    tr.addEventListener('mousedown',()=>{view.selMarker=m.marker;view.selSample=s.id;renderLower()});tb.append(tr)}}
@@ -334,7 +354,7 @@ function renderLower(){
 // ---------- chrome ----------
 function build(){
  document.documentElement.lang=I18N.lang;
- document.title=`${T('app')} : ${T('samplesPlot')}`;
+ document.title=`${T('app')} : ${T(isGeno()?'genotypesPlot':'samplesPlot')}`;
  const set=(k,v)=>()=>{view[k]=v;build();draw()};
  const ck=(k,v)=>view[k]===v;
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
@@ -374,16 +394,19 @@ function build(){
   tg('combine',T('combine'),ck('layout','combine'),set('layout','combine')),tg('separate',T('separate'),ck('layout','separate'),set('layout','separate')),tg('overlay',T('overlay'),ck('layout','overlay'),set('layout','overlay')),tsep(),
   tg('noTable',T('noTable'),ck('table','none'),set('table','none')),tg('sizingTable',T('sizingTable'),ck('table','sizing'),set('table','sizing')),tg('genotypesTable',T('genotypesTable'),ck('table','genotypes'),set('table','genotypes')));
  t2.style.display=view.toolbar?'':'none';
- const H=setting?.sampleHeader||{};const on=k=>H[k]!==false;
- const ch=$('colhead');ch.replaceChildren(...(on('sampleFileName')?[el('div',{class:'c',style:'width:250px',text:T('colSampleFile')})]:[]),
+ const H=(isGeno()?setting?.genotypeHeader:setting?.sampleHeader)||{};const on=k=>H[k]!==false;
+ const ch=$('colhead');if(isGeno()){ch.replaceChildren(...(on('sampleFileName')?[el('div',{class:'c',style:'width:250px',text:T('colSampleFile')})]:[]),
   ...(on('sampleName')?[el('div',{class:'c',style:'width:150px',text:T('colSampleName')})]:[]),...(on('panel')?[el('div',{class:'c',style:'width:150px',text:T('colPanel')})]:[]),
-  ...PQV_KEYS.filter(on).map(k=>el('div',{class:'c',style:'width:46px',text:k})));ch.style.display=view.header?'flex':'none';
+  ...(on('marker')?[el('div',{class:'c',style:'width:100px',text:T('colMarker')})]:[]),...GENO_PQV.filter(on).map(k=>el('div',{class:'c',style:'width:46px',text:k})));ch.style.display=view.header?'flex':'none'}
+ else ch.replaceChildren(...(on('sampleFileName')?[el('div',{class:'c',style:'width:250px',text:T('colSampleFile')})]:[]),
+  ...(on('sampleName')?[el('div',{class:'c',style:'width:150px',text:T('colSampleName')})]:[]),...(on('panel')?[el('div',{class:'c',style:'width:150px',text:T('colPanel')})]:[]),
+  ...PQV_KEYS.filter(on).map(k=>el('div',{class:'c',style:'width:46px',text:k})));if(!isGeno())ch.style.display=view.header?'flex':'none';
 }
 document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;if(e.key.toLowerCase()==='e'){e.preventDefault();exportPlotTable();return}if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}if(e.key==='-'){e.preventDefault();zoom(2)}});
 window.addEventListener('resize',()=>draw());
 // Follow the project window's selection (Project Options: update plots when the selection changes).
-function refresh(){const before=JSON.stringify(payload?.samples?.map(s=>s.id));let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}
- if(next&&JSON.stringify(next.samples.map(s=>s.id))!==before&&next.samples.length){payload=next;build();draw()}
+function refresh(){const sig=p=>JSON.stringify([p?.mode,p?.genoSel,p?.samples?.map(s=>s.id)]);const before=sig(payload);let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}
+ if(next&&sig(next)!==before&&next.samples.length){payload=next;view.x0=view.x1=null;build();draw()}
  else if(next){payload.project=next.project;payload.printComment=next.printComment;printHead()}}
 window.otRefresh=refresh;
 window.PV={view,get setting(){return setting}};
