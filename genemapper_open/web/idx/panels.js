@@ -21,7 +21,7 @@ const stutterOf=(kit,panel,marker)=>kit.stutter?.panels?.[panel]?.[marker]||[];
 function touch(){ui.dirty=true;$('applyBtn').disabled=false}
 
 async function jsonPost(url,data){
- const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':window.Sec?Sec.ticket():'','Content-Type':'application/json'},body:JSON.stringify(data)});
  const j=await r.json();if(!r.ok)throw Error(j.error||'Error');return j}
 function pickText(accept){return new Promise(res=>{const i=el('input',{type:'file',accept:accept||'.txt',style:'display:none'});
  i.addEventListener('change',async()=>{const f=i.files[0];i.remove();res(f?{name:f.name,text:await f.text()}:null)});document.body.append(i);i.click()})}
@@ -300,8 +300,15 @@ function render(){renderNavigator();renderBinSetCombo();renderContent();
  $('applyBtn').disabled=!ui.dirty}
 
 // ---------- commit ----------
-function apply(){if(!KitStore.save(work))return message(T('storageFull'));saved=KitStore.clone(work);ui.dirty=false;render();status(T('applied'));
- try{window.opener&&window.opener.OT&&window.opener.OT.kitsChanged&&window.opener.OT.kitsChanged()}catch(e){}}
+async function apply(){
+ if(window.Sec&&!Sec.can('UPDATE_PANEL')){Sec.denied();return false}
+ const before=new Map(saved.kits.map(k=>[k.name,JSON.stringify(k)])),after=new Map(work.kits.map(k=>[k.name,JSON.stringify(k)]));const items=[];
+ for(const [n,v] of after)if(!before.has(n))items.push({map:'Kit',attribute:'created',instance:n,old:'',new:n,event:'Add Chemistry Kit'});else if(before.get(n)!==v)items.push({map:'Kit',attribute:'modified',instance:n,old:n,new:n,event:'Modify Chemistry Kit'});
+ for(const n of before.keys())if(!after.has(n))items.push({map:'Kit',attribute:'deleted',instance:n,old:n,new:'',event:'Delete Chemistry Kit'});
+ let ch={commit(){}};if(window.Sec&&items.length){const A={created:'CREATE_CHEMISTRY_KIT',modified:'MODIFY_CHEMISTRY_KIT',deleted:'DELETE_CHEMISTRY_KIT'}[items[0].attribute];
+  ch=await Sec.change({items,esig:{group:'GM_CHEMISTRY_KIT',action:A}});if(!ch)return false}
+ if(!KitStore.save(work)){message(T('storageFull'));return false}ch.commit();saved=KitStore.clone(work);ui.dirty=false;render();status(T('applied'));
+ try{window.opener&&window.opener.OT&&window.opener.OT.kitsChanged&&window.opener.OT.kitsChanged()}catch(e){}return true}
 function closeWin(){if(ui.dirty)confirmBox(T('confirmClose'),()=>{ui.dirty=false;window.close()});else window.close()}
 
 function buildChrome(){
@@ -324,7 +331,7 @@ function buildChrome(){
  $('applyBtn').textContent=T('apply');$('okBtn').textContent=T('ok');$('cancelBtn').textContent=T('cancel')}
 
 $('applyBtn').addEventListener('click',apply);
-$('okBtn').addEventListener('click',()=>{if(ui.dirty)apply();window.close()});
+$('okBtn').addEventListener('click',async()=>{if(ui.dirty&&!(await apply()))return;window.close()});
 $('cancelBtn').addEventListener('click',closeWin);
 window.addEventListener('beforeunload',e=>{if(ui.dirty){e.preventDefault();e.returnValue=''}});
 window.addEventListener('resize',()=>renderContent());

@@ -252,3 +252,39 @@ tr.sub td{background:#f7f7f2;color:#333}
 .matab td,.matab th{white-space:nowrap}.madlg tr.known td{background:#eef5ff}.madlg .magrid.sel{border-color:#2f7d32}
 .mamdlg .grid{max-height:200px;overflow:auto;background:#fff}.mamdlg input.num{width:80px}.mamgr .mgrgrid{min-width:640px}
 tr.conflict td{background:#fde8e8}.mahyp{display:flex;flex-direction:column;gap:2px;margin:4px 0}
+/* ---- security, audit trail, e-signature (0.33) ---- */
+.fieldset{border:1px solid #b9c4d6;border-radius:3px;padding:6px 8px 8px;margin:6px 0;position:relative}
+.fieldset>.legend{font-weight:bold;color:#1d3f8a;margin:-2px 0 4px}
+.dlg .body.scdlg{width:380px}
+.lgbrand{font:bold 20px Tahoma,sans-serif;color:#1d3f8a;padding:8px 0 10px;border-bottom:2px solid #3b6fd6;margin-bottom:8px}
+.dlg .body.secdlg{width:1020px;max-width:94vw;height:560px;display:flex;flex-direction:column}
+.secmain{display:flex;gap:6px;flex:1;min-height:0}
+.sectree{width:230px;overflow:auto;background:#fff;border:1px solid #7f9db9;padding:2px}
+.stnode{font-weight:bold;padding:2px 4px;cursor:default;margin-top:3px}
+.stleaf{padding:1px 4px 1px 18px;cursor:default;white-space:nowrap}
+.stnode.sel,.stleaf.sel{background:var(--sel);color:#fff}
+.stleaf.dim{color:#888}
+.secprops{flex:1;overflow:auto;display:flex;flex-direction:column;min-width:0}
+.secform h3{margin:2px 0 8px;font-size:13px}
+.secform .field input[type=text],.secform .field input[type=password],.secform .field select{width:300px}
+.cklist{display:flex;flex-wrap:wrap;gap:2px 14px}.cklist .chk{display:inline-block;margin:2px 0}
+table.g.rights tr.lv0 td{font-weight:bold;background:#eef2fa}table.g.rights tr.lv1 td{font-weight:bold}
+table.g td.eff{text-align:center;width:50px}table.g td.c{text-align:center}
+.rightsgrid{max-height:300px}
+.dlg .body.auddlg{width:900px;max-width:94vw}
+.audmain{display:flex;gap:8px}.audmain>.fieldset{flex:1;min-width:0}.audmain .grid{height:260px}
+.grid.reasons{height:110px}
+.dlg .body.histdlg{width:1180px;max-width:96vw;height:640px;display:flex;flex-direction:column}
+.ahfilter .row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:3px 0}.ahfilter .row .chk{display:inline-block;margin:0}
+.ahmain{display:flex;gap:6px;flex:1;min-height:0}
+.ahinst{width:260px;overflow:auto;background:#fff;border:1px solid #7f9db9}.ahinst .legend{font-weight:bold;padding:2px 4px;background:#eef2fa}
+.ahinst .stleaf{padding-left:6px}
+.ahgrid{flex:1}.ahdetails{min-height:52px}
+table.g tr.bad td{color:#b00020}
+.dlg .body.esigdlg{width:760px;max-width:92vw}.esigdlg textarea{width:100%;box-sizing:border-box}
+.esigch{background:#fffbe6;border:1px solid #e0c96b;padding:6px;max-width:360px}
+.dlg .body.rfcdlg{width:560px;max-width:92vw}.rfcgrid{max-height:180px}.rfcdlg .field input,.rfcdlg .field select{width:100%;box-sizing:border-box}
+.dlg .body.poldlg{width:520px}.poldlg .chk{display:inline-block;margin:2px 6px 2px 0}
+.roflag{font-weight:normal;font-style:italic}
+.loggedout{padding:60px;text-align:center;font:14px Tahoma,sans-serif}
+.secdlg>.btnrow{flex-wrap:wrap;gap:4px}.secdlg .btn,.auddlg .btn,.histdlg .btn{white-space:nowrap;height:auto;min-height:22px}

@@ -123,13 +123,12 @@ function ask(title,fields){return new Promise(res=>{dialog(title,b=>{for(const f
  [[T('ok'),b=>{const out={};for(const f of fields){out[f.id]=b.querySelector('#'+f.id).value.trim();if(!out[f.id]){message(T('reasonRequired'));return false}}
    res(out);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
 async function edit(sample,spec){
- let user='';try{user=localStorage.getItem('opentrace.user')||''}catch(e){}
- const fields=[];if(spec.action==='rename'||spec.action==='add')fields.push({id:'edLabel',label:T('colAllele'),value:spec.new});
- fields.push({id:'edUser',label:T('userName'),value:user},{id:'edReason',label:T('reasonForChange')});
- const v=await ask(T('act_'+spec.action),fields);if(!v)return;
- if(v.edLabel&&v.edLabel.length>40)return message(T('badBinName'));
- try{localStorage.setItem('opentrace.user',v.edUser)}catch(e){}
- spec={...spec,new:v.edLabel??spec.new,user:v.edUser,reason:v.edReason};
+ if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
+ if(spec.action==='rename'||spec.action==='add'){const v=await ask(T('act_'+spec.action),[{id:'edLabel',label:T('colAllele'),value:spec.new}]);if(!v)return;
+  if(v.edLabel.length>40)return message(T('badBinName'));spec={...spec,new:v.edLabel}}
+ let items=[];try{items=window.opener.OT.editItems(sample.id,spec)}catch(e){}
+ const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
+ spec={...spec,reason:ch.reason};
  let ok=false;try{ok=await window.opener.OT.edit(sample.id,spec)}catch(e){message(String(e.message||e))}
  if(ok){try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}}
 function binLabel(marker,bp){const b=(marker.bins||[]).find(b=>bp>=b.center_bp-(b.left_bp??.5)&&bp<=b.center_bp+(b.right_bp??.5));return b?b.label:'OL'}

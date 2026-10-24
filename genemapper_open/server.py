@@ -2,6 +2,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
 import json
+import os
 import math
 from numbers import Real
 from pathlib import Path
@@ -437,9 +438,16 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
     return output
 
 
-def serve(port=8765, open_browser=False, projects_dir=None):
+def default_security_dir():
+    env = os.environ.get('OPENTRACE_SECURITY')
+    return Path(env) if env else Path.home() / 'OpenTrace' / 'security'
+
+
+def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
     from .idx_projects import ProjectLibrary
+    from .security import SecurityStore, security_request, AccessDenied
     library = ProjectLibrary(projects_dir)
+    security = SecurityStore(security_dir or default_security_dir())
     token = secrets.token_urlsafe(24)
     page = (Path(__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
     page = page.replace("__SESSION_TOKEN__", token).encode("utf-8")
@@ -449,8 +457,8 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js")}
-    for page_name in ("project.html", "panels.html"):
+                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js")}
+    for page_name in ("project.html", "panels.html", "plot.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
     class Handler(BaseHTTPRequestHandler):
@@ -497,7 +505,7 @@ def serve(port=8765, open_browser=False, projects_dir=None):
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
                                    "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit",
-                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture"):
+                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture", "/api/security"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -521,8 +529,18 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                     request=json.loads(raw)
                     if not isinstance(request,dict):raise ValueError('Marker quality request must be an object')
                     return self.respond(200,attach_marker_quality(request.get('report'),request.get('definition')))
+                ticket = self.headers.get("X-User-Ticket", "")
+                if parsed.path == '/api/security':
+                    return self.respond(200, security_request(security, ticket, json.loads(raw)))
                 if parsed.path == '/api/idx-project':
-                    return self.respond(200,library.request(json.loads(raw)))
+                    request = json.loads(raw)
+                    user = security.session_user(ticket)
+                    action = request.get('action') if isinstance(request, dict) else None
+                    if action in ('save_meta', 'save_sample', 'delete'):
+                        security.require(user, 'UPDATE_PROJECT')
+                    elif action in ('list', 'open', 'open_sample'):
+                        security.require(user, 'READ_PROJECT')
+                    return self.respond(200,library.request(request))
                 if parsed.path == '/api/codis':
                     from .codis import codis_request
                     return self.respond(200,codis_request(json.loads(raw)))
@@ -646,6 +664,8 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                                  analysis_range=_parse_analysis_range(params.get('analysis_range',[None])[0]),
                                  sizing_override=params.get('sizing_override',[None])[0])
                 return self.respond(200, result)
+            except AccessDenied as exc:
+                return self.respond(403, {"error": str(exc), "access_denied": True})
             except (AbifError, ValueError, OverflowError, TimeoutError, TypeError, KeyError, RecursionError) as exc:
                 return self.respond(400, {"error": str(exc)})
 
@@ -658,6 +678,7 @@ def serve(port=8765, open_browser=False, projects_dir=None):
     url = f"http://127.0.0.1:{server.server_port}/"
     print(f"OpenTrace research UI: {url}\nDesktop-style workspace: {url}idx/\n"
           f"Projects saved from the workspace go to: {library.root}\n"
+          f"Users and audit trail: {security.root}\n"
           "Ctrl+C to stop.", flush=True)
     if open_browser:
         webbrowser.open(url)

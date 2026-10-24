@@ -20,7 +20,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(id,spec)=>applyEdit(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
+window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
 window.addEventListener('opentrace-options',()=>render());
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
@@ -56,8 +56,9 @@ function methodSelect(value,onChange){const sel=el('select');
  sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 async function newMethod(after){try{const f=await Methods.factory();let n=1;while(Methods.get(`${T('mgrUntitled')} ${n}`))n++;f.name=`${T('mgrUntitled')} ${n}`;
  Methods.openEditor(f,{title:T('amNewTitle'),onSave:(m)=>{Methods.put(m);after&&after(m.name)}})}catch(e){message(e.message)}}
-function editMethod(name){const m=Methods.get(name||defaultMethod());if(!m)return message(T('methodMissing')+' '+name);
- Methods.openEditor(m,{onSave:(mm,prev)=>{Methods.put(mm,prev);for(const s of state.project.samples)if(s.method===prev){s.method=mm.name;if(s.status==='analyzed')s.status='changed'}
+function editMethod(name){const m=Methods.get(name||defaultMethod());if(!m)return message(T('methodMissing')+' '+name);if(!Sec.need('READ_ANALYSIS_METHOD'))return;
+ const restrict=Sec.can('UPDATE_ANALYSIS_METHOD')?null:(Sec.can('UPDATE_ANALYSIS_RANGE')||Sec.can('UPDATE_SIZING_RANGE'))?'ranges':'read';
+ Methods.openEditor(m,{restrict,onSave:(mm,prev)=>{Methods.put(mm,prev);for(const s of state.project.samples)if(s.method===prev){s.method=mm.name;if(s.status==='analyzed')s.status='changed'}
   state.project.dirty=true;render()}})}
 function panelSelect(value,onChange){const sel=el('select');sel.append(new Option(T('noPanelChoice'),''));
  const ch=panelChoices();for(const c of ch){const o=new Option(c.label,c.key);o.title=`${c.kit} / ${c.binSets.join(', ')}`;sel.append(o)}
@@ -65,7 +66,7 @@ function panelSelect(value,onChange){const sel=el('select');sel.append(new Optio
  sel.value=value||'';sel.addEventListener('change',()=>onChange(sel.value));sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 
 async function jsonPost(url,data){
- const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(data)});
+ const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'Content-Type':'application/json'},body:JSON.stringify(data)});
  const j=await r.json();if(!r.ok)throw Error(j.error||'Error');return j}
 function compactAnalysis(a){const out={};for(const k of ['source_sha256','analysis_version','peak_settings','sizing','standard_definition_context','pullup_detection'])
  if(a[k]!==undefined)out[k]=a[k];out.channels=a.channels.map(c=>({tag:c.tag,group:c.group,peaks:c.peaks}));return out}
@@ -161,7 +162,7 @@ function sampleFlags(s){const q=samplePqv(s);
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
 // Inline text cell (Sample ID, Comment, Profile ID, UD1-UD9): edits mark the project dirty.
-function setField(s,key,v){if(key.startsWith('ud.')){s.ud=s.ud||{};s.ud[key.slice(3)]=v}else s[key]=v;state.project.dirty=true}
+function setField(s,key,v){if(!Sec.can('UPDATE_PROJECT')){Sec.denied();render();return}if(key.startsWith('ud.')){s.ud=s.ud||{};s.ud[key.slice(3)]=v}else s[key]=v;state.project.dirty=true}
 function textEdit(s,key,value){const i=el('input',{type:'text',value:String(value),'data-field':key});
  i.addEventListener('mousedown',e=>e.stopPropagation());i.addEventListener('focus',()=>{state.lastField=key});
  i.addEventListener('change',()=>{setField(s,key,i.value);renderTitle()});return {value,node:i}}
@@ -216,23 +217,32 @@ function effective(s){
   else if(e.action==='delete'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0)calls.splice(i,1)}
   else if(e.action==='add'){const c={...e.peak,id:'u'+e.id,marker:e.marker,label:e.new,flags:['user_added'],user_edited:true};calls.push(c);byId.set(c.id,c)}}
  calls.sort((a,b)=>a.size_bp-b.size_bp);return out}
-async function askReasonUser(title){let user='';try{user=localStorage.getItem('opentrace.user')||''}catch(e){}
- return new Promise(res=>{dialog(title,b=>b.append(el('div',{class:'field'},el('label',{text:T('userName')}),el('input',{type:'text',id:'edUser',value:user})),
-  el('div',{class:'field'},el('label',{text:T('reasonForChange')}),el('input',{type:'text',id:'edReason'}))),
-  [[T('ok'),b=>{const u=b.querySelector('#edUser').value.trim(),r=b.querySelector('#edReason').value.trim();if(!u||!r){message(T('reasonRequired'));return false}
-    try{localStorage.setItem('opentrace.user',u)}catch(e){}res({user:u,reason:r});return true},true],[T('cancel'),()=>{res(null);return true}]])})}
-// spec: {action:'rename'|'delete'|'add'|'override_gq'|'override_cgq', marker, callId?, peak?, new?}
+// Audit items for one label edit (map Allele / Sample of the ID-X audit map).
+function editItems(sampleId,spec){const s=state.project.samples.find(x=>x.id===sampleId);if(!s||!s.report)return [];
+ const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):null;const inst=`${s.runFolder}/${s.file}`;
+ const size=old?.size_bp??spec.peak?.size_bp;const where=`${inst} · ${spec.marker||''}${size!=null?' · '+Number(size).toFixed(2)+' bp':''}`;
+ if(spec.action==='override_gq')return [{map:'Sample',attribute:'OverrideGQ',instance:`${inst} · ${spec.marker}`,old:'',new:'1.0',label:`${T('overrideGq')} (${spec.marker})`,event:'Override GQ'}];
+ if(spec.action==='override_cgq')return [{map:'Sample',attribute:'OverrideCGQ',instance:inst,old:'',new:'1.0',label:T('overrideCgq'),event:'Override CGQ'}];
+ const attr={add:'created',rename:'modified',delete:'deleted'}[spec.action];
+ return [{map:'Allele',attribute:attr,instance:where,old:old?String(old.label):'',new:spec.action==='delete'?'':String(spec.new??''),label:`${T('colAllele')} ${spec.marker||''}`,
+  event:{created:'Add Allele',modified:'Modify Allele',deleted:'Delete Allele'}[attr]}]}
+// spec: {action:'rename'|'delete'|'add'|'override_gq'|'override_cgq', marker, callId?, peak?, new?, reason?}
+// reason === undefined -> ask here (Reason for Change when the audit state is On); a string -> already asked by the caller.
 async function applyEdit(sampleId,spec){
  const s=state.project.samples.find(x=>x.id===sampleId);if(!s||!s.report)return false;
+ if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return false}
  let label=spec.new;
- if(!spec.reason&&(spec.action==='rename'||spec.action==='add')){label=await promptLabel(spec.action==='add'?T('addAlleleLabel'):T('renameAllele'),spec.new||'');if(label==null)return false}
- const who=spec.reason&&spec.user?{user:spec.user,reason:spec.reason}:await askReasonUser(T('reasonTitle'));if(!who)return false;
- if(typeof who.reason!=='string'||who.reason.length>500||typeof who.user!=='string'||who.user.length>120)return false;
+ if(spec.reason===undefined&&(spec.action==='rename'||spec.action==='add')){label=await promptLabel(spec.action==='add'?T('addAlleleLabel'):T('renameAllele'),spec.new||'');if(label==null)return false}
+ const items=editItems(sampleId,{...spec,new:label});let reason=spec.reason;
+ if(reason===undefined){const ch=await Sec.change({items,title:T('reasonTitle')});if(!ch)return false;reason=ch.reason}
+ if(typeof reason!=='string'||reason.length>500)return false;
+ const user=Sec.user?.name||'';
  const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):null;
  s.edits=s.edits||[];const id=(s.edits.reduce((m,e)=>Math.max(m,e.id),0)||0)+1;
- s.edits.push({id,at:new Date().toISOString(),user:who.user,reason:who.reason,action:spec.action,marker:spec.marker||null,callId:spec.callId||null,
+ s.edits.push({id,at:new Date().toISOString(),user,reason,action:spec.action,marker:spec.marker||null,callId:spec.callId||null,
   peak:spec.peak||null,old:old?old.label:null,new:spec.action==='delete'?null:label??null,size_bp:old?.size_bp??spec.peak?.size_bp??null});
- s.rev=(s.rev||0)+1;state.project.dirty=true;render();return true}
+ s.rev=(s.rev||0)+1;state.project.dirty=true;render();
+ await Sec.record(items.map(x=>({...x,reason})));return true}
 function promptLabel(title,value){return new Promise(res=>{dialog(title,b=>b.append(el('div',{class:'field'},el('label',{text:T('colAllele')}),el('input',{type:'text',id:'edLabel',value}))),
  [[T('ok'),b=>{const v=b.querySelector('#edLabel').value.trim();if(!v||v.length>40){message(T('badBinName'));return false}res(v);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
 function labelEditViewer(){
@@ -395,7 +405,7 @@ function renderFilterBar(){const bar=$('filterBar');if(!bar)return;const f=state
  bar.append(document.createTextNode(`${T('filtered')}: ${f.label||''} (${f.ids.size}) `),all)}
 
 // ---------- render ----------
-function renderTitle(){document.title=`${T('app')} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`}
+function renderTitle(){document.title=`${T('app')}${Sec.user&&Sec.state.require_login?' ['+Sec.user.name+']':''} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`}
 function render(){
  document.title=`${T('app')} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`;
  renderNavigator();
@@ -422,7 +432,11 @@ function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method)
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
 async function writeProject(name,{create=false}={}){
- if(state.busy)return false;state.busy=true;render();
+ if(state.busy)return false;if(!Sec.need('UPDATE_PROJECT'))return false;
+ const isNew=create||!state.project.savedAs;
+ const ch=await Sec.change({map:'Project',attribute:isNew?'created':'modified',instance:name,old:isNew?'':(state.project.savedAs||''),new:name,event:isNew?'Add Project':'Modify Project',
+  esig:{group:'GM_PROJECT',action:isNew?'CREATE_PROJECT':'MODIFY_PROJECT'}});if(!ch)return false;
+ state.busy=true;render();
  try{progress(0,1,T('saving'));
   await jsonPost('/api/idx-project',{action:'save_meta',name,project:projectMeta(),create,overwrite:!create});
   const list=state.project.samples;let i=0;
@@ -430,11 +444,11 @@ async function writeProject(name,{create=false}={}){
    if(need){const payload={action:'save_sample',name,id:sid(s),data:{analysis:s.analysis||null,compact:s.compact||null,report:s.report||null}};
     if(s.blob)payload.fsa_b64=await blobToB64(s.blob);await jsonPost('/api/idx-project',payload);s.savedRev=s.rev}
    progress(++i,list.length,`${T('saving')}: ${s.file}`)}
-  Object.assign(state.project,{name,savedAs:name,dirty:false});state.lastMessage=T('projectSaved')+': '+name;rememberProject(name);return true}
+  Object.assign(state.project,{name,savedAs:name,dirty:false});state.lastMessage=T('projectSaved')+': '+name;rememberProject(name);await ch.commit();return true}
  catch(e){message(e.message);return false}finally{state.busy=false;render()}}
-function saveProject(){if(!state.project.samples.length&&!state.project.name)return;
+function saveProject(){if(!state.project.samples.length&&!state.project.name)return;if(!Sec.need('UPDATE_PROJECT'))return;
  if(state.project.savedAs&&state.project.savedAs===state.project.name)return writeProject(state.project.name);return saveProjectAs()}
-function saveProjectAs(){
+function saveProjectAs(){if(!Sec.need('UPDATE_PROJECT'))return;
  dialog(T('saveProjectAs').replace(/\.+$/,''),b=>b.append(el('div',{class:'field'},el('label',{text:T('projectName'),for:'spName'}),el('input',{type:'text',id:'spName',value:state.project.name||''})),
    el('div',{class:'field'},el('label',{text:T('projectComment')}),el('input',{type:'text',id:'spComment',value:state.project.comment||''}))),
   [[T('ok'),async b=>{const n=b.querySelector('#spName').value.trim();if(!n)return false;state.project.comment=b.querySelector('#spComment').value;
@@ -444,11 +458,13 @@ function saveProjectAs(){
     await writeProject(n,{create:n!==state.project.savedAs&&!existing})},true],[T('cancel'),()=>true]])}
 async function confirmDiscard(){if(!state.project.dirty||!state.project.samples.length)return true;return Methods.ask(T('discardChanges'))}
 async function openProject(){
- if(!(await confirmDiscard()))return;
+ if(!Sec.need('READ_PROJECT'))return;if(!(await confirmDiscard()))return;
  let rows;try{rows=await jsonPost('/api/idx-project',{action:'list'})}catch(e){return message(e.message)}
  let selected=null;
  const d=dialog(T('openProject').replace(/\.+$/,''),()=>{},[[T('open'),async()=>{if(!selected){message(T('selectRow'));return false}await loadProject(selected);return true},true],
-  [T('mgrDelete'),async()=>{if(!selected)return false;if(await Methods.ask(T('confirmDeleteProject').replace('{0}',selected))){await jsonPost('/api/idx-project',{action:'delete',name:selected});
+  [T('mgrDelete'),async()=>{if(!selected)return false;if(!Sec.need('UPDATE_PROJECT'))return false;if(await Methods.ask(T('confirmDeleteProject').replace('{0}',selected))){
+    const ch=await Sec.change({map:'Project',attribute:'deleted',instance:selected,old:selected,new:'',event:'Delete Project',esig:{group:'GM_PROJECT',action:'DELETE_PROJECT'}});if(!ch)return false;
+    try{await jsonPost('/api/idx-project',{action:'delete',name:selected})}catch(e){message(e.message);return false}await ch.commit();
     rows=await jsonPost('/api/idx-project',{action:'list'});selected=null;draw()}return false}],[T('cancel'),()=>true]]);
  const draw=()=>{const b=d.body;b.replaceChildren();b.classList.add('opendlg');
   const q=el('input',{type:'text',id:'opFilter',placeholder:T('findWhat')});
@@ -493,12 +509,14 @@ function fillDown(){const key=state.lastField;if(!key)return message(T('fillDown
 // ---------- size standards and Size Match Editor ----------
 const firstSelected=()=>sortedSamples().find(s=>state.selected.has(s.id));
 function editSizeStandard(){const name=firstSelected()?.sizeStd||SizeStd.names()[0];const s=SizeStd.get(name);if(!s)return message(T('arnmStandard'));
- SizeStd.openEditor(s,{onSave:(ns,prev)=>{SizeStd.put(ns,prev);for(const x of state.project.samples)if(x.sizeStd===prev){x.sizeStd=ns.name;if(x.status==='analyzed')x.status='changed'}
+if(!Sec.need('READ_SIZE_STANDARD'))return;
+ SizeStd.openEditor(s,{restrict:Sec.can('UPDATE_SIZE_STANDARD')?null:'read',onSave:(ns,prev)=>{SizeStd.put(ns,prev);for(const x of state.project.samples)if(x.sizeStd===prev){x.sizeStd=ns.name;if(x.status==='analyzed')x.status='changed'}
   settingsCache.clear();state.project.dirty=true;render()}})}
 async function reanalyze(s){s.status='changed';s.rev=(s.rev||0)+1;const keep=state.selected;state.selected=new Set([s.id]);
  try{await analyze('selected')}finally{state.selected=keep;render()}}
 function openSizeMatch(){const s=firstSelected();if(!s||!s.analysis)return message(T('selectAnalyzedSample'));
- SizeMatch.open(s,{override:async(anchors,reason)=>{s.sqOverride={anchors,reason};state.project.dirty=true;await reanalyze(s)},
+ SizeMatch.open(s,{override:async(anchors,reason)=>{if(!Sec.need('UPDATE_PROJECT'))return;s.sqOverride={anchors,reason};state.project.dirty=true;
+   Sec.record([{map:'Sample',attribute:'OverrideSQ',instance:`${s.runFolder}/${s.file}`,old:'',new:`${anchors.length} anchors`,reason,event:'Override SQ'}]);await reanalyze(s)},
   clearOverride:async()=>{delete s.sqOverride;state.project.dirty=true;await reanalyze(s)}})}
 window.addEventListener('opentrace-sizestd',()=>{settingsCache.clear();render()});
 function newProject(){
@@ -513,6 +531,7 @@ function sampleTypeFromName(n){
  if(/pos|^PC\d*[_-]|[_-]PC\d*[_-]|control|9947|2800M|^007([_-]|$)/i.test(n))return 'positive';
  return 'sample'}
 function addSamples(){
+ if(!Sec.need('UPDATE_PROJECT'))return;
  if(!state.project.name)Object.assign(state.project,{name:T('untitled'),dirty:true});
  let files=[];
  dialog(T('addTitle'),b=>{
@@ -540,6 +559,7 @@ function addSamples(){
     for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
      state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),
       runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,analysis:null,report:null})}
+    Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
     state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
 
 // ---------- analysis workflow: requirements (ARS) -> sizing -> ladders (ALAS) -> genotyping -> summary ----------
@@ -557,7 +577,7 @@ function requirementsSummary(failing){
 
 async function analyze(scope){
  let targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
- if(!targets.length||state.busy)return;
+ if(!targets.length||state.busy)return;if(!Sec.need('UPDATE_PROJECT'))return;
  const opts=ProjectOptions.get();
  const failing=targets.filter(s=>arnmCodes(s).some(k=>k!=='arnmLadder'));
  if(failing.length&&opts.ars==='stop'){const r=await requirementsSummary(failing);if(r!=='continue')return}
@@ -582,6 +602,7 @@ async function analyze(scope){
   const any=state.project.samples.some(s=>s.panelKey);
   const skipped=state.project.samples.filter(s=>s.alasSkipped).length;
   state.lastMessage=skipped?T('alasSkippedMsg').replace('{0}',skipped):state.noLadder?T('noLadderInRun')+' '+state.noLadder:any?T('analysisDone')+(state.binSetNote?' — '+T('binSetSubstituted')+' '+state.binSetNote:''):T('noKit');
+  Sec.record([{map:'Project',attribute:'analyzed',instance:state.project.name||'',old:'',new:`${i}/${order.length}`,event:'Analyze Project'}]);
  }catch(err){message(err.message)}
  finally{state.busy=false;state.project.dirty=true;
   if(finished&&!state.stop){if(opts.lowQualityTop)state.lowQualityTop=true;if(finished!=='view'){state.tab=opts.after==='summary'?'summary':'samples';renderTabs()}}
@@ -659,7 +680,7 @@ function plotPayload(){
  return {lang:I18N.lang,project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
   return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls}:null,kit:sampleKit(s),pqv:sampleFlags(s),
    markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check'})),editable:!!s.report}})}}
-function openPanelManager(){const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
+function openPanelManager(){if(!Sec.need('READ_PANEL'))return;const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
  if(!state.selected.size)return message(T('selectSamplesFirst'));
  const w=window.open('/idx/plot.html','opentrace-plot','width=1100,height=760');
@@ -834,8 +855,12 @@ function tableSettingCombo(){const ts=el('select',{class:'combo',id:'tsCombo',ti
 function editTableSetting(){const s=TableSettings.active();
  TableSettings.openEditor(s,{onSave:(ns,prev)=>{TableSettings.put(ns,prev);TableSettings.setActive(ns.name)}})}
 
-function deleteFromProject(){
+async function deleteFromProject(){
+ if(!state.selected.size)return;if(!Sec.need('UPDATE_PROJECT'))return;
+ const gone=state.project.samples.filter(s=>state.selected.has(s.id));
+ const ch=await Sec.change({items:gone.map(s=>({map:'Sample',attribute:'deleted',instance:`${s.runFolder}/${s.file}`,old:s.file,new:'',label:s.file,event:'Delete Sample'}))});if(!ch)return;
  state.project.samples=state.project.samples.filter(s=>!state.selected.has(s.id));
+ ch.commit();
  state.project.runFolders=state.project.runFolders.filter(rf=>state.project.samples.some(s=>s.runFolder===rf));
  state.selected.clear();state.project.dirty=true;render()}
 function selectAll(){state.selected=new Set(visibleSamples().map(s=>s.id));render()}
@@ -851,7 +876,7 @@ function buildChrome(){
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
    {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
-   {label:T('logOut'),disabled:true},{label:T('exit'),run:()=>window.close()}]},
+   {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
    {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},'-',
    {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),run:sortDialog}]},
@@ -865,8 +890,12 @@ function buildChrome(){
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},'-',{label:T('addProfile'),sub:[{label:T('pfLab'),run:()=>addProfile('Lab Reference')},{label:T('pfCustom'),run:()=>addProfile('Custom Control')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:()=>Mixture.open()},{label:T('mixtureManager'),sc:'Ctrl+Y',run:()=>Mixture.manager()}]},
-  {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
-   {label:T('esig'),disabled:true},{label:T('databaseManager'),disabled:true}]},
+  {label:T('admin'),items:[{label:T('securityManager'),run:()=>Sec.securityManager(),disabled:!Sec.can('AdminToolAcc/General/May run application')},
+   {label:T('auditManager'),sub:[{label:T('auditSetting'),run:()=>Sec.auditSettings(),disabled:!Sec.can('AuditGUI/Map Configuration Tool/May run application')},
+    {label:T('auditHistory'),run:()=>Sec.auditHistory(),disabled:!Sec.can('AuditGUI/Audit History Viewer/May run application')},'-',
+    {label:T('scShowCount'),run:()=>Sec.auditCount()},{label:T('scBackupMenu'),run:()=>Sec.auditBackup(),disabled:!Sec.can('AuditGUI/Audit Management/Backup Audit Records')},
+    {label:T('scRestoreMenu'),run:()=>Sec.auditRestore(),disabled:!Sec.can('AuditGUI/Audit Management/Restore Audit Records')},{label:T('scDeleteMenu'),run:()=>Sec.auditDelete(),disabled:!Sec.can('AuditGUI/Audit Management/Delete Audit Records')}]},
+   {label:T('esig'),run:()=>Sec.esigAdmin(),disabled:!Sec.can('ESig/ESig Administration Tool/May run application')},'-',{label:T('scRemoteShutdown'),disabled:true},{label:T('databaseManager'),disabled:true}]},
   {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:notYet},{label:T('loadExample'),run:loadExample},'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
  ]);
  const tb=$('toolbar');tb.replaceChildren(
@@ -900,9 +929,9 @@ function qcSamples(){return state.project.samples.map(s=>{const eff=s.report?eff
   eligible:!!s.report&&s.type!=='ladder'&&['pass','check','override'].includes(q)&&!ol&&Object.keys(markers).length>0,
   codis:{sample_name:s.name,specimen_id:ud.UD1||s.name,category:s.specimenCategory||'No Export',panel:s.panel||'',batch_id:ud.UD2||info.plate||'',case_id:ud.UD3||'',
    comment:ud.UD4||'',partial:ud.UD5||'',source_id:ud.UD6||'',ncic:ud.UD7||'',vicap:ud.UD8||'',loci:Object.entries(markers).map(([marker,alleles])=>({marker,alleles}))}}})}
-function addProfile(type){const list=qcSamples().filter(x=>state.selected.has(state.project.samples.find(s=>s.file===x.file)?.id));
+function addProfile(type){if(!Sec.need('UPDATE_PROFILE_CONCORDANCE'))return;const list=qcSamples().filter(x=>state.selected.has(state.project.samples.find(s=>s.file===x.file)?.id));
  if(!list.length)return message(T('selectSamplesFirst'));Profiles.addFromSamples(list,type);render()}
-Profiles.init({post:jsonPost,samples:qcSamples,plot:files=>reportApi.plot(files),user:()=>{try{return localStorage.getItem('opentrace.user')||''}catch(e){return ''}},
+Profiles.init({post:jsonPost,samples:qcSamples,plot:files=>reportApi.plot(files),user:()=>Sec.user?.name||'',
  setUser:u=>{try{localStorage.setItem('opentrace.user',u)}catch(e){}}});
 window.addEventListener('opentrace-profiles',()=>render());window.addEventListener('opentrace-codis',()=>{Profiles.codisCatalog().then(()=>render()).catch(()=>{})});
 Profiles.codisCatalog().then(()=>render()).catch(()=>{});
@@ -916,7 +945,9 @@ Mixture.init({post:jsonPost,samples:mixSamples,plot:keys=>{const set=new Set(key
  saveResults:r=>{state.project.mixture=r;state.project.dirty=true;render()},knowns:()=>Profiles.profiles()});
 Methods.init(jsonPost);
 buildChrome();render();
-Methods.ensureDefault().then(()=>{render();
- let last=null;try{last=localStorage.getItem('opentrace.lastProject')}catch(e){}
- if(ProjectOptions.get().startup==='last'&&last)return loadProject(last)}).catch(e=>message(e.message));
+window.addEventListener('opentrace-security',()=>{buildChrome();render()});
+Sec.init().then(ok=>{if(ok===false)return;buildChrome();render();
+ Methods.ensureDefault().then(()=>{render();
+  let last=null;try{last=localStorage.getItem('opentrace.lastProject')}catch(e){}
+  if(ProjectOptions.get().startup==='last'&&last&&Sec.can('READ_PROJECT'))return loadProject(last)}).catch(e=>message(e.message))});
 })();

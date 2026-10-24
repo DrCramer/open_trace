@@ -47,7 +47,7 @@ function toXml(s){const esc=x=>String(x).replace(/&/g,'&amp;').replace(/</g,'&lt
   `<dyeIndex>${DYES.indexOf(s.dye)+1}</dyeIndex><type>1</type>`+s.sizes.map(x=>`<sizeStdDefinition>${Number(x).toFixed(1)}</sizeStdDefinition>`).join('')+
   s.sizes.map(()=>'<scanDefinition>0.0</scanDefinition>').join('')+'</xmlSizeStandard></SizeStandardContainer>\n'}
 
-function openEditor(source,{title,onSave}={}){
+function openEditor(source,{title,onSave,restrict=null}={}){
  const s=clone(source);const previous=source.name;
  dialog(title||T('sizeStandardEditor').replace(/\.+$/,''),b=>{b.classList.add('stddlg');
   const name=el('input',{type:'text',id:'ssName',value:s.name});name.addEventListener('input',()=>{s.name=name.value});
@@ -57,10 +57,13 @@ function openEditor(source,{title,onSave}={}){
   sizes.addEventListener('input',()=>{s.sizes=sizes.value.split(/[\s,;]+/).filter(Boolean).map(Number)});
   b.append(el('div',{class:'field'},el('label',{text:T('amName')}),name),el('div',{class:'field'},el('label',{text:T('amDescription')}),desc),
    el('div',{class:'field'},el('label',{text:T('stdDye')}),dye),el('div',{class:'field'},el('label',{text:T('stdSizes')}),sizes))},
-  [[T('ok'),()=>{try{s.name=s.name.trim();if(s.name!==previous&&get(s.name)){message(fmt('methodNameExists',s.name));return false}
-    validate(s);onSave(s,previous);return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]])}
+  [[T('ok'),async()=>{try{if(restrict){message(T('scReadOnly'));return false}s.name=s.name.trim();if(s.name!==previous&&get(s.name)){message(fmt('methodNameExists',s.name));return false}
+    validate(s);const isNew=!(previous&&get(previous));const ch=window.Sec?await Sec.change({map:'SizeStandard',attribute:isNew?'created':'modified',instance:s.name,old:isNew?'':previous,new:s.name,
+     event:isNew?'Add Size Standard':'Modify Size Standard',esig:{group:'GM_SIZE_STANDARD',action:isNew?'CREATE_SIZE_STANDARD':'MODIFY_SIZE_STANDARD'}}):{commit(){}};
+    if(!ch)return false;onSave(s,previous);ch.commit();return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]]);
+ if(restrict){const d=[...document.querySelectorAll('.dlg')].pop();d.querySelectorAll('.body input,.body select,.body textarea').forEach(x=>x.disabled=true)}}
 
-if(window.Methods)Methods.registerKind(()=>({id:'sizestd',label:T('mgrSizeStandards'),
+if(window.Methods)Methods.registerKind(()=>({id:'sizestd',label:T('mgrSizeStandards'),sec:{map:'SizeStandard',group:'GM_SIZE_STANDARD',noun:'SIZE_STANDARD',title:'Size Standard',read:'READ_SIZE_STANDARD',update:'UPDATE_SIZE_STANDARD'},
  rows:()=>list().map(r=>({name:r.standard.name,saved:r.saved,a:T('dye_'+r.standard.dye),b:`${r.standard.sizes.length}: ${r.standard.sizes[0]}–${r.standard.sizes[r.standard.sizes.length-1]}`})),
  heads:[T('stdDye').replace(':',''),T('stdSizes').replace(':','')],get,put,remove,count:()=>list().length,
  create:async()=>{let n=1;while(get(`${T('stdUntitled')} ${n}`))n++;return {name:`${T('stdUntitled')} ${n}`,dye:'orange',sizes:GS600.slice(),description:''}},

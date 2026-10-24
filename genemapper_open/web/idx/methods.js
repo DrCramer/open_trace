@@ -57,14 +57,14 @@ function rangeFilter(a){const work=clone(a.range_filter);
   [[T('ok'),()=>{for(const d of DYES)if(work[d].from>work[d].to){message(T('fromLtTo'));return false}a.range_filter=work},true],[T('cancel'),()=>true]])}
 function tabPeakDetector(m,redraw){const p=m.peak_detector;
  const ar=p.analysis_range,sr=p.sizing_range;
- const arStart=numInput(ar,'start',{int:true}),arStop=numInput(ar,'stop',{int:true}),srStart=numInput(sr,'start_bp'),srStop=numInput(sr,'stop_bp');
+ const arStart=numInput(ar,'start',{int:true,'data-range':'analysis'}),arStop=numInput(ar,'stop',{int:true,'data-range':'analysis'}),srStart=numInput(sr,'start_bp',{'data-range':'sizing'}),srStop=numInput(sr,'stop_bp',{'data-range':'sizing'});
  const sync=()=>{arStart.disabled=arStop.disabled=ar.full;srStart.disabled=srStop.disabled=sr.all};sync();
  const sizing=el('select',{id:'amSizeCalling'});for(const [v,k] of [['local_southern','amLocalSouthern'],['lsq2','am2nd'],['lsq3','am3rd'],['cubic_spline','amCubic'],['global_southern','amGlobalSouthern']])sizing.append(new Option(T(k),v));
  sizing.value=p.size_calling;sizing.addEventListener('change',()=>{p.size_calling=sizing.value});
  const th=el('div',{class:'dyerow'});for(const d of DYES){th.append(el('span',{class:'dyelbl',style:`color:${{blue:'#1f4fd6',green:'#1a9b2e',yellow:'#9a8400',red:'#d32020',purple:'#7a35b5',orange:'#d0700a'}[d]}`,text:T('dyeLetter_'+d)}),numInput(p.thresholds,d,{int:true,id:'thr_'+d}))}
  return [el('div',{class:'cols'},
-   el('div',{},box(T('amAnalysisRange'),el('div',{},radio('amAr',ar,'full',true,T('amFullRange'),sync),radio('amAr',ar,'full',false,T('amPartialRange'),sync)),row(T('amStartPt'),arStart),row(T('amStopPt'),arStop)),
-    box(T('amSizingRange'),el('div',{},radio('amSr',sr,'all',true,T('amAllSizes'),sync),radio('amSr',sr,'all',false,T('amPartialSizes'),sync)),row(T('amStartSize'),srStart),row(T('amStopSize'),srStop)),
+   el('div',{},box(T('amAnalysisRange'),el('div',{'data-range':'analysis'},radio('amAr',ar,'full',true,T('amFullRange'),sync),radio('amAr',ar,'full',false,T('amPartialRange'),sync)),row(T('amStartPt'),arStart),row(T('amStopPt'),arStop)),
+    box(T('amSizingRange'),el('div',{'data-range':'sizing'},radio('amSr',sr,'all',true,T('amAllSizes'),sync),radio('amSr',sr,'all',false,T('amPartialSizes'),sync)),row(T('amStartSize'),srStart),row(T('amStopSize'),srStop)),
     box(T('amSmoothing'),el('div',{},radio('amSm',p,'smoothing','none',T('amNone')),radio('amSm',p,'smoothing','light',T('amLight')),radio('amSm',p,'smoothing','heavy',T('amHeavy'))),
      row(T('amBaselineWindow'),numInput(p,'baseline_window',{int:true}),el('span',{text:' '+T('amPts')}))),
     box(T('amSizeCalling'),sizing)),
@@ -93,7 +93,8 @@ const TABS=[['general','amGeneral',tabGeneral],['allele','amAllele',tabAllele],[
 const FACTORY_KEYS={allele:'allele',detector:'peak_detector',quality:'peak_quality',sqgq:'sq_gq'};
 
 // Opens the editor on a copy; onSave(method, previousName) is called after validation.
-function openEditor(source,{title,onSave}={}){
+// restrict: null (full edit), 'ranges' (Analyst: analysis and sizing ranges only) or 'read' (view only)
+function openEditor(source,{title,onSave,restrict=null}={}){
  const m=clone(source);const previous=source.name;let tab='general';
  const d=dialog(title||T('amTitle'),b=>{b.classList.add('amdlg')},
   [[T('ok'),async()=>{try{
@@ -101,15 +102,21 @@ function openEditor(source,{title,onSave}={}){
      const r=await post('/api/analysis-method',{action:'validate',method:m});
      if(r.method.name!==previous&&get(r.method.name)){message(fmt('methodNameExists',r.method.name));return false}
      if(previous&&get(previous)&&!(await ask(T('methodSaveWarning'))))return false;
+     if(restrict==='read'){message(T('scReadOnly'));return false}
      if(r.unsupported.length)message(fmt('amUnsupported',r.unsupported.join(', ')));
-     onSave(r.method,previous);return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]]);
+     const isNew=!(previous&&get(previous));const ch=window.Sec?await Sec.change({map:'AnalysisMethod',attribute:isNew?'created':'modified',instance:r.method.name,old:isNew?'':previous,new:r.method.name,
+      event:isNew?'Add Analysis Method':'Modify Analysis Method',esig:{group:'GM_ANALYSIS_METHOD',action:isNew?'CREATE_ANALYSIS_METHOD':'MODIFY_ANALYSIS_METHOD'}}):{commit(){}};
+     if(!ch)return false;onSave(r.method,previous);ch.commit();return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]]);
  const body=d.body;
  const draw=()=>{body.replaceChildren();const tabs=el('div',{class:'tabs dtabs'});
   for(const [id,key] of TABS){const t=el('div',{class:'tab'+(tab===id?' on':''),text:T(key)});t.addEventListener('mousedown',()=>{tab=id;draw()});tabs.append(t)}
   const page=el('div',{class:'tabpage dpage'});const spec=TABS.find(x=>x[0]===tab);page.append(...spec[2](m,draw));
   if(FACTORY_KEYS[tab]){const fb=el('button',{class:'btn',type:'button',text:T('amFactoryDefaults')});
    fb.addEventListener('click',async()=>{const f=await factory();m[FACTORY_KEYS[tab]]=f[FACTORY_KEYS[tab]];if(tab==='detector')m.fixed=f.fixed;draw()});page.append(el('div',{class:'btnrow right'},fb))}
-  body.append(tabs,page)};
+  body.append(tabs,page);if(restrict)lock(page)};
+ const lock=page=>{const allow=restrict==='ranges'?(window.Sec?[Sec.can('UPDATE_ANALYSIS_RANGE')&&'analysis',Sec.can('UPDATE_SIZING_RANGE')&&'sizing'].filter(Boolean):[]):[];
+  for(const x of page.querySelectorAll('input,select,textarea,button')){const z=x.closest('[data-range]');if(!(z&&allow.includes(z.dataset.range)))x.disabled=true}};
+ if(restrict)d.root.querySelector('.title').append(el('span',{class:'roflag',text:' — '+T(restrict==='read'?'scReadOnly':'scRangesOnly')}));
  draw();return d}
 function ask(text){return new Promise(res=>{dialog(T('alert'),b=>b.append(el('p',{style:'max-width:440px;white-space:pre-line',text})),
  [[T('ok'),()=>{res(true);return true},true],[T('cancel'),()=>{res(false);return true}]])})}
@@ -118,7 +125,7 @@ function ask(text){return new Promise(res=>{dialog(T('alert'),b=>b.append(el('p'
 function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 // Manager tabs: each kind supplies rows, editor and import/export.
 const KINDS=[];
-function methodKind(){return {id:'methods',label:T('mgrMethods'),
+function methodKind(){return {id:'methods',label:T('mgrMethods'),sec:{map:'AnalysisMethod',group:'GM_ANALYSIS_METHOD',noun:'ANALYSIS_METHOD',title:'Analysis Method',read:'READ_ANALYSIS_METHOD',update:'UPDATE_ANALYSIS_METHOD',saveAs:'SAVE_AS_ANALYSIS_METHOD',ranges:true},
  rows:()=>list().map(r=>({name:r.method.name,saved:r.saved,a:r.method.instrument,b:r.method.description})),
  heads:[T('amInstrument').replace(':',''),T('amDescription').replace(':','')],
  get,put,remove,count:()=>list().length,
@@ -140,22 +147,26 @@ function openManager(tab){
    tr.addEventListener('mousedown',()=>{selected=r.name;tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});tr.addEventListener('dblclick',()=>openSel());tb.append(tr)}
   t.append(tb);
   const btn=(label,fn,id)=>{const x=el('button',{class:'btn',type:'button',text:label,...(id?{id}:{})});x.addEventListener('click',fn);return x};
-  const openSel=()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));K.edit(m,{onSave:(mm,prev)=>{K.put(mm,prev);selected=mm.name;draw()}})};
+  const sec=K.sec,can=f=>!sec||!window.Sec||Sec.can(f),upd=()=>can(sec?.update);
+  const audit=async(attribute,name,old)=>{if(!sec||!window.Sec)return {commit(){}};const A={created:'CREATE_',modified:'MODIFY_',deleted:'DELETE_'}[attribute]+sec.noun;
+   return Sec.change({map:sec.map,attribute,instance:name,old:old||'',new:attribute==='deleted'?'':name,event:{created:'Add ',modified:'Modify ',deleted:'Delete '}[attribute]+sec.title,esig:{group:sec.group,action:A}})};
+  const restrict=()=>!sec||upd()?null:sec.ranges&&window.Sec&&(Sec.can('UPDATE_ANALYSIS_RANGE')||Sec.can('UPDATE_SIZING_RANGE'))?'ranges':'read';
+  const openSel=()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));if(sec&&!can(sec.read))return Sec.denied();K.edit(m,{restrict:restrict(),onSave:(mm,prev)=>{K.put(mm,prev);selected=mm.name;draw()}})};
   b.append(tabs,el('div',{class:'grid mgrgrid'},t),el('div',{class:'btnrow'},
-   btn(T('mgrNew'),async()=>{try{const f=await K.create();K.edit(f,{title:K.newTitle,onSave:(mm)=>{K.put(mm);selected=mm.name;draw()}})}catch(e){message(e.message)}},'mgrNewBtn'),
+   btn(T('mgrNew'),async()=>{if(!upd())return Sec.denied();try{const f=await K.create();K.edit(f,{title:K.newTitle,onSave:(mm)=>{K.put(mm);selected=mm.name;draw()}})}catch(e){message(e.message)}},'mgrNewBtn'),
    btn(T('mgrOpen'),openSel,'mgrOpenBtn'),
-   btn(T('mgrSaveAs'),()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));
+   btn(T('mgrSaveAs'),()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));if(!upd()&&!(sec?.saveAs&&can(sec.saveAs)))return Sec.denied();
     dialog(T('mgrSaveAs'),bb=>bb.append(row(T('amName'),el('input',{type:'text',id:'saName',value:m.name+' copy'}))),
-     [[T('ok'),bb=>{const n=bb.querySelector('#saName').value.trim();if(!n)return false;if(K.get(n)){message(fmt('methodNameExists',n));return false}
-       try{K.put({...clone(m),name:n})}catch(e){message(e.message);return false}selected=n;draw()},true],[T('cancel'),()=>true]])}),
-   btn(T('mgrImport'),()=>{const i=el('input',{type:'file',accept:'.xml,.json',style:'display:none'});
+     [[T('ok'),async bb=>{const n=bb.querySelector('#saName').value.trim();if(!n)return false;if(K.get(n)){message(fmt('methodNameExists',n));return false}
+       const ch=await audit('created',n,m.name);if(!ch)return false;try{K.put({...clone(m),name:n})}catch(e){message(e.message);return false}ch.commit();selected=n;draw()},true],[T('cancel'),()=>true]])}),
+   btn(T('mgrImport'),()=>{if(!upd())return Sec.denied();const i=el('input',{type:'file',accept:'.xml,.json',style:'display:none'});
     i.addEventListener('change',async()=>{const f=i.files[0];i.remove();if(!f)return;try{const text=await f.text();
-     const r=await K.importText(text);let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;K.put(r.obj);selected=n;draw();
+     const r=await K.importText(text);let n=r.obj.name,k=2;while(K.get(n))n=`${r.obj.name} (${k++})`;r.obj.name=n;const ch=await audit('created',n,'');if(!ch)return;K.put(r.obj);ch.commit();selected=n;draw();
      message(K.imported+(r.note?'\n'+r.note:''))}catch(e){message(e.message)}});
     document.body.append(i);i.click()},'mgrImportBtn'),
    btn(T('mgrExport'),async()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));try{download(m.name+'.xml',await K.exportText(m),'application/xml')}catch(e){message(e.message)}},'mgrExportBtn'),
-   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(K.count()<=1)return message(T('mgrKeepOne'));
-    ask(fmt(K.confirmDelete,selected)).then(ok=>{if(ok){K.remove(selected);selected=null;draw()}})})))};
+   btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(!upd())return Sec.denied();if(K.count()<=1)return message(T('mgrKeepOne'));
+    ask(fmt(K.confirmDelete,selected)).then(async ok=>{if(ok){const ch=await audit('deleted',selected,selected);if(!ch)return;K.remove(selected);ch.commit();selected=null;draw()}})})))};
  draw();return d}
 
 window.Methods={init(p){post=p},list,get,put,remove,ensureDefault,factory,openEditor,openManager,ask,download,
