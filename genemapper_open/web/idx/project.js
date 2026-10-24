@@ -20,7 +20,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
+window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
 window.addEventListener('opentrace-options',()=>render());
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();

@@ -105,16 +105,28 @@ function paint(cv,items,x0,x1){
     g.fillStyle='#b0006a';g.fillText(a.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#e040a0';g.stroke();
     if(a.user)labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,artifact:a,sample:t.sample})}}}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks)if(pk.size_bp!=null&&pk.size_bp>=x0&&pk.size_bp<=x1)peakPts.push({x:X(pk.size_bp),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample});
+ // selected peaks (ID-X: "the peak fills in when it is selected")
+ for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
+  g.save();g.globalAlpha=.35;g.fillStyle=col;g.beginPath();g.moveTo(pp.x-4,bottom);g.lineTo(pp.x,pp.y);g.lineTo(pp.x+4,bottom);g.closePath();g.fill();g.restore();
+  g.fillStyle=col;g.beginPath();g.arc(pp.x,pp.y,4,0,7);g.fill();g.strokeStyle='#000';g.stroke()}
  cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }
 function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw||1)));const n=raw/p;return (n<1.5?1:n<3.5?2:n<7.5?5:10)*p}
 
 // ---------- interaction ----------
 let drag=null;
+const peakKey=(s,tag,pk)=>`${s.id}|${tag}|${pk.size_bp.toFixed(3)}`;
+view.selPeaks=view.selPeaks||new Map();
+const nearPeak=(G,x)=>G.peakPts.filter(p=>Math.abs(p.x-x)<=6).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0];
 document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,G=cv._geom;
  const m=G.markers.find(m=>m._hit&&x>=m._hit.x0&&x<=m._hit.x1&&y>=m._hit.y0&&y<=m._hit.y1);
  if(m){view.selMarker=m.name;view.selSample=G.sample.id;renderLower();return}
- if(y<G.top+4){drag={cv,x0:x};e.preventDefault()}});
+ if(y<G.top+4){drag={cv,x0:x};e.preventDefault();return}
+ if(e.button!==0||y>G.bottom)return;
+ const near=nearPeak(G,x);const multi=e.ctrlKey||e.metaKey||e.shiftKey;
+ if(!near){if(!multi&&view.selPeaks.size){view.selPeaks.clear();draw()}return}
+ const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
+ else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw()});
 document.addEventListener('mouseup',e=>{if(!drag)return;const G=drag.cv._geom,r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left;
  const inv=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0);const a=inv(Math.min(drag.x0,x)),b=inv(Math.max(drag.x0,x));drag=null;
  if(b-a>1){view.x0=a;view.x1=b;draw()}});
@@ -124,9 +136,10 @@ document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');
  $('xy').textContent=`[X ${bp.toFixed(2)}  Y ${Math.round(v)}]`;
  const m=G.markers.find(m=>bp>=m.min_bp&&bp<=m.max_bp);$('markerInfo').textContent=m?`[${T('colMarker')}: ${m.name} (${m.min_bp.toFixed(2)}-${m.max_bp.toFixed(2)})]`:''});
 // ---------- allele label editing (context menu) ----------
+const fmt=(key,...a)=>T(key).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
 function ctxMenu(x,y,items){document.querySelectorAll('.menu.ctx').forEach(m=>m.remove());
  const m=el('div',{class:'menu ctx show',style:`left:${x}px;top:${y}px`});
- for(const it of items){const r=el('div',{class:'mi'+(it.disabled?' dis':''),text:it.label});if(!it.disabled)r.addEventListener('click',()=>{m.remove();it.run()});m.append(r)}
+ for(const it of items){if(it==='-'){m.append(el('div',{class:'msep'}));continue}const r=el('div',{class:'mi'+(it.disabled?' dis':''),text:it.label});if(!it.disabled)r.addEventListener('click',()=>{m.remove();it.run()});m.append(r)}
  document.body.append(m);setTimeout(()=>document.addEventListener('mousedown',function h(e){if(!m.contains(e.target)){m.remove();document.removeEventListener('mousedown',h)}}),0)}
 function ask(title,fields){return new Promise(res=>{dialog(title,b=>{for(const f of fields)b.append(el('div',{class:'field'},el('label',{text:f.label}),el('input',{type:'text',id:f.id,value:f.value||''})))},
  [[T('ok'),b=>{const out={};for(const f of fields){out[f.id]=b.querySelector('#'+f.id).value.trim();if(!out[f.id]){message(T('reasonRequired'));return false}}
@@ -177,13 +190,28 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
  if(mk){const row=(s.markers||[]).find(r=>r.marker===mk.name);
   ctxMenu(e.clientX,e.clientY,[{label:T('overrideGq')+' ('+mk.name+')',run:()=>edit(s,{action:'override_gq',marker:mk.name})},
    {label:(row?.pli?'✓ ':'')+T('pliMenu'),run:()=>edit(s,{action:'pli',marker:mk.name,new:row?.pli?'off':'on'})}]);return}
- const near=G.peakPts.filter(p=>Math.abs(p.x-x)<=6).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0];
+ const near=nearPeak(G,x);
  if(near){const calls=near.sample.report?.calls||[];const arts=near.sample.report?.artifacts||[];const bp=near.peak.size_bp;
-  const called=calls.some(c=>c.channel===near.tag&&Math.abs(c.size_bp-bp)<0.05)||arts.some(a=>a.channel===near.tag&&Math.abs(a.size_bp-bp)<0.05);
+  const isLabeled=(smp,tag,b)=>(smp.report?.calls||[]).some(c=>c.channel===tag&&Math.abs(c.size_bp-b)<0.05)||(smp.report?.artifacts||[]).some(a=>a.channel===tag&&Math.abs(a.size_bp-b)<0.05);
+  const called=isLabeled(near.sample,near.tag,bp);
   const marker=G.markers.find(m=>m.channel===near.tag&&bp>=m.min_bp&&bp<=m.max_bp);const peak={scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag};
-  ctxMenu(e.clientX,e.clientY,[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,disabled:called||!marker,
-   run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak})},
-   {label:T('addArtifactLabel')+` (${bp.toFixed(2)} bp)`,disabled:called,run:()=>edit(near.sample,{action:'add_artifact',marker:marker?.name||null,new:'',peak})}])}});
+  const sel=[...view.selPeaks.values()].filter(p=>!isLabeled(p.sample,p.tag,p.peak.size_bp));const inSel=view.selPeaks.has(peakKey(near.sample,near.tag,near.peak));
+  const items=[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,disabled:called||!marker,
+   run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak})}];
+  if(inSel&&sel.length>1)items.push({label:fmt('addArtifactMany',sel.length),run:()=>artifactMany(sel)});
+  else items.push({label:T('addArtifactLabel')+` (${bp.toFixed(2)} bp)`,disabled:called,run:()=>edit(near.sample,{action:'add_artifact',marker:marker?.name||null,new:'',peak})});
+  items.push('-',{label:T('peakRawData'),run:()=>{try{window.opener.OT.peakRawData(near.sample.id,near.peak.scan);window.opener.focus()}catch(e){message(String(e.message||e))}}});
+  ctxMenu(e.clientX,e.clientY,items)}});
+// One artifact label and one reason for several selected peaks.
+async function artifactMany(list){if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
+ const label=await artifactDialog(T('act_add_artifact'),'');if(label==null)return;
+ const specs=list.map(p=>{const bp=p.peak.size_bp;const cv=[...document.querySelectorAll('#plotarea canvas')].find(c=>c._geom&&c._geom.sample.id===p.sample.id);
+  const mk=(cv?._geom.markers||[]).find(m=>m.channel===p.tag&&bp>=m.min_bp&&bp<=m.max_bp);
+  return {sample:p.sample,spec:{action:'add_artifact',marker:mk?.name||null,new:label,peak:{scan:p.peak.scan,size_bp:bp,height:p.peak.height,channel:p.tag}}}});
+ let items=[];try{for(const x of specs)items.push(...window.opener.OT.editItems(x.sample.id,x.spec))}catch(e){}
+ const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
+ for(const x of specs){try{await window.opener.OT.edit(x.sample.id,{...x.spec,reason:ch.reason})}catch(e){message(String(e.message||e));break}}
+ view.selPeaks.clear();try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}
 function zoom(f){const [d0,d1]=bpRange();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;draw()}
 
 // ---------- lower: genotypes table + QVD ----------

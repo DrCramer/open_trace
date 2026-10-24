@@ -53,7 +53,7 @@ async function renderRaw(page,list){
  const legend=el('span',{class:'sileg'});for(const ch of r.raw){const cb=el('input',{type:'checkbox','data-dye':String(ch.dye_index)});cb.checked=!v.hidden.has(ch.dye_index);
   cb.addEventListener('change',()=>{cb.checked?v.hidden.delete(ch.dye_index):v.hidden.add(ch.dye_index);draw()});
   legend.append(el('label',{class:'chk',style:`color:${DYE_COLORS[ch.dye_index]||'#000'}`},cb,document.createTextNode(` ${ch.tag} ${ch.dye||''}`)))}
- const reset=el('button',{class:'btn',type:'button',text:T('siFullView')});reset.addEventListener('click',()=>{v.x0=v.x1=null;draw()});
+ const reset=el('button',{class:'btn',type:'button',text:T('siFullView')});reset.addEventListener('click',()=>{v.x0=v.x1=null;v.focus=null;draw()});
  head.append(legend,reset);
  const L=46,B=18;let G;
  const draw=()=>{holder.replaceChildren();G=makeCanvas(holder,Math.max(260,page.clientHeight-80));const {g,W,H}=G;
@@ -62,6 +62,8 @@ async function renderRaw(page,list){
   ymax*=1.05;G.x0=x0;G.x1=x1;G.ymin=ymin;G.ymax=ymax;
   axes(g,W,H,L,B,x0,x1,ymin,ymax,T('siScan'));
   for(const ch of r.raw)if(!v.hidden.has(ch.dye_index))trace(g,ch.values,x0,x1,ymin,ymax,W,H,L,B,DYE_COLORS[ch.dye_index]||'#000');
+  if(v.focus!=null&&v.focus>=x0&&v.focus<=x1){const fx=L+(v.focus-x0)/(x1-x0)*(W-6-L);g.save();g.strokeStyle='#e040a0';g.setLineDash([4,3]);g.beginPath();g.moveTo(fx,4);g.lineTo(fx,H-B);g.stroke();g.restore();
+   g.fillStyle='#b0006a';g.fillText(`${T('siPeakAt')} ${Math.round(v.focus)}`,fx+4,14)}
   let drag=null;const cv=G.c;const inv=px=>G.x0+(px-L)/(W-6-L)*(G.x1-G.x0);
   cv.addEventListener('mousedown',e=>{drag=e.offsetX});
   cv.addEventListener('mouseup',e=>{if(drag==null)return;const a=inv(Math.min(drag,e.offsetX)),b=inv(Math.max(drag,e.offsetX));drag=null;if(b-a>5){v.x0=Math.max(0,a);v.x1=b;draw()}});
@@ -88,5 +90,5 @@ function render(tab){const page=$('page-'+tab);if(!page||!ctx)return;const list=
  const key=tab+':'+list.map(s=>s.id).join(',');if(page.dataset.key===key&&page.childElementCount)return;page.dataset.key=key;
  ({info:renderInfo,raw:renderRaw,ept:renderEpt})[tab](page,list)}
 window.addEventListener('resize',()=>{for(const t of ['raw','ept']){const p=$('page-'+t);if(p&&!p.hidden){p.dataset.key='';render(t)}}});
-window.SampleViews={init(c){ctx=c},render,invalidate(){for(const t of ['info','raw','ept']){const p=$('page-'+t);if(p)p.dataset.key=''}}};
+window.SampleViews={init(c){ctx=c},render,focusRaw(scan){const v=view.raw;v.focus=scan;v.x0=Math.max(0,scan-150);v.x1=scan+150;const p=$('page-raw');if(p)p.dataset.key=''},invalidate(){for(const t of ['info','raw','ept']){const p=$('page-'+t);if(p)p.dataset.key=''}}};
 })();
