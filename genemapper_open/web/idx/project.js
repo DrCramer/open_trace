@@ -156,8 +156,30 @@ function mixFlag(s,eff){if(s.type==='ladder'||!eff||!eff.calls.length)return 'na
  const per={};for(const c of eff.calls)if(c.label)per[c.marker]=(per[c.marker]||0)+1;
  const many=Object.values(per).filter(n=>n>=3).length;const phr=genoRows(s).filter(r=>r.flags.PHR==='check').length;
  return many>=2||(many>=1&&phr>=2)||activeEdits(s).length?'check':'pass'}
+// ACC (Amelogenin Cross Check, help topic "ACC"): one flag for AMEL and every Y marker of the panel.
+const isAmel=n=>/^(AMEL|Amelogenin)$/i.test(n);
+function accFlag(s,eff){if(!eff||s.type==='ladder'||s.type==='negative')return 'na';const kit=sampleKit(s);if(!kit)return 'na';
+ const amel=kit.markers.find(m=>isAmel(m.name)),ys=kit.markers.filter(m=>m.y_marker&&!isAmel(m.name));if(!amel||!ys.length)return 'na';
+ const names=new Set([amel.name,...ys.map(m=>m.name)]);if([...names].some(n=>eff.edited.has(n)))return 'na';
+ const amelLabels=eff.calls.filter(c=>c.marker===amel.name&&c.label).map(c=>String(c.label).toUpperCase()).sort().join(',');
+ const yHas=ys.map(m=>eff.calls.some(c=>c.marker===m.name&&c.label));
+ if(amelLabels==='X,Y')return yHas.every(Boolean)?'pass':'check';
+ if(amelLabels==='X'||amelLabels==='X,X')return yHas.some(Boolean)?'check':'pass';
+ return 'check'}
+// OMR (Outside Marker Range): peaks between two marker size ranges of the same dye whose height ratio to the highest
+// peak of the dye exceeds the tetranucleotide Global Cut-off of the analysis method (1 = no filtering).
+function omrPeaks(s){const rep=s.report;const kit=sampleKit(s);if(!rep||!kit||s.type==='ladder')return [];
+ const cut=Number(Methods.get(s.method)?.allele?.repeats?.['4']?.cutoff??0);const peaks=(rep.peaks||[]).filter(p=>p.size_bp!=null&&!p.spike);
+ const out=[];const byCh={};for(const m of kit.markers)(byCh[m.channel]=byCh[m.channel]||[]).push(m);
+ for(const [ch,ms] of Object.entries(byCh)){ms.sort((a,b)=>a.min_bp-b.min_bp);const inCh=peaks.filter(p=>p.channel===ch);if(!inCh.length)continue;
+  const top=Math.max(...inCh.map(p=>p.height));
+  for(const p of inCh){const inside=ms.some(m=>p.size_bp>=m.min_bp&&p.size_bp<=m.max_bp);if(inside)continue;
+   const between=p.size_bp>ms[0].max_bp&&p.size_bp<ms[ms.length-1].min_bp;if(!between)continue;
+   if(cut<1&&p.height/top<=cut)continue;out.push({channel:ch,size_bp:p.size_bp,height:p.height,ratio:p.height/top})}}
+ return out}
+function omrFlag(s){if(s.type==='ladder'||!s.report||!sampleKit(s))return 'na';if(activeEdits(s).some(e=>e.action!=='override_cgq'))return 'check';return omrPeaks(s).length?'check':'pass'}
 function sampleFlags(s){const q=samplePqv(s);
- const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';if(s.report&&q.SQ!=='low')q.MIX=mixFlag(s,eff);
+ const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';if(s.report&&q.SQ!=='low'){q.MIX=mixFlag(s,eff);q.OMR=omrFlag(s)}
  return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
@@ -208,10 +230,11 @@ function sampleCell(id,s,flags){
 const activeEdits=s=>(s.edits||[]).filter(e=>!e.undone);
 function effective(s){
  const rep=s.report;const calls=(rep?.calls||[]).map(c=>({...c}));const byId=new Map(calls.map(c=>[c.id,c]));
- const out={calls,edited:new Set(),gqOverride:new Set(),cgqOverride:false,reasons:{}};
+ const out={calls,edited:new Set(),gqOverride:new Set(),cgqOverride:false,reasons:{},mec:{}};
  for(const e of activeEdits(s)){
   if(e.action==='override_cgq'){out.cgqOverride=true;continue}
-  out.edited.add(e.marker);out.reasons[e.marker]=e.reason;
+  // ID-X: deletions (labels that become artifacts) go to MEC, allele label changes to AE Reason For Change
+  out.edited.add(e.marker);if(e.action==='delete')out.mec[e.marker]=e.reason;else out.reasons[e.marker]=e.reason;
   if(e.action==='override_gq')out.gqOverride.add(e.marker);
   else if(e.action==='rename'){const c=byId.get(e.callId);if(c){c.label=e.new;c.user_edited=true}}
   else if(e.action==='delete'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0)calls.splice(i,1)}
@@ -270,13 +293,15 @@ function controlDefinition(s){const kit=sampleKit(s);if(!kit)return null;const p
 function genoRows(s){
  const rep=s.report;if(!rep||!rep.allele_calling)return [];
  const gq=Object.fromEntries((rep.quality?.marker_gq?.markers||[]).map(m=>[m.marker,m]));const eff=effective(s);
+ const acc=accFlag(s,eff);const kitM=new Map((sampleKit(s)?.markers||[]).map(m=>[m.name,m]));const nShow=TableSettings.active().genotypes.numAlleles;
  return (rep.allele_calling.markers||[]).map(m=>{const calls=eff.calls.filter(c=>c.marker===m.name);
   const g=gq[m.name];const metrics=g?.score?.metrics||{};
   const f=k=>metrics[k]===1?'check':metrics[k]===0?'pass':'na';
   const flags={OS:f('offscale'),BIN:f('binning'),PHR:f('ratio'),LPH:f('absolute_height'),MPH:f('high_height'),SPK:f('spike'),
-   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:'na',CC:ccFlag(rep,m.name),MEC:'na',ADO:'na',ME:eff.edited.has(m.name)?'check':'pass',
+   AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:(isAmel(m.name)||kitM.get(m.name)?.y_marker)?acc:'na',CC:ccFlag(rep,m.name),
+   ADO:calls.filter(c=>c.label).length>nShow?'check':'pass',ME:eff.edited.has(m.name)?'check':'pass',
    GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
-  return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||''}})}
+  return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||'',mec:eff.mec[m.name]||''}})}
 function genoCell(id,r,i){
  const s=r.sample;const c=r.calls[i]??(i===1&&r.calls.length===1&&ProjectOptions.get().dupHomo&&autosomal(r.marker)?r.calls[0]:undefined);const info=s.analysis?.run_info||{};
  switch(id){
@@ -289,6 +314,7 @@ function genoCell(id,r,i){
   case 'area':{const p=c&&r.peaks[c.peak_index];return {value:p&&p.area!=null?Math.round(p.area):'',cls:'num'}}
   case 'dataPoint':return {value:c?Math.round(c.scan):'',cls:'num'};
   case 'aeReason':return {value:r.reason||''};
+  case 'MEC':return {value:r.mec||''};
   case 'PLI':return {value:''};
   case 'profileId':return {value:s.profileId||''};
   default:
@@ -665,7 +691,10 @@ async function genotype(){
    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
    const policy=g.pass?k.policy:'reference_bins';
    let rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy});
-   if(k.mq)rep=await jsonPost('/api/marker-quality',{report:rep,definition:k.mq});
+   if(k.mq){let def=k.mq;const accW=Number(Methods.get(s.method)?.sq_gq?.weights?.acc||0);
+    // Samples: AMEL cross check weight of the method enters GQ (ID-X: "Effect on GQ (samples only)").
+    if(s.type==='sample'&&k.mq.amel_marker&&accW>0)def={...k.mq,schema_version:2,sample_type:'Sample',control_mode:'none',amel_cross_check:{weight:accW}};
+    rep=await jsonPost('/api/marker-quality',{report:rep,definition:def})}
    if(s.type==='positive'||s.type==='negative'){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
    s.report=rep;s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
  return true}
@@ -691,7 +720,7 @@ function plotPayload(){
  const samples=state.project.samples.filter(s=>state.selected.has(s.id));
  const po=ProjectOptions.get();
  return {lang:I18N.lang,project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
-  return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls}:null,kit:sampleKit(s),pqv:sampleFlags(s),
+  return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls}:null,kit:sampleKit(s),pqv:sampleFlags(s),omr:s.report?omrPeaks(s):[],
    markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check'})),editable:!!s.report}})}}
 function openPanelManager(){if(!Sec.need('READ_PANEL'))return;const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
@@ -718,7 +747,7 @@ function exportGenoValue(id,r,i){
  const v=genoCell(id,r,i);
  if(v.html!=null&&PQV_NUM[v.value]!==undefined)return pqvNumber(v.value);
  return v.value??''}
-const blankRow=s=>({sample:s,marker:'',channel:'',calls:[],gq:null,flags:{},peaks:[],reason:''});
+const blankRow=s=>({sample:s,marker:'',channel:'',calls:[],gq:null,flags:{},peaks:[],reason:'',mec:''});
 function tableRows(tab,onlySelected){const rows=[];
  if(tab==='samples'){const cols=sampleColumns();rows.push(cols.map(c=>c.head));
   for(const s of sortedSamples())if(!onlySelected||state.selected.has(s.id)){const f=sampleFlags(s);rows.push(cols.map(c=>exportSampleValue(c.base,s,f)))}}

@@ -94,7 +94,10 @@ function paint(cv,items,x0,x1){
     const y=bottom+6+row*16;const w=Math.max(18,g.measureText(c.label).width+8);
     g.strokeStyle=(c.flags||[]).length?'#e040a0':'#000';g.fillStyle='#fff';g.fillRect(x-w/2,y,w,14);g.strokeRect(x-w/2+.5,y+.5,w-1,13);
     g.fillStyle=c.user_edited?'#b00060':'#000';g.fillText(c.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#999';g.stroke();
-    labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,call:c,sample:t.sample})}}}
+    labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,call:c,sample:t.sample})}
+   for(const o of (t.sample.omr||[]).filter(o=>o.channel===t.tag&&o.size_bp>=x0&&o.size_bp<=x1)){const x=X(o.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;placed.push({x,row});
+    const y=bottom+6+row*16,w=g.measureText('OMR').width+8;g.strokeStyle='#d0700a';g.fillStyle='#fff3e0';g.fillRect(x-w/2,y,w,14);g.strokeRect(x-w/2+.5,y+.5,w-1,13);
+    g.fillStyle='#a04f00';g.fillText('OMR',x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#d0700a';g.stroke()}}}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks)if(pk.size_bp!=null&&pk.size_bp>=x0&&pk.size_bp<=x1)peakPts.push({x:X(pk.size_bp),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample});
  cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }

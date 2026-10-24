@@ -22,7 +22,7 @@ const GENO_COLS=[
  ['runName','runName','Run Name',140,'text'],['panel','panel','Panel',130,'text'],['marker','marker','Marker',80,'text'],['dye','dyeColor','Dye',36,'text'],
  ['allele','allele','Allele',56,'allele'],['size','peakSize','Size',60,'allele'],['height','peakHeight','Height',58,'allele'],
  ['area','peakArea','Peak Area',66,'allele'],['dataPoint','peakScan','Data Point',62,'allele'],['aeReason','alleleComment','AE Reason For Change',120,'text'],
- ['MEC',null,'MEC',38,'pqv'],['ADO',null,'ADO',38,'pqv'],['ME',null,'ME',34,'pqv'],
+ ['MEC',null,'MEC',120,'text'],['ADO',null,'ADO',38,'pqv'],['ME',null,'ME',34,'pqv'],
  ['OS','offscale','OS',34,'pqv'],['BIN','binProblem','BIN',34,'pqv'],['PHR','peakHeightRatio','PHR',38,'pqv'],['LPH','absoluteHeight','LPH',38,'pqv'],
  ['MPH','highPeakHeight','MPH',38,'pqv'],['SPK','spikeMarkerPqv','SPK',36,'pqv'],['AN','numAlleleError','AN',34,'pqv'],['ACC','amelCrossCheck','ACC',36,'pqv'],
  ['BD','broadPeak','BD',34,'pqv'],['CC','controlConcordance','CC',34,'pqv'],['OVL','overlap','OVL',36,'pqv'],['GQ','alleleConfidence','GQ',40,'pqv'],
@@ -55,7 +55,7 @@ const FILTERS={
   SFNF:en([['pass','Found'],['low','Not Found']]),MNF:en([['pass','Found'],['low','Not Found']]),SNF:en([['pass','Found'],['low','Not Found']]),
   SE:en([['check','Yes'],['pass','No']]),SQO:en([['check','Yes'],['pass','No']])},
  genotypes:{dye:en([['B','B'],['G','G'],['Y','Y'],['R','R'],['P','P'],['O','O']]),GQ:qual(['override','pass','check','low']),
-  ME:en([['check','Yes'],['pass','No']]),MEC:en([['check','Yes'],['pass','No']]),ADO:en([['check','Yes'],['pass','No']])}};
+  ME:en([['check','Yes'],['pass','No']]),ADO:en([['check','Yes'],['pass','No']])}};
 const CONTAINS={type:'contains',options:[{op:1,label:'Show Records Containing:'}]};
 function filterSpec(kind,id){const c=CATALOG[kind].find(x=>x.id===id);if(!c)return null;return FILTERS[kind][id]||(c.kind==='pqv'?qual(['pass','check','low']):CONTAINS)}
 // raw: the row's key (status, type, flag, dye letter) for enum filters, the displayed text for text filters.
