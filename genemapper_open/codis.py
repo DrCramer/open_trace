@@ -262,7 +262,7 @@ def build_cmf(request, *, markers_text=None, kits_text=None):
                     if not ok:
                         raise ValueError(f'The allele name {allele} for {marker} is invalid for CODIS export. '
                                          'Assign a valid allele name and try again.')
-                loci.append({'name': codis, 'alleles': alleles, 'partial': bool(locus.get('partial_locus')),
+                loci.append({'name': codis, 'alleles': alleles, 'partial': bool(locus.get('partial_locus')) and version == '3.3',
                              'kit': kit, 'batch': batch})
             if not loci:
                 raise ValueError(f'Unable to export {name}: samples designated for CODIS export must contain at least one allele')

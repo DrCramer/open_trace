@@ -75,6 +75,11 @@ class CodisTests(unittest.TestCase):
         self.assertEqual(out['specimens'], 1)
         self.assertEqual(out['samples'], 2)
 
+    def test_partial_locus_indicator_only_in_cmf33(self):
+        s = sample(loci=[{'marker': 'D3S1358', 'alleles': ['15'], 'partial_locus': True}])
+        self.assertIn('PARTIALLOCUS="true"', build_cmf(request([s], '3.3'))['xml'])
+        self.assertNotIn('PARTIALLOCUS', build_cmf(request([s], '3.2'))['xml'])
+
     def test_validation_messages(self):
         cases = [
             ([sample(loci=[{'marker': 'D3S1358', 'alleles': ['OL']}])], 'invalid for CODIS'),

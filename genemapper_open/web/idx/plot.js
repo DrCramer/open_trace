@@ -66,7 +66,7 @@ function paint(cv,items,x0,x1){
  for(const m of markers.filter(m=>dyes.includes(m.channel))){
   const row=(s.markers||[]).find(r=>r.marker===m.name);const xa=X(m.min_bp),xb=X(m.max_bp);
   if(view.markerRange){g.fillStyle=GQ_FILL[row?.gqCat||'na'];g.fillRect(xa,4,xb-xa,14);g.strokeStyle='#555';g.strokeRect(xa+.5,4.5,xb-xa-1,13);
-   g.fillStyle='#000';g.save();g.beginPath();g.rect(xa,4,xb-xa,14);g.clip();g.fillText(m.name,xa+3,15);g.restore();
+   g.fillStyle='#000';g.save();g.beginPath();g.rect(xa,4,xb-xa,14);g.clip();g.fillText((row?.pli?'** ':'')+m.name,xa+3,15);g.restore();
    m._hit={x0:xa,x1:xb,y0:4,y1:18}}
   if(view.bins)for(const b of m.bins||[]){const ba=X(b.center_bp-(b.left_bp??.5)),bb=X(b.center_bp+(b.right_bp??.5));
    g.fillStyle=b.virtual?'rgba(255,150,190,.35)':'rgba(150,150,150,.28)';g.fillRect(ba,top,Math.max(1,bb-ba),bottom-top)}}
@@ -97,7 +97,13 @@ function paint(cv,items,x0,x1){
     labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,call:c,sample:t.sample})}
    for(const o of (t.sample.omr||[]).filter(o=>o.channel===t.tag&&o.size_bp>=x0&&o.size_bp<=x1)){const x=X(o.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;placed.push({x,row});
     const y=bottom+6+row*16,w=g.measureText('OMR').width+8;g.strokeStyle='#d0700a';g.fillStyle='#fff3e0';g.fillRect(x-w/2,y,w,14);g.strokeRect(x-w/2+.5,y+.5,w-1,13);
-    g.fillStyle='#a04f00';g.fillText('OMR',x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#d0700a';g.stroke()}}}
+    g.fillStyle='#a04f00';g.fillText('OMR',x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#d0700a';g.stroke()}
+   // artifact labels (user-assigned and automatic SPK) have a pink border
+   const arts=[...(t.sample.report?.artifacts||[]).map(a=>({...a,user:true})),...(t.sample.spk||[]).map(a=>({...a,label:'SPK'}))];
+   for(const a of arts.filter(a=>a.channel===t.tag&&a.size_bp>=x0&&a.size_bp<=x1)){const x=X(a.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;placed.push({x,row});
+    const y=bottom+6+row*16,w=Math.max(18,g.measureText(a.label).width+8);g.strokeStyle='#e040a0';g.fillStyle='#fff';g.fillRect(x-w/2,y,w,14);g.lineWidth=1.5;g.strokeRect(x-w/2+.5,y+.5,w-1,13);g.lineWidth=1;
+    g.fillStyle='#b0006a';g.fillText(a.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#e040a0';g.stroke();
+    if(a.user)labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,artifact:a,sample:t.sample})}}}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks)if(pk.size_bp!=null&&pk.size_bp>=x0&&pk.size_bp<=x1)peakPts.push({x:X(pk.size_bp),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample});
  cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }
@@ -125,10 +131,29 @@ function ctxMenu(x,y,items){document.querySelectorAll('.menu.ctx').forEach(m=>m.
 function ask(title,fields){return new Promise(res=>{dialog(title,b=>{for(const f of fields)b.append(el('div',{class:'field'},el('label',{text:f.label}),el('input',{type:'text',id:f.id,value:f.value||''})))},
  [[T('ok'),b=>{const out={};for(const f of fields){out[f.id]=b.querySelector('#'+f.id).value.trim();if(!out[f.id]){message(T('reasonRequired'));return false}}
    res(out);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
+// Predefined artifact labels (Add or Rename Custom Artifact Label dialog), shared by all windows of this browser.
+const ART_KEY='opentrace.artifactLabels';
+const artList=()=>{try{const v=JSON.parse(localStorage.getItem(ART_KEY)||'[]');return Array.isArray(v)?v.filter(x=>typeof x==='string'):[]}catch(e){return []}};
+const artSave=l=>{try{localStorage.setItem(ART_KEY,JSON.stringify(l))}catch(e){}};
+function artifactDialog(title,current){return new Promise(res=>{const list=artList();
+ dialog(title,b=>{b.classList.add('artdlg');const sel=el('select',{id:'arSel',size:'6'});for(const l of list)sel.append(new Option(l,l));sel.append(new Option(T('customArtifact'),'__custom__'));
+  sel.value=list.includes(current)?current:'__custom__';const txt=el('input',{type:'text',id:'arText',value:list.includes(current)?'':current||'',maxlength:'40'});
+  const add=el('label',{class:'chk'},el('input',{type:'checkbox',id:'arAdd'}),document.createTextNode(' '+T('addToPredefined')));
+  const sync=()=>{const c=sel.value==='__custom__';txt.disabled=!c;add.querySelector('input').disabled=!c};sel.addEventListener('change',sync);sync();
+  b.append(el('div',{class:'field'},el('label',{text:T('predefinedLabels')}),sel),el('div',{class:'field'},el('label',{text:T('customArtifact')}),txt),add)},
+  [[T('ok'),b=>{const c=b.querySelector('#arSel').value==='__custom__';const v=c?b.querySelector('#arText').value.trim():b.querySelector('#arSel').value;
+    if(!v||v.length>40){message(T('badBinName'));return false}
+    if(c&&b.querySelector('#arAdd').checked&&!list.includes(v))artSave([...list,v]);res(v);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
+function deletePredefined(){let list=artList();
+ const d=dialog(T('deletePredefined'),b=>{},[[T('ok'),()=>{artSave(list);return true},true],[T('cancel'),()=>true]]);
+ const draw=()=>{const b=d.body;b.replaceChildren();const sel=el('select',{id:'dpSel',size:'8',style:'min-width:240px'});for(const l of list)sel.append(new Option(l,l));
+  const del=el('button',{class:'btn',type:'button',text:T('mgrDelete'),id:'dpDel'});del.addEventListener('click',()=>{if(sel.value){list=list.filter(x=>x!==sel.value);draw()}});
+  b.append(list.length?sel:el('p',{class:'note',text:T('noPredefined')}),el('div',{class:'btnrow'},del))};draw()}
 async function edit(sample,spec){
  if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
- if(spec.action==='rename'||spec.action==='add'){const v=await ask(T('act_'+spec.action),[{id:'edLabel',label:T('colAllele'),value:spec.new}]);if(!v)return;
+ if(spec.action==='rename'||spec.action==='add'||spec.action==='artifact_to_allele'){const v=await ask(T('act_'+spec.action),[{id:'edLabel',label:T('colAllele'),value:spec.new}]);if(!v)return;
   if(v.edLabel.length>40)return message(T('badBinName'));spec={...spec,new:v.edLabel}}
+ if(['to_artifact','add_artifact','rename_artifact'].includes(spec.action)){const l=await artifactDialog(T('act_'+spec.action),spec.new);if(l==null)return;spec={...spec,new:l}}
  let items=[];try{items=window.opener.OT.editItems(sample.id,spec)}catch(e){}
  const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
  spec={...spec,reason:ch.reason};
@@ -141,16 +166,24 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
  if(!cv?._geom)return;e.preventDefault();const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const s=G.sample;if(!s.editable)return;
  const box=G.labelBoxes.find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);
+ if(box&&box.artifact){const a=box.artifact;const mk=G.markers.find(m=>m.channel===a.channel&&a.size_bp>=m.min_bp&&a.size_bp<=m.max_bp);
+  ctxMenu(e.clientX,e.clientY,[{label:T('renameArtifact')+' ('+a.label+')',run:()=>edit(box.sample,{action:'rename_artifact',artifactId:a.id,marker:a.marker,new:a.label})},
+   {label:T('deleteArtifact')+' ('+a.label+')',run:()=>edit(box.sample,{action:'delete_artifact',artifactId:a.id,marker:a.marker})},
+   {label:T('addAlleleLabel'),disabled:!mk,run:()=>edit(box.sample,{action:'artifact_to_allele',artifactId:a.id,marker:mk.name,new:a.orig??binLabel(mk,a.size_bp)})}]);return}
  if(box){const c=box.call;ctxMenu(e.clientX,e.clientY,[{label:T('renameAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'rename',marker:c.marker,callId:c.id,new:c.label})},
+   {label:T('toArtifact')+' ('+c.label+')',run:()=>edit(box.sample,{action:'to_artifact',marker:c.marker,callId:c.id,new:''})},
    {label:T('deleteAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'delete',marker:c.marker,callId:c.id})}]);return}
  const mk=G.markers.find(m=>m._hit&&x>=m._hit.x0&&x<=m._hit.x1&&y>=m._hit.y0&&y<=m._hit.y1);
- if(mk){ctxMenu(e.clientX,e.clientY,[{label:T('overrideGq')+' ('+mk.name+')',run:()=>edit(s,{action:'override_gq',marker:mk.name})}]);return}
+ if(mk){const row=(s.markers||[]).find(r=>r.marker===mk.name);
+  ctxMenu(e.clientX,e.clientY,[{label:T('overrideGq')+' ('+mk.name+')',run:()=>edit(s,{action:'override_gq',marker:mk.name})},
+   {label:(row?.pli?'✓ ':'')+T('pliMenu'),run:()=>edit(s,{action:'pli',marker:mk.name,new:row?.pli?'off':'on'})}]);return}
  const near=G.peakPts.filter(p=>Math.abs(p.x-x)<=6).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0];
- if(near){const calls=near.sample.report?.calls||[];const bp=near.peak.size_bp;
-  const called=calls.some(c=>c.channel===near.tag&&Math.abs(c.size_bp-bp)<0.05);
-  const marker=G.markers.find(m=>m.channel===near.tag&&bp>=m.min_bp&&bp<=m.max_bp);
+ if(near){const calls=near.sample.report?.calls||[];const arts=near.sample.report?.artifacts||[];const bp=near.peak.size_bp;
+  const called=calls.some(c=>c.channel===near.tag&&Math.abs(c.size_bp-bp)<0.05)||arts.some(a=>a.channel===near.tag&&Math.abs(a.size_bp-bp)<0.05);
+  const marker=G.markers.find(m=>m.channel===near.tag&&bp>=m.min_bp&&bp<=m.max_bp);const peak={scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag};
   ctxMenu(e.clientX,e.clientY,[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,disabled:called||!marker,
-   run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak:{scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag}})}])}});
+   run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak})},
+   {label:T('addArtifactLabel')+` (${bp.toFixed(2)} bp)`,disabled:called,run:()=>edit(near.sample,{action:'add_artifact',marker:marker?.name||null,new:'',peak})}])}});
 function zoom(f){const [d0,d1]=bpRange();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
@@ -200,7 +233,7 @@ function build(){
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),checked:view.markerRange,run:set('markerRange',!view.markerRange)},{label:T('showBins'),checked:view.bins,run:set('bins',!view.bins)},'-',
    {label:T('table'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]}]},
   {label:T('tools'),items:[{label:T('manager'),disabled:true}]},
-  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
+  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},{label:T('deletePredefined')+'...',run:deletePredefined},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
  const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>window.print()),tbutton('printPreview',T('printPreview'),null,{disabled:true}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
  const ps=el('select',{class:'combo'});ps.append(new Option(T('dataInterpretation'),'di'),new Option(T('sizingData'),'sd'));ps.value=view.table==='sizing'?'sd':'di';

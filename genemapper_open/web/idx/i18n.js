@@ -138,7 +138,7 @@ en:{
  act_delete:'Delete allele label',act_add:'Add allele label',act_override_gq:'Override GQ',act_override_cgq:'Override CGQ',undone:'undone',
  noEdits:'No label edits in this project.',reanalyzeDropsEdits:'Re-analysis removes the allele edits of {0} sample(s); they stay in the Label Edit Viewer as undone. Continue?',
  overrideCgq:'Override CGQ',overrideGq:'Override GQ',deleteAllele:'Delete allele label',headerMenuHint:'Right-click: Override CGQ',editHowTo:'How to edit labels...',
- editHint:'Right-click an allele label to rename or delete it, a peak without a label to add an allele, a marker header to override GQ, the sample header to override CGQ. Every edit needs a user and a reason and is listed in the Label Edit Viewer.',
+ editHint:'Right-click an allele label to rename it, change it to an artifact label or delete it; an unlabeled peak to add an allele or artifact label; an artifact label to rename, delete or turn it back into an allele; a marker header to override GQ or set the Partial Locus Indicator; the sample header to override CGQ. Edits are listed in the Label Edit Viewer and audited.',
  optGeneral:'General',optAddSamples:'Add Samples',optAnalysis:'Analysis',optStartup:'When the software starts, open',optStartNew:'A new project',
  optStartLast:'The last open project',optPlots:'Plots',optUpdatePlots:'Update plots when the selection in the project tables changes',
  optPrintComment:'Show comment for plot printing',optComment:'Comment:',optSecurity:'Default security group',optNone:'(not set)',
@@ -319,6 +319,10 @@ en:{
  si_analysisVersion:'OpenTrace analysis version',siSizing:'Sizing',siFullView:'Full View',siScan:'Data point',siNoEpt:'The sample file has no EPT data (DATA5–DATA8).',
  siEpt_voltage:'Voltage',siEpt_current:'Current',siEpt_power:'Power',siEpt_temperature:'Temperature',siMin:'min',siMax:'max',siMinutes:'Run time (min)',siPoint:'EPT point',
  siEptNote:'Values are shown in the units stored by the instrument (31xx: voltage ×10 V; 3500: kV).',
+ renameArtifact:'Rename Artifact Label',deleteArtifact:'Delete Artifact Label',toArtifact:'Change to Artifact Label...',pliMenu:'Partial Locus Indicator',
+ customArtifact:'Custom Artifact Label',addToPredefined:'Add to predefined list',predefinedLabels:'Predefined labels',deletePredefined:'Delete Predefined Artifact Labels',
+ noPredefined:'There are no predefined artifact labels.',act_to_artifact:'Change to artifact label',act_add_artifact:'Add artifact label',
+ act_rename_artifact:'Rename artifact label',act_delete_artifact:'Delete artifact label',act_artifact_to_allele:'Artifact to allele label',act_pli:'Partial Locus Indicator',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -464,7 +468,7 @@ ru:{
  act_override_cgq:'Утверждение CGQ',undone:'отменено',noEdits:'В проекте нет правок обозначений.',
  reanalyzeDropsEdits:'Повторный анализ отменит правки аллелей у {0} образцов; в обозревателе правок они останутся как отменённые. Продолжить?',overrideCgq:'Утвердить CGQ',
  overrideGq:'Утвердить GQ',deleteAllele:'Удалить обозначение аллеля',headerMenuHint:'Правый щелчок: утвердить CGQ',editHowTo:'Как править обозначения...',
- editHint:'Правый щелчок по обозначению аллеля — переименовать или удалить; по пику без обозначения — добавить аллель; по заголовку маркера — утвердить GQ; по шапке образца — утвердить CGQ. Каждая правка требует пользователя и причину и попадает в обозреватель правок.',
+ editHint:'Правый щелчок по обозначению аллеля — переименовать, заменить меткой артефакта или удалить; по пику без обозначения — добавить аллель или артефакт; по метке артефакта — переименовать, удалить или вернуть аллелем; по заголовку маркера — утвердить GQ или отметить неполный локус (PLI); по шапке образца — утвердить CGQ. Правки видны в обозревателе правок и попадают в журнал аудита.',
  optGeneral:'Общие',optAddSamples:'Добавление образцов',optAnalysis:'Анализ',optStartup:'При запуске открывать',optStartNew:'Новый проект',optStartLast:'Последний открытый проект',
  optPlots:'Графики',optUpdatePlots:'Обновлять графики при смене выбора в таблицах проекта',optPrintComment:'Показывать комментарий при печати графиков',optComment:'Комментарий:',
  optSecurity:'Группа безопасности по умолчанию',optNone:'(не задано)',optAddNote:'Настройки, применяемые ко всем добавляемым образцам. Потом их можно изменить в таблице образцов.',
@@ -645,6 +649,11 @@ ru:{
  siSizing:'Определение размеров',siFullView:'Полный вид',siScan:'Точка данных',siNoEpt:'В файле образца нет данных EPT (DATA5–DATA8).',siEpt_voltage:'Напряжение',
  siEpt_current:'Ток',siEpt_power:'Мощность',siEpt_temperature:'Температура',siMin:'мин',siMax:'макс',siMinutes:'Время запуска (мин)',siPoint:'Точка EPT',
  siEptNote:'Значения показаны в единицах прибора (31xx: напряжение ×10 В; 3500: кВ).',
+ renameArtifact:'Переименовать метку артефакта',deleteArtifact:'Удалить метку артефакта',toArtifact:'Заменить меткой артефакта...',pliMenu:'Индикатор неполного локуса',
+ customArtifact:'Пользовательская метка артефакта',addToPredefined:'Добавить в список предопределённых',predefinedLabels:'Предопределённые метки',
+ deletePredefined:'Удалить предопределённые метки артефактов',noPredefined:'Предопределённых меток артефактов нет.',act_to_artifact:'Замена меткой артефакта',
+ act_add_artifact:'Добавление метки артефакта',act_rename_artifact:'Переименование метки артефакта',act_delete_artifact:'Удаление метки артефакта',
+ act_artifact_to_allele:'Артефакт → аллель',act_pli:'Индикатор неполного локуса',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

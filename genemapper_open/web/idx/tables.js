@@ -55,7 +55,7 @@ const FILTERS={
   SFNF:en([['pass','Found'],['low','Not Found']]),MNF:en([['pass','Found'],['low','Not Found']]),SNF:en([['pass','Found'],['low','Not Found']]),
   SE:en([['check','Yes'],['pass','No']]),SQO:en([['check','Yes'],['pass','No']])},
  genotypes:{dye:en([['B','B'],['G','G'],['Y','Y'],['R','R'],['P','P'],['O','O']]),GQ:qual(['override','pass','check','low']),
-  ME:en([['check','Yes'],['pass','No']]),ADO:en([['check','Yes'],['pass','No']])}};
+  ME:en([['check','Yes'],['pass','No']]),PLI:en([['check','Yes'],['na','No']]),ADO:en([['check','Yes'],['pass','No']])}};
 const CONTAINS={type:'contains',options:[{op:1,label:'Show Records Containing:'}]};
 function filterSpec(kind,id){const c=CATALOG[kind].find(x=>x.id===id);if(!c)return null;return FILTERS[kind][id]||(c.kind==='pqv'?qual(['pass','check','low']):CONTAINS)}
 // raw: the row's key (status, type, flag, dye letter) for enum filters, the displayed text for text filters.

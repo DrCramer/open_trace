@@ -177,7 +177,10 @@ function omrPeaks(s){const rep=s.report;const kit=sampleKit(s);if(!rep||!kit||s.
    const between=p.size_bp>ms[0].max_bp&&p.size_bp<ms[ms.length-1].min_bp;if(!between)continue;
    if(cut<1&&p.height/top<=cut)continue;out.push({channel:ch,size_bp:p.size_bp,height:p.height,ratio:p.height/top})}}
  return out}
-function omrFlag(s){if(s.type==='ladder'||!s.report||!sampleKit(s))return 'na';if(activeEdits(s).some(e=>e.action!=='override_cgq'))return 'check';return omrPeaks(s).length?'check':'pass'}
+// SPK artifact labels (assigned automatically by the software, help topic "Artifact")
+function spikeArtifacts(s){const kit=sampleKit(s);if(!kit)return [];const ch=new Set(kit.markers.map(m=>m.channel));
+ return (s.report.peaks||[]).filter(p=>p.spike&&p.size_bp!=null&&ch.has(p.channel)).map(p=>({channel:p.channel,size_bp:p.size_bp,height:p.height}))}
+function omrFlag(s){if(s.type==='ladder'||!s.report||!sampleKit(s))return 'na';if(activeEdits(s).some(e=>e.action!=='override_cgq'&&e.action!=='pli'))return 'check';return omrPeaks(s).length?'check':'pass'}
 function sampleFlags(s){const q=samplePqv(s);
  const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';if(s.report&&q.SQ!=='low'){q.MIX=mixFlag(s,eff);q.OMR=omrFlag(s)}
  return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
@@ -228,26 +231,38 @@ function sampleCell(id,s,flags){
    if(id==='ARNM'&&v==='low')out.title=arnmReasons(s).join('; ');return out}}
 // ---------- label edits (overlay on the machine result; the report itself is never changed) ----------
 const activeEdits=s=>(s.edits||[]).filter(e=>!e.undone);
+const MEC_ACTIONS=new Set(['delete','to_artifact','add_artifact','rename_artifact','delete_artifact']);
 function effective(s){
  const rep=s.report;const calls=(rep?.calls||[]).map(c=>({...c}));const byId=new Map(calls.map(c=>[c.id,c]));
- const out={calls,edited:new Set(),gqOverride:new Set(),cgqOverride:false,reasons:{},mec:{}};
+ const out={calls,artifacts:[],edited:new Set(),gqOverride:new Set(),cgqOverride:false,pli:new Set(),reasons:{},mec:{}};const arts=new Map();
  for(const e of activeEdits(s)){
   if(e.action==='override_cgq'){out.cgqOverride=true;continue}
-  // ID-X: deletions (labels that become artifacts) go to MEC, allele label changes to AE Reason For Change
-  out.edited.add(e.marker);if(e.action==='delete')out.mec[e.marker]=e.reason;else out.reasons[e.marker]=e.reason;
+  if(e.action==='pli'){if(e.new==='on')out.pli.add(e.marker);else out.pli.delete(e.marker);continue}
+  // ID-X: edits that yield an artifact label (delete, allele->artifact, artifact->artifact) go to MEC, allele label changes to AE Reason For Change
+  out.edited.add(e.marker);if(MEC_ACTIONS.has(e.action))out.mec[e.marker]=e.reason;else if(e.action!=='override_gq')out.reasons[e.marker]=e.reason;
   if(e.action==='override_gq')out.gqOverride.add(e.marker);
   else if(e.action==='rename'){const c=byId.get(e.callId);if(c){c.label=e.new;c.user_edited=true}}
   else if(e.action==='delete'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0)calls.splice(i,1)}
-  else if(e.action==='add'){const c={...e.peak,id:'u'+e.id,marker:e.marker,label:e.new,flags:['user_added'],user_edited:true};calls.push(c);byId.set(c.id,c)}}
+  else if(e.action==='add'){const c={...e.peak,id:'u'+e.id,marker:e.marker,label:e.new,flags:['user_added'],user_edited:true};calls.push(c);byId.set(c.id,c)}
+  else if(e.action==='to_artifact'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0){const c=calls.splice(i,1)[0];
+   arts.set('a'+e.id,{id:'a'+e.id,channel:c.channel,size_bp:c.size_bp,height:c.height,scan:c.scan,marker:c.marker,label:e.new,from:c.id,orig:c.label})}}
+  else if(e.action==='add_artifact'){arts.set('a'+e.id,{id:'a'+e.id,...e.peak,marker:e.marker,label:e.new})}
+  else if(e.action==='rename_artifact'){const a=arts.get(e.artifactId);if(a)a.label=e.new}
+  else if(e.action==='delete_artifact'){arts.delete(e.artifactId)}
+  else if(e.action==='artifact_to_allele'){const a=arts.get(e.artifactId);if(a){arts.delete(e.artifactId);
+   const c={channel:a.channel,size_bp:a.size_bp,height:a.height,scan:a.scan,id:'u'+e.id,marker:e.marker,label:e.new,flags:['user_added'],user_edited:true};calls.push(c);byId.set(c.id,c)}}}
+ out.artifacts=[...arts.values()];
  calls.sort((a,b)=>a.size_bp-b.size_bp);return out}
 // Audit items for one label edit (map Allele / Sample of the ID-X audit map).
 function editItems(sampleId,spec){const s=state.project.samples.find(x=>x.id===sampleId);if(!s||!s.report)return [];
- const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):null;const inst=`${s.runFolder}/${s.file}`;
+ const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):spec.artifactId?eff.artifacts.find(a=>a.id===spec.artifactId):null;const inst=`${s.runFolder}/${s.file}`;
  const size=old?.size_bp??spec.peak?.size_bp;const where=`${inst} · ${spec.marker||''}${size!=null?' · '+Number(size).toFixed(2)+' bp':''}`;
  if(spec.action==='override_gq')return [{map:'Sample',attribute:'OverrideGQ',instance:`${inst} · ${spec.marker}`,old:'',new:'1.0',label:`${T('overrideGq')} (${spec.marker})`,event:'Override GQ'}];
  if(spec.action==='override_cgq')return [{map:'Sample',attribute:'OverrideCGQ',instance:inst,old:'',new:'1.0',label:T('overrideCgq'),event:'Override CGQ'}];
- const attr={add:'created',rename:'modified',delete:'deleted'}[spec.action];
- return [{map:'Allele',attribute:attr,instance:where,old:old?String(old.label):'',new:spec.action==='delete'?'':String(spec.new??''),label:`${T('colAllele')} ${spec.marker||''}`,
+ if(spec.action==='pli')return [{map:'Sample',attribute:'modified',instance:`${inst} · ${spec.marker}`,old:spec.new==='on'?'':'PLI',new:spec.new==='on'?'PLI':'',label:`PLI (${spec.marker})`,event:'Partial Locus Indicator'}];
+ const attr={add:'created',rename:'modified',delete:'deleted',to_artifact:'modified',add_artifact:'created',rename_artifact:'modified',delete_artifact:'deleted',artifact_to_allele:'modified'}[spec.action];
+ const gone=spec.action==='delete'||spec.action==='delete_artifact';
+ return [{map:'Allele',attribute:attr,instance:where,old:old?String(old.label):'',new:gone?'':String(spec.new??''),label:`${T('colAllele')} ${spec.marker||''}`,
   event:{created:'Add Allele',modified:'Modify Allele',deleted:'Delete Allele'}[attr]}]}
 // spec: {action:'rename'|'delete'|'add'|'override_gq'|'override_cgq', marker, callId?, peak?, new?, reason?}
 // reason === undefined -> ask here (Reason for Change when the audit state is On); a string -> already asked by the caller.
@@ -260,10 +275,10 @@ async function applyEdit(sampleId,spec){
  if(reason===undefined){const ch=await Sec.change({items,title:T('reasonTitle')});if(!ch)return false;reason=ch.reason}
  if(typeof reason!=='string'||reason.length>500)return false;
  const user=Sec.user?.name||'';
- const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):null;
+ const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):spec.artifactId?eff.artifacts.find(a=>a.id===spec.artifactId):null;
  s.edits=s.edits||[];const id=(s.edits.reduce((m,e)=>Math.max(m,e.id),0)||0)+1;
- s.edits.push({id,at:new Date().toISOString(),user,reason,action:spec.action,marker:spec.marker||null,callId:spec.callId||null,
-  peak:spec.peak||null,old:old?old.label:null,new:spec.action==='delete'?null:label??null,size_bp:old?.size_bp??spec.peak?.size_bp??null});
+ s.edits.push({id,at:new Date().toISOString(),user,reason,action:spec.action,marker:spec.marker||null,callId:spec.callId||null,artifactId:spec.artifactId||null,
+  peak:spec.peak||null,old:old?old.label:null,new:(spec.action==='delete'||spec.action==='delete_artifact')?null:label??null,size_bp:old?.size_bp??spec.peak?.size_bp??null});
  s.rev=(s.rev||0)+1;state.project.dirty=true;render();
  await Sec.record(items.map(x=>({...x,reason})));return true}
 function promptLabel(title,value){return new Promise(res=>{dialog(title,b=>b.append(el('div',{class:'field'},el('label',{text:T('colAllele')}),el('input',{type:'text',id:'edLabel',value}))),
@@ -299,7 +314,7 @@ function genoRows(s){
   const f=k=>metrics[k]===1?'check':metrics[k]===0?'pass':'na';
   const flags={OS:f('offscale'),BIN:f('binning'),PHR:f('ratio'),LPH:f('absolute_height'),MPH:f('high_height'),SPK:f('spike'),
    AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:(isAmel(m.name)||kitM.get(m.name)?.y_marker)?acc:'na',CC:ccFlag(rep,m.name),
-   ADO:calls.filter(c=>c.label).length>nShow?'check':'pass',ME:eff.edited.has(m.name)?'check':'pass',
+   ADO:calls.filter(c=>c.label).length>nShow?'check':'pass',PLI:eff.pli.has(m.name)?'check':'na',ME:eff.edited.has(m.name)?'check':'pass',
    GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
   return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||'',mec:eff.mec[m.name]||''}})}
 function genoCell(id,r,i){
@@ -315,7 +330,7 @@ function genoCell(id,r,i){
   case 'dataPoint':return {value:c?Math.round(c.scan):'',cls:'num'};
   case 'aeReason':return {value:r.reason||''};
   case 'MEC':return {value:r.mec||''};
-  case 'PLI':return {value:''};
+  case 'PLI':return {value:r.flags.PLI==='check'?'✓':'',cls:'ic'};
   case 'profileId':return {value:s.profileId||''};
   default:
    if(/^UD\d$/.test(id))return {value:''};
@@ -720,8 +735,8 @@ function plotPayload(){
  const samples=state.project.samples.filter(s=>state.selected.has(s.id));
  const po=ProjectOptions.get();
  return {lang:I18N.lang,project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
-  return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls}:null,kit:sampleKit(s),pqv:sampleFlags(s),omr:s.report?omrPeaks(s):[],
-   markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check'})),editable:!!s.report}})}}
+  return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls,artifacts:eff.artifacts}:null,spk:s.report?spikeArtifacts(s):[],kit:sampleKit(s),pqv:sampleFlags(s),omr:s.report?omrPeaks(s):[],
+   markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,calls:r.calls,edited:r.flags.ME==='check',pli:r.flags.PLI==='check'})),editable:!!s.report}})}}
 function openPanelManager(){if(!Sec.need('READ_PANEL'))return;const w=window.open('/idx/panels.html','opentrace-panels','width=1180,height=800');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function displayPlots(){
  if(!state.selected.size)return message(T('selectSamplesFirst'));
@@ -730,7 +745,7 @@ function displayPlots(){
 
 // ---------- export format (ID-X "Format of Exported, Copied, and Report Results") ----------
 const STATUS_TEXT={analyzed:'Analyzed',unanalyzed:'Not Analyzed',changed:'Analysis setting changed'};
-const BOOL_COLS=new Set(['SE','SQO','ADO','ME']);
+const BOOL_COLS=new Set(['SE','SQO','ADO','ME','PLI']);
 const TYPE_TEXT={sample:'Sample',ladder:'Allelic Ladder',positive:'Positive Control',negative:'Negative Control'};
 const pqvNumber=v=>v==='override'?0.5:PQV_NUM[v]??-2;
 function exportSampleValue(id,s,flags){
@@ -970,7 +985,7 @@ function qcSamples(){return state.project.samples.map(s=>{const eff=s.report?eff
  return {id:s.file,file:s.file,name:s.name,type:s.type,analyzed:!!s.report,profileId:(s.profileId||'').trim(),markers,dye,category:s.specimenCategory||'No Export',
   eligible:!!s.report&&s.type!=='ladder'&&['pass','check','override'].includes(q)&&!ol&&Object.keys(markers).length>0,
   codis:{sample_name:s.name,specimen_id:ud.UD1||s.name,category:s.specimenCategory||'No Export',panel:s.panel||'',batch_id:ud.UD2||info.plate||'',case_id:ud.UD3||'',
-   comment:ud.UD4||'',partial:ud.UD5||'',source_id:ud.UD6||'',ncic:ud.UD7||'',vicap:ud.UD8||'',loci:Object.entries(markers).map(([marker,alleles])=>({marker,alleles}))}}})}
+   comment:ud.UD4||'',partial:ud.UD5||'',source_id:ud.UD6||'',ncic:ud.UD7||'',vicap:ud.UD8||'',loci:Object.entries(markers).map(([marker,alleles])=>({marker,alleles,partial_locus:!!eff?.pli.has(marker)}))}}})}
 function addProfile(type){if(!Sec.need('UPDATE_PROFILE_CONCORDANCE'))return;const list=qcSamples().filter(x=>state.selected.has(state.project.samples.find(s=>s.file===x.file)?.id));
  if(!list.length)return message(T('selectSamplesFirst'));Profiles.addFromSamples(list,type);render()}
 Profiles.init({post:jsonPost,samples:qcSamples,plot:files=>reportApi.plot(files),user:()=>Sec.user?.name||'',

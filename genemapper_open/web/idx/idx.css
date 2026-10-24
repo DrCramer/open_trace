@@ -298,3 +298,4 @@ table.g.sitable{width:100%}table.g.sitable td.k{width:260px;color:#444;backgroun
 .siplot{flex:1;min-height:0;padding:4px}.sicanvas{display:block;background:#fff;border:1px solid #c9d3e3;cursor:crosshair}
 .sistatus{padding:2px 8px;font:11px Tahoma,sans-serif;color:#333;border-top:1px solid #ccd;min-height:16px}
 .siept{padding:4px 8px}.eptrow{margin-bottom:4px}.eptlab{font-weight:bold;font-size:11px;margin:2px 0}
+.dlg .body.artdlg{width:380px}.artdlg select{width:100%}
