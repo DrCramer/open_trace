@@ -20,7 +20,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,edit:(id,spec)=>applyEdit(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
+window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(id,spec)=>applyEdit(id,spec),labelEditViewer:()=>labelEditViewer(),kitsChanged:()=>{dropCaches();render()}};
 window.addEventListener('opentrace-options',()=>render());
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
@@ -398,7 +398,7 @@ const sid=s=>'s'+s.id;
 function blobToB64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(blob)})}
 function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return new File([a],name)}
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
- return {comment:state.project.comment||'',run_folders:state.project.runFolders,
+ return {comment:state.project.comment||'',run_folders:state.project.runFolders,reports:state.project.reports||[],
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
    sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
   snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
@@ -461,19 +461,14 @@ async function loadProject(name){
     status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:data.analysis||null,compact:data.compact||null,report:data.report||null,rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
-  Object.assign(state.project,{name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
+  Object.assign(state.project,{reports:Array.isArray(meta.reports)?meta.reports:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
   state.lastMessage=T('projectOpened')+': '+meta.name;rememberProject(meta.name);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
  catch(e){message(e.message)}finally{state.busy=false;render()}}
 function rememberProject(name){try{localStorage.setItem('opentrace.lastProject',name)}catch(e){}}
 async function closeProject(){if(!(await confirmDiscard()))return;
- Object.assign(state.project,{name:null,savedAs:null,comment:'',runFolders:[],samples:[],dirty:false});state.selected.clear();state.lastMessage=null;render()}
+ Object.assign(state.project,{name:null,savedAs:null,comment:'',runFolders:[],samples:[],reports:[],dirty:false});state.selected.clear();state.lastMessage=null;render()}
 // ---------- copy / fill down ----------
-function copyRows(){const tab=state.tab==='genotypes'?'genotypes':'samples';const rows=[];
- if(tab==='samples'){const cols=sampleColumns();rows.push(cols.map(c=>c.head));for(const s of sortedSamples())if(state.selected.has(s.id)){const f=sampleFlags(s);rows.push(cols.map(c=>{const v=sampleCell(c.base,s,f);return v.html!=null&&PQV_NUM[v.value]!==undefined?PQV_NUM[v.value]:v.value}))}}
- else{const cols=genoColumns();rows.push(cols.map(c=>c.head));for(const r of sortedGenoRows())if(state.selected.has(r.sample.id))rows.push(cols.map(c=>{const v=genoCell(c.base,r,c.index||0);return v.html!=null&&PQV_NUM[v.value]!==undefined?PQV_NUM[v.value]:v.value}))}
- const text=rows.map(r=>r.map(x=>x==null?'':String(x)).join('\t')).join('\n');
- (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).then(()=>{state.lastMessage=T('copied')+': '+(rows.length-1);render()},()=>message(text))}
 function fillDown(){const key=state.lastField;if(!key)return message(T('fillDownHint'));
  const rows=sortedSamples().filter(s=>state.selected.has(s.id));if(rows.length<2)return message(T('fillDownHint'));
  const get=s=>key.startsWith('ud.')?(s.ud||{})[key.slice(3)]||'':(s[key]||'');const v=get(rows[0]);
@@ -492,7 +487,7 @@ window.addEventListener('opentrace-sizestd',()=>{settingsCache.clear();render()}
 function newProject(){
  dialog(T('newProjectTitle'),b=>{b.append(el('div',{class:'field'},el('label',{text:T('projectName'),for:'npName'}),el('input',{type:'text',id:'npName',value:''})))},
   [[T('ok'),body=>{const v=body.querySelector('#npName').value.trim();if(!v)return false;
-    Object.assign(state.project,{name:v,savedAs:null,comment:'',runFolders:[],samples:[],dirty:true});state.selected.clear();state.filter=null;render()},true],[T('cancel'),()=>true]])}
+    Object.assign(state.project,{name:v,savedAs:null,comment:'',runFolders:[],samples:[],reports:[],dirty:true});state.selected.clear();state.filter=null;render()},true],[T('cancel'),()=>true]])}
 // File-name heuristics for sample type; the user can change the type in the table.
 function sampleTypeFromName(n){
  if(/ladder|allelic|_al_|(^|[_-])lad([_-]|$)|^L\d*[_-]/i.test(n))return 'ladder';
@@ -651,14 +646,150 @@ function displayPlots(){
  const w=window.open('/idx/plot.html','opentrace-plot','width=1100,height=760');
  if(!w)message(T('plotWindowBlocked'));else{state.plotWin=w;w.focus()}}
 
-function exportTable(){
- const tab=state.tab==='genotypes'?'genotypes':'samples';const rows=[];
- const val=v=>v.html!=null&&PQV_NUM[v.value]!==undefined?PQV_NUM[v.value]:v.value;
+// ---------- export format (ID-X "Format of Exported, Copied, and Report Results") ----------
+const STATUS_TEXT={analyzed:'Analyzed',unanalyzed:'Not Analyzed',changed:'Analysis setting changed'};
+const BOOL_COLS=new Set(['SE','SQO','ADO','ME']);
+const TYPE_TEXT={sample:'Sample',ladder:'Allelic Ladder',positive:'Positive Control',negative:'Negative Control'};
+const pqvNumber=v=>v==='override'?0.5:PQV_NUM[v]??-2;
+function exportSampleValue(id,s,flags){
+ if(id==='status')return STATUS_TEXT[s.status]||'';
+ if(id==='sampleType')return TYPE_TEXT[s.type]||s.type;
+ const v=sampleCell(id,s,flags);
+ if(BOOL_COLS.has(id))return v.value==='na'?'':v.value==='check'?'TRUE':'FALSE';
+ if(id==='SQ'){const f=flags.SQ;if(f==='na')return -2;const q=sqScore(s);return q==null?(f==='override'?1:pqvNumber(f)):Number(q.toFixed(3))}
+ if(v.html!=null&&PQV_NUM[v.value]!==undefined||v.value==='override')return pqvNumber(v.value);
+ return v.value??''}
+function exportGenoValue(id,r,i){
+ if(BOOL_COLS.has(id)){const f=r.flags?.[id]??'na';return f==='na'?'':f==='check'?'TRUE':'FALSE'}
+ if(id==='GQ'){const f=r.flags?.GQ??'na';if(f==='override')return 0.5;return r.gq!=null?Number(r.gq.toFixed(3)):-2}
+ const v=genoCell(id,r,i);
+ if(v.html!=null&&PQV_NUM[v.value]!==undefined)return pqvNumber(v.value);
+ return v.value??''}
+const blankRow=s=>({sample:s,marker:'',channel:'',calls:[],gq:null,flags:{},peaks:[],reason:''});
+function tableRows(tab,onlySelected){const rows=[];
  if(tab==='samples'){const cols=sampleColumns();rows.push(cols.map(c=>c.head));
-  for(const s of sortedSamples()){const f=sampleFlags(s);rows.push(cols.map(c=>val(sampleCell(c.base,s,f))))}}
- else{const cols=genoColumns();rows.push(cols.map(c=>c.head));for(const r of sortedGenoRows())rows.push(cols.map(c=>val(genoCell(c.base,r,c.index||0))))}
- const text=rows.map(r=>r.map(x=>x==null?'':String(x)).join('\t')).join('\r\n')+'\r\n';
- const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));const a=el('a',{href:url,download:`${state.project.name||'project'}_${tab}.txt`});a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+  for(const s of sortedSamples())if(!onlySelected||state.selected.has(s.id)){const f=sampleFlags(s);rows.push(cols.map(c=>exportSampleValue(c.base,s,f)))}}
+ else{const cols=genoColumns();rows.push(cols.map(c=>c.head));
+  for(const r of sortedGenoRows())if(!onlySelected||state.selected.has(r.sample.id))rows.push(cols.map(c=>exportGenoValue(c.base,r,c.index||0)))}
+ return rows}
+const csvCell=x=>{const s=x==null?'':String(x);return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+function serialize(rows,type){return rows.map(r=>r.map(x=>type==='csv'?csvCell(x):(x==null?'':String(x).replace(/[\t\r\n]+/g,' '))).join(type==='csv'?',':'\t')).join('\r\n')+'\r\n'}
+function saveText(name,text,type){const url=URL.createObjectURL(new Blob([text],{type:type==='csv'?'text/csv':'text/plain'}));
+ const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+const fileBase=()=>(state.project.name||'project').replace(/[\\/:*?"<>|]+/g,'_');
+function exportTable(){
+ const tab=state.tab==='genotypes'?'genotypes':'samples';let type='txt';
+ dialog(T('exportTable').replace(/\.+$/,''),b=>{b.append(el('div',{class:'field'},el('label',{text:T('exportType')}),typeSelect('etType',v=>type=v)),
+  el('div',{class:'field'},el('label',{text:T('fileName')}),el('input',{type:'text',id:'etName',value:`${fileBase()}_${tab}`})),el('p',{class:'note',text:T('exportPqvNote')}))},
+  [[T('exportBtn'),b=>{const name=b.querySelector('#etName').value.trim()||fileBase();saveText(`${name}.${type}`,serialize(tableRows(tab,false),type),type)},true],[T('cancel'),()=>true]])}
+function typeSelect(id,onChange){const s=el('select',{id});s.append(new Option(T('typeTxt'),'txt'),new Option(T('typeCsv'),'csv'));s.addEventListener('change',()=>onChange(s.value));return s}
+
+// ---------- combined export ----------
+const SAMPLE_LEVEL=new Set(['sampleFile','sampleName','sampleID','runName','panel','profileId','UD1','UD2','UD3','UD4','UD5','UD6','UD7','UD8','UD9']);
+const markerNames=list=>{const kit=list.map(sampleKit).find(Boolean);const names=kit?kit.markers.map(m=>m.name):[];
+ for(const s of list)for(const r of genoRows(s))if(!names.includes(r.marker))names.push(r.marker);return names};
+function alleleTable(list,{separate=false,sCols,gCols,numAlleles}){
+ const kinds=gCols.filter(c=>c.kind==='allele');const bases=[...new Set(kinds.map(c=>c.base))];if(!bases.length)bases.push('allele');
+ const head=base=>TableSettings.CATALOG.genotypes.find(c=>c.id===base).head;
+ const markers=markerNames(list);const header=sCols.map(c=>c.head);
+ markers.forEach((m,k)=>{if(separate){header.push(`Marker ${k+1}`);for(const b of bases)for(let i=0;i<numAlleles;i++)header.push(`${head(b)} ${i+1}`)}
+  else for(const b of bases)header.push(b==='allele'?m:`${m} ${head(b)}`)});
+ const rows=[header];
+ for(const s of list){const f=sampleFlags(s);const by=Object.fromEntries(genoRows(s).map(r=>[r.marker,r]));const row=sCols.map(c=>exportSampleValue(c.base,s,f));
+  for(const m of markers){const r=by[m]||{...blankRow(s),marker:m};
+   if(separate){row.push(m);for(const b of bases)for(let i=0;i<numAlleles;i++)row.push(exportGenoValue(b,r,i))}
+   else for(const b of bases){const n=Math.max(r.calls.length,r.calls.length===1&&ProjectOptions.get().dupHomo&&autosomal(m)?2:0);
+    row.push(Array.from({length:n},(_,i)=>exportGenoValue(b,r,i)).filter(x=>x!=='').join(', '))}}
+  rows.push(row)}
+ return rows}
+function combinedRows(mode,{separate,includeAll}){
+ const sCols=sampleColumns();const gAll=genoColumns();const gCols=gAll.filter(c=>!SAMPLE_LEVEL.has(c.base));
+ const list=sortedSamples();const numAlleles=TableSettings.active().genotypes.numAlleles;
+ if(mode==='allele'){const files=[];const panels=[...new Set(list.map(s=>s.panel||''))];
+  for(const p of panels){const sub=list.filter(s=>(s.panel||'')===p);files.push({panel:p,rows:alleleTable(sub,{separate,sCols,gCols:gAll,numAlleles})})}
+  return files}
+ if(mode==='sample'){const markers=markerNames(list);const header=sCols.map(c=>c.head);for(const m of markers)for(const c of gCols)if(c.base!=='marker')header.push(`${m} ${c.head}`);
+  const rows=[header];
+  for(const s of list){const f=sampleFlags(s);const by=Object.fromEntries(genoRows(s).map(r=>[r.marker,r]));const row=sCols.map(c=>exportSampleValue(c.base,s,f));
+   for(const m of markers){const r=by[m]||{...blankRow(s),marker:m};for(const c of gCols)if(c.base!=='marker')row.push(by[m]?exportGenoValue(c.base,r,c.index||0):'')}
+   rows.push(row)}
+  return [{panel:'',rows}]}
+ const header=[...sCols.map(c=>c.head),...gCols.map(c=>c.head)];const rows=[header];
+ for(const s of list){const f=sampleFlags(s);const base=sCols.map(c=>exportSampleValue(c.base,s,f));const gr=genoRows(s);
+  if(gr.length)for(const r of gr)rows.push([...base,...gCols.map(c=>exportGenoValue(c.base,r,c.index||0))]);
+  else if(includeAll&&sampleKit(s))for(const m of sampleKit(s).markers)rows.push([...base,...gCols.map(c=>c.base==='marker'?m.name:'')]);
+  else rows.push([...base,...gCols.map(()=>'')])}
+ return [{panel:'',rows}]}
+function exportCombined(){
+ if(!state.project.samples.length)return message(T('selectSamplesFirst'));
+ let type='txt',mode='allele',separate=false,includeAll=false;
+ dialog(T('exportCombined').replace(/\.+$/,''),b=>{b.classList.add('ecdlg');
+  const radio=(name,value,label,cur,set)=>{const r=el('input',{type:'radio',name,value,id:`ec_${name}_${value}`});r.checked=cur===value;r.addEventListener('change',()=>{if(r.checked)set(value)});return el('label',{class:'chk'},r,document.createTextNode(' '+label))};
+  const inc=el('input',{type:'checkbox',id:'ecIncludeAll'});inc.addEventListener('change',()=>{includeAll=inc.checked});
+  b.append(el('div',{class:'field'},el('label',{text:T('exportType')}),typeSelect('ecType',v=>type=v)),
+   el('div',{class:'field'},el('label',{text:T('fileName')}),el('input',{type:'text',id:'ecName',value:`${fileBase()}_combined`})),
+   el('fieldset',{},el('legend',{text:T('ecMerge')}),
+    radio('mode','allele',T('ecAlleleTable'),mode,v=>mode=v),
+    el('div',{class:'ind'},radio('sep','group',T('ecGroup'),'group',()=>separate=false),radio('sep','separate',T('ecSeparate'),'group',()=>separate=true)),
+    radio('mode','sample',T('ecPerSample'),mode,v=>mode=v),radio('mode','marker',T('ecPerMarker'),mode,v=>mode=v),
+    el('div',{class:'ind'},el('label',{class:'chk'},inc,document.createTextNode(' '+T('ecIncludeAll'))))),
+   el('p',{class:'note',text:T('exportPqvNote')}))},
+  [[T('exportBtn'),b=>{const name=b.querySelector('#ecName').value.trim()||fileBase();const files=combinedRows(mode,{separate,includeAll});
+    const names=[];for(const f of files){const n=`${name}${f.panel?'_'+f.panel.replace(/[\\/:*?"<>|]+/g,'_'):''}.${type}`;saveText(n,serialize(f.rows,type),type);names.push(n)}
+    if(mode==='allele')message(T('ecFilesCreated')+'\n'+names.join('\n'))},true],[T('cancel'),()=>true]])}
+
+// ---------- copy ----------
+function copyRows(){const tab=state.tab==='genotypes'?'genotypes':'samples';const rows=tableRows(tab,true);
+ const text=rows.map(r=>r.map(x=>x==null?'':String(x)).join('\t')).join('\n');
+ (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).then(()=>{state.lastMessage=T('copied')+': '+(rows.length-1);render()},()=>message(text))}
+
+// ---------- reports (Report Manager window) ----------
+function reportSamples(ids){const list=sortedSamples();if(ids&&ids.length){const set=new Set(ids);return state.project.samples.filter(s=>set.has(s.file))}
+ const sel=list.filter(s=>state.selected.has(s.id));return sel.length?sel:list}
+function reportData(setting,files){
+ const list=reportSamples(files);const cols=setting.columns.filter(c=>c.show);
+ const perGeno=cols.some(c=>c.cat==='Genotype');const rows=[];
+ const value=(c,s,f,r)=>c.cat==='Custom'?'':c.cat==='Sample'?exportSampleValue(c.id,s,f):exportGenoValue(c.id,r,c.index||0);
+ for(const s of list){const f=sampleFlags(s);const gr=perGeno?genoRows(s):[];
+  if(gr.length)for(const r of gr)rows.push({file:s.file,name:s.name,panel:s.panel||'',marker:r.marker,values:cols.map(c=>value(c,s,f,r))});
+  else rows.push({file:s.file,name:s.name,panel:s.panel||'',marker:'',values:cols.map(c=>value(c,s,f,blankRow(s)))})}
+ const byMarker={markers:markerNames(list),samples:list.map(s=>({file:s.file,name:s.name,alleles:Object.fromEntries(genoRows(s).map(r=>[r.marker,r.calls.map(c=>c.label)]))}))};
+ return {project:state.project.name||'',heads:cols.map(c=>ReportSettings.colHead(c)),cols,rows,byMarker,files:list.map(s=>s.file)}}
+function openReportManager(){const w=window.open('/idx/report.html','opentrace-report','width=1100,height=720');if(!w)message(T('plotWindowBlocked'));else{state.reportWin=w;w.focus()}}
+const reportApi={
+ data:(setting,files)=>reportData(setting,files),
+ list:()=>(state.project.reports||[]).map(r=>({name:r.name,setting:r.setting.name,saved:r.saved,samples:r.files.length})),
+ get:name=>(state.project.reports||[]).find(r=>r.name===name)||null,
+ save:rep=>{state.project.reports=(state.project.reports||[]).filter(r=>r.name!==rep.name);state.project.reports.push({...rep,saved:new Date().toISOString()});state.project.dirty=true;render();return true},
+ remove:name=>{state.project.reports=(state.project.reports||[]).filter(r=>r.name!==name);state.project.dirty=true;render()},
+ alleleTable:(setting,files,separate)=>{const list=reportSamples(files);const cat=TableSettings.CATALOG;
+  const sCols=setting.columns.filter(c=>c.show&&c.cat==='Sample').map(c=>({...cat.samples.find(x=>x.id===c.id),base:c.id}));
+  const gCols=[...new Set(setting.columns.filter(c=>c.show&&c.cat==='Genotype'&&ReportSettings.isAllele('Genotype',c.id)).map(c=>c.id))].map(id=>({...cat.genotypes.find(x=>x.id===id),base:id}));
+  const out=[];for(const p of [...new Set(list.map(s=>s.panel||''))]){const sub=list.filter(s=>(s.panel||'')===p);out.push({panel:p,rows:alleleTable(sub,{separate,sCols,gCols,numAlleles:setting.numAlleles})})}
+  return out},
+ plot:files=>{const set=new Set(files);state.selected=new Set(state.project.samples.filter(s=>set.has(s.file)).map(s=>s.id));render();displayPlots()},
+ hasProject:()=>!!state.project.samples.length};
+window.OT.report=reportApi;
+
+// ---------- printing: page setup and print preview ----------
+const PAGE_KEY='opentrace.pageSetup.v1';
+function pageSetup(){let v={};try{v=JSON.parse(localStorage.getItem(PAGE_KEY)||'{}')||{}}catch(e){}
+ return {orientation:v.orientation==='portrait'?'portrait':'landscape',fit:v.fit!==false,header:v.header!==false,paper:['A4','Letter','Legal'].includes(v.paper)?v.paper:'A4'}}
+function pageSetupDialog(){const o=pageSetup();
+ dialog(T('pageSetup').replace(/\.+$/,''),b=>{b.classList.add('psdlg');
+  const paper=el('select',{id:'psPaper'});for(const p of ['A4','Letter','Legal'])paper.append(new Option(p,p));paper.value=o.paper;paper.addEventListener('change',()=>o.paper=paper.value);
+  const or=el('select',{id:'psOrient'});or.append(new Option(T('psLandscape'),'landscape'),new Option(T('psPortrait'),'portrait'));or.value=o.orientation;or.addEventListener('change',()=>o.orientation=or.value);
+  const fit=el('input',{type:'checkbox',id:'psFit'});fit.checked=o.fit;fit.addEventListener('change',()=>o.fit=fit.checked);
+  const hd=el('input',{type:'checkbox',id:'psHeader'});hd.checked=o.header;hd.addEventListener('change',()=>o.header=hd.checked);
+  b.append(el('div',{class:'field'},el('label',{text:T('psPaper')}),paper),el('div',{class:'field'},el('label',{text:T('psOrientation')}),or),
+   el('label',{class:'chk'},fit,document.createTextNode(' '+T('psFit'))),el('label',{class:'chk'},hd,document.createTextNode(' '+T('psHeaderText'))))},
+  [[T('ok'),()=>{try{localStorage.setItem(PAGE_KEY,JSON.stringify(o))}catch(e){}},true],[T('cancel'),()=>true]])}
+function printPayload(){
+ const tab=state.tab;let title=T(tab==='summary'?'analysisSummary':tab),table=null,html=null;
+ if(tab==='summary')html=$('summary').innerHTML;else table=tableRows(tab==='genotypes'?'genotypes':'samples',false);
+ return {title,project:state.project.name||T('untitled'),date:new Date().toLocaleString(),page:pageSetup(),table,html,lang:I18N.lang}}
+function printPreview(){const w=window.open('/idx/print.html','opentrace-print','width=1000,height=760');if(!w)message(T('plotWindowBlocked'));else w.focus()}
+function printNow(){const w=window.open('/idx/print.html#print','opentrace-print','width=1000,height=760');if(!w)message(T('plotWindowBlocked'))}
 
 // ---------- find and sort ----------
 function findDialog(){
@@ -699,8 +830,8 @@ function buildChrome(){
   {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},{label:T('closeProject'),run:closeProject},
    {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},'-',
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
-   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:notYet},{label:T('exportCodis'),run:notYet},'-',
-   {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:notYet},{label:T('printPreview'),run:notYet},{label:T('print'),sc:'Ctrl+P',run:()=>window.print()},'-',
+   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:notYet},'-',
+   {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),disabled:true},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
    {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},'-',
@@ -712,7 +843,7 @@ function buildChrome(){
    {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),run:notYet},{label:T('rawData'),run:notYet},{label:T('eptData'),run:notYet},'-',
    {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
-  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:notYet},{label:T('labelEditViewer'),run:labelEditViewer},
+  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:notYet},'-',{label:T('profileManager'),run:notYet},{label:T('profileComparison'),run:notYet},'-',
    {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
@@ -722,12 +853,12 @@ function buildChrome(){
  const tb=$('toolbar');tb.replaceChildren(
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),openProject,{id:'tbOpen'}),tbutton('saveProject',T('saveProject'),saveProject,{id:'tbSave'}),tsep(),
   tbutton('addSamples',T('addSamples'),addSamples),tbutton('exportTable',T('exportTable'),exportTable,{id:'tbExport'}),tsep(),
-  tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),notYet),tbutton('labelEditViewer',T('labelEditViewer'),labelEditViewer,{id:'tbLabelEdits'}),
+  tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),openReportManager,{id:'tbReport'}),tbutton('labelEditViewer',T('labelEditViewer'),labelEditViewer,{id:'tbLabelEdits'}),
   tbutton('sizeMatchEditor',T('sizeMatchEditor'),openSizeMatch,{id:'tbSizeMatch'}),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method),{id:'tbMethodEditor'}),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
   tbutton('manager',T('manager'),()=>Methods.openManager(),{id:'tbManager'}),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
   tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));
- tb.append(tableSettingCombo(),tbutton('tableSettingEditor',T('tableSettingEditor'),editTableSetting,{id:'tbTableSetting'}),tsep(),tbutton('find',T('find'),findDialog,{id:'tbFind'}),tbutton('print',T('print'),()=>window.print()),
-  tbutton('printPreview',T('printPreview'),notYet),tbutton('help',T('helpTopics'),notYet));
+ tb.append(tableSettingCombo(),tbutton('tableSettingEditor',T('tableSettingEditor'),editTableSetting,{id:'tbTableSetting'}),tsep(),tbutton('find',T('find'),findDialog,{id:'tbFind'}),tbutton('print',T('print'),printNow,{id:'tbPrint'}),
+  tbutton('printPreview',T('printPreview'),printPreview,{id:'tbPrintPreview'}),tbutton('help',T('helpTopics'),notYet));
  $('stopBtn').textContent=T('stop');
  renderTabs()}
 function projectOptions(){ProjectOptions.open({methodSelect,panelSelect,sizeStdNames:()=>Object.keys(SIZE_STANDARDS),types:Object.entries(TYPE_KEYS).map(([k,v])=>[k,T(v)])})}
@@ -739,7 +870,7 @@ document.addEventListener('keydown',e=>{
  const k=e.key.toLowerCase();
  if(e.key==='F1'){e.preventDefault();notYet();return}
  if(!e.ctrlKey&&!e.metaKey)return;
- const map={o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
+ const map={o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 

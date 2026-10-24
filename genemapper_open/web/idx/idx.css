@@ -218,3 +218,21 @@ table.g tr.undone td{color:#999;text-decoration:line-through}
 .arsdlg,.alasdlg{max-width:640px}.arsdlg table,.alasdlg table{border-collapse:collapse;margin:6px 0}
 .alasdlg th,.alasdlg td{border:1px solid #a7a6aa;padding:2px 8px;text-align:center}
 .alasdlg a{color:var(--link)}
+/* 0.29: print preview, report manager, report settings */
+body.printwin{background:#808080;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.pviewport{flex:1;overflow:auto;padding:16px}
+.paper{background:#fff;margin:0 auto;padding:10mm;box-shadow:0 2px 8px rgba(0,0,0,.5);box-sizing:content-box;font:11px Tahoma,Arial,sans-serif}
+.phead{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #000;padding-bottom:3px;margin-bottom:6px}
+.ptable{border-collapse:collapse}.ptable.fit{width:100%;table-layout:auto}
+.ptable th,.ptable td{border:1px solid #888;padding:1px 4px;font-size:10px;text-align:left;word-break:break-word}
+.ptable thead{display:table-header-group}.ptable th{background:#eee}
+.pfoot{margin-top:4px;color:#555}
+@media print{body.printwin{background:#fff;display:block;height:auto;overflow:visible}.pviewport{padding:0;overflow:visible}.paper{box-shadow:none;padding:0;width:auto!important;min-height:0!important}.noprint{display:none!important}}
+.rsdlg .rsbody{display:flex;gap:8px;align-items:flex-start}.rsdlg .rscol{display:flex;flex-direction:column;gap:4px}
+.rsdlg .rslist{width:220px;height:260px}.rsdlg .rsmid{display:flex;flex-direction:column;gap:6px;padding-top:90px}
+.rsdlg .rsgrid{width:340px;height:260px;overflow:auto;background:#fff;border:1px solid #7f9db9}
+.rsdlg .rsprev{height:46px;overflow:auto;max-width:900px;background:#fff;border:1px solid #7f9db9}
+.rsdlg .cap{margin:6px 0 2px;font-weight:bold}
+.ecdlg .ind{margin-left:22px}.ecdlg fieldset{margin:6px 0}.ecdlg label.chk{display:block;margin:2px 0}
+.reportwin .grid{flex:1}.reportwin td.cust{background:#fffff0}.reportwin td.cust input{width:100%;border:0;background:transparent;font:inherit}
+.reportwin .rptitle{padding:3px 8px;font-size:11px;color:#333;border-bottom:1px solid #aca899}

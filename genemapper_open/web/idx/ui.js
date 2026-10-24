@@ -20,6 +20,8 @@ const ICONS={
  stop:svg('<path d="M5 1h6l4 4v6l-4 4H5l-4-4V5z" fill="#d93025" stroke="#7a130c"/>'),
  lowQualityTop:svg('<rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#555"/><path d="M3 4h4M3 7h6M3 10h8M3 13h10" stroke="#999"/><path d="M12 9V2m-2 2 2-2 2 2" stroke="#d33" fill="none" stroke-width="1.4"/>'),
  tableSettingEditor:svg('<rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#555"/><path d="M1.5 5h13M6 1.5v13M10 1.5v13" stroke="#999"/><rect x="1.5" y="1.5" width="13" height="3.5" fill="#cfd8ee" stroke="#555"/>'),
+ reportSettingsEditor:svg('<rect x="2.5" y="1.5" width="11" height="13" fill="#fff" stroke="#555"/><path d="M4 4h8M4 6.5h8M4 9h4" stroke="#3a7"/><path d="M8.5 13.5l1-3 4-4 2 2-4 4z" fill="#f5c542" stroke="#7a5c00"/>'),
+ rpRefresh:svg('<path d="M13 8a5 5 0 1 1-1.5-3.6" fill="none" stroke="#2a6f2a" stroke-width="1.8"/><path d="M13.5 1.5v4h-4z" fill="#2a6f2a"/>'),
  find:svg('<circle cx="6.5" cy="6.5" r="4.5" fill="#e8f1ff" stroke="#335"/><path d="M10 10l5 5" stroke="#335" stroke-width="2"/>'),
  print:svg('<rect x="4" y="1.5" width="8" height="5" fill="#fff" stroke="#555"/><rect x="1.5" y="6.5" width="13" height="6" rx="1" fill="#bbb" stroke="#555"/><rect x="4" y="10.5" width="8" height="4" fill="#fff" stroke="#555"/>'),
  printPreview:svg('<rect x="2.5" y="1.5" width="9" height="12" fill="#fff" stroke="#555"/><circle cx="10" cy="10" r="3" fill="#e8f1ff" stroke="#335"/><path d="M12 12l3 3" stroke="#335" stroke-width="1.6"/>'),
