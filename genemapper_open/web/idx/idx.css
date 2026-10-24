@@ -333,3 +333,7 @@ table.g td.c{text-align:center}
  #plotPrint .ppage{box-shadow:none;margin:0;page-break-after:always;break-after:page}
  #plotPrint .ppage:last-child{page-break-after:auto;break-after:auto}
 }
+/* View > Bin Offsets (BinOffsetDlg: Run, Bin Set, Panel, Marker, Bin, Offset) */
+.bodlg .bowrap{max-height:420px;min-width:560px;overflow:auto;border:1px solid #a7a6aa;background:#fff}
+.bodlg table{border-collapse:collapse;width:100%}.bodlg th{position:sticky;top:0;background:#ece9d8;border:1px solid #a7a6aa;padding:2px 8px;font-weight:normal;text-align:left}
+.bodlg td{border:1px solid #d4d0c8;padding:1px 8px;white-space:nowrap}.bodlg td.rn{background:#ece9d8;color:#444;text-align:right}.bodlg td.num{text-align:right}

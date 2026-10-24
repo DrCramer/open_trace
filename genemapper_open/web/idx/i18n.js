@@ -375,6 +375,8 @@ en:{
  confirmDeleteLabels:'Delete {0} label(s) of {1} sample(s)?',noLabelsToDelete:'There are no labels to delete.',deletedLabels:'{0} label(s) deleted',
  exportWithStutter:'Export Table with Stutter',
  stutterExportNote:'Stutter alleles are not exported for allelic ladders; PQVs refer to the main alleles; stutter peaks labelled as artifacts are left out.',yes:'Yes',no:'No',
+ boRun:'Run',boBinSet:'Bin Set',boPanel:'Panel',boMarker:'Marker',boBin:'Bin',boOffset:'Offset',boTitleRun:'Offsets For Run <{0}>',boExport:'Export...',
+ boExportError:'Error exporting bin offset table',boEmpty:'No bin offsets: the run folder has not been genotyped with a passing allelic ladder.',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -759,6 +761,8 @@ ru:{
  confirmDeleteLabels:'Удалить меток: {0} (образцов: {1})?',noLabelsToDelete:'Нет меток для удаления.',deletedLabels:'Удалено меток: {0}',
  exportWithStutter:'Экспорт таблицы со статтером',
  stutterExportNote:'Статтерные аллели лестниц не экспортируются; PQV относятся к основным аллелям; статтерные пики с меткой артефакта не выводятся.',yes:'Да',no:'Нет',
+ boRun:'Запуск',boBinSet:'Набор бинов',boPanel:'Панель',boMarker:'Маркер',boBin:'Бин',boOffset:'Смещение',boTitleRun:'Смещения для запуска <{0}>',boExport:'Экспорт...',
+ boExportError:'Ошибка экспорта таблицы смещений бинов',boEmpty:'Смещений нет: папка запуска не генотипирована по прошедшей аллельной лестнице.',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}
