@@ -149,8 +149,14 @@ const arnmReasons=s=>arnmCodes(s).map(k=>T(k));
 // Requirements without which a sample cannot be analyzed at all (ID-X: non-optional requirements).
 const BLOCKING=new Set(['arsSfnf','arnmMethod','arnmStandard']);
 const blocked=s=>arnmCodes(s).some(k=>BLOCKING.has(k));
+// MIX PQV (ID-X help): two or more markers with three or more alleles, or one such marker and two or more
+// markers with a PHR flag, or any edited marker -> Check; ladders and samples without labels -> NA.
+function mixFlag(s,eff){if(s.type==='ladder'||!eff||!eff.calls.length)return 'na';
+ const per={};for(const c of eff.calls)if(c.label)per[c.marker]=(per[c.marker]||0)+1;
+ const many=Object.values(per).filter(n=>n>=3).length;const phr=genoRows(s).filter(r=>r.flags.PHR==='check').length;
+ return many>=2||(many>=1&&phr>=2)||activeEdits(s).length?'check':'pass'}
 function sampleFlags(s){const q=samplePqv(s);
- const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';
+ const eff=s.report?effective(s):null;if(eff?.cgqOverride)q.CGQ='override';if(s.report&&q.SQ!=='low')q.MIX=mixFlag(s,eff);
  return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:'na',SFNF:(s.blob||s.analysis)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
@@ -409,7 +415,7 @@ const sid=s=>'s'+s.id;
 function blobToB64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(blob)})}
 function b64ToBlob(b64,name){const bin=atob(b64);const a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return new File([a],name)}
 function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method));const kitsUsed=new Set(state.project.samples.map(s=>(s.panelKey||'').split('\u0001')[0]).filter(Boolean));
- return {comment:state.project.comment||'',run_folders:state.project.runFolders,reports:state.project.reports||[],
+ return {comment:state.project.comment||'',run_folders:state.project.runFolders,reports:state.project.reports||[],mixture:state.project.mixture||{},
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
    sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
   snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),tableSetting:TableSettings.active(),
@@ -472,7 +478,7 @@ async function loadProject(name){
     status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:data.analysis||null,compact:data.compact||null,report:data.report||null,rev:0,savedRev:0});
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
-  Object.assign(state.project,{reports:Array.isArray(meta.reports)?meta.reports:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
+  Object.assign(state.project,{mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
   state.lastMessage=T('projectOpened')+': '+meta.name;rememberProject(meta.name);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
  catch(e){message(e.message)}finally{state.busy=false;render()}}
@@ -502,8 +508,9 @@ function newProject(){
 // File-name heuristics for sample type; the user can change the type in the table.
 function sampleTypeFromName(n){
  if(/ladder|allelic|_al_|(^|[_-])lad([_-]|$)|^L\d*[_-]/i.test(n))return 'ladder';
- if(/neg|^NC\d*[_-]|[_-]NC\d*[_-]|blank/i.test(n))return 'negative';
- if(/pos|^PC\d*[_-]|[_-]PC\d*[_-]|control|9947|2800M|(^|[_-])007([_-]|$)/i.test(n))return 'positive';
+ if(/neg|^NTC|[_-]NTC|^NC\d*[_-]|[_-]NC\d*[_-]|blank/i.test(n))return 'negative';
+ // "007" is the AmpFlSTR control DNA only as a whole name part at the start (not a well/plate index like _007_D07).
+ if(/pos|^PC\d*[_-]|[_-]PC\d*[_-]|control|9947|2800M|^007([_-]|$)/i.test(n))return 'positive';
  return 'sample'}
 function addSamples(){
  if(!state.project.name)Object.assign(state.project,{name:T('untitled'),dirty:true});
@@ -857,7 +864,7 @@ function buildChrome(){
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},'-',{label:T('addProfile'),sub:[{label:T('pfLab'),run:()=>addProfile('Lab Reference')},{label:T('pfCustom'),run:()=>addProfile('Custom Control')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
-   {label:T('mixture'),sc:'Ctrl+U',run:notYet},{label:T('mixtureManager'),run:notYet}]},
+   {label:T('mixture'),sc:'Ctrl+U',run:()=>Mixture.open()},{label:T('mixtureManager'),sc:'Ctrl+Y',run:()=>Mixture.manager()}]},
   {label:T('admin'),items:[{label:T('securityManager'),disabled:true},{label:T('auditManager'),sub:[{label:T('auditSetting'),disabled:true},{label:T('auditReport'),disabled:true}]},
    {label:T('esig'),disabled:true},{label:T('databaseManager'),disabled:true}]},
   {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:notYet},{label:T('loadExample'),run:loadExample},'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
@@ -882,7 +889,7 @@ document.addEventListener('keydown',e=>{
  const k=e.key.toLowerCase();
  if(e.key==='F1'){e.preventDefault();notYet();return}
  if(!e.ctrlKey&&!e.metaKey)return;
- const map={o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
+ const map={u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
@@ -899,6 +906,14 @@ Profiles.init({post:jsonPost,samples:qcSamples,plot:files=>reportApi.plot(files)
  setUser:u=>{try{localStorage.setItem('opentrace.user',u)}catch(e){}}});
 window.addEventListener('opentrace-profiles',()=>render());window.addEventListener('opentrace-codis',()=>{Profiles.codisCatalog().then(()=>render()).catch(()=>{})});
 Profiles.codisCatalog().then(()=>render()).catch(()=>{});
+function mixSamples(){return state.project.samples.map(s=>{const eff=s.report?effective(s):null;const kit=sampleKit(s);
+ const y=new Set((kit?.markers||[]).filter(m=>m.y_marker).map(m=>m.name));const byM=new Map();
+ if(eff)for(const c of [...eff.calls].sort((a,b)=>a.size_bp-b.size_bp)){if(!c.label)continue;if(!byM.has(c.marker))byM.set(c.marker,[]);byM.get(c.marker).push({label:String(c.label),height:c.height})}
+ const q=samplePqv(s).SQ;const markers=[...byM].map(([name,alleles])=>({name,y:y.has(name),alleles}));
+ return {file:s.file,name:s.name,runFolder:s.runFolder,panel:s.panel||'',markers,
+  eligibleBase:!!eff&&s.type==='sample'&&['pass','check','override'].includes(q)&&markers.length>0,ol:markers.some(m=>m.alleles.some(a=>a.label.toUpperCase()==='OL'))}})}
+Mixture.init({post:jsonPost,samples:mixSamples,plot:files=>reportApi.plot(files),results:()=>JSON.parse(JSON.stringify(state.project.mixture||{})),
+ saveResults:r=>{state.project.mixture=r;state.project.dirty=true;render()},knowns:()=>Profiles.profiles()});
 Methods.init(jsonPost);
 buildChrome();render();
 Methods.ensureDefault().then(()=>{render();

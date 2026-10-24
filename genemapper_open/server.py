@@ -395,6 +395,14 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
                 else:artifacts['unavailable']+=1
         if artifacts['unavailable']:artifacts['status']='partial'
     pullup_detection=None
+    if pullup_definition is not None and pullup_definition.get('detector'):
+        # Method pairs cover all dyes of the dye set; files with fewer dyes (4- and 5-dye
+        # chemistries) keep only the pairs whose channels exist in the selected group.
+        present={c['tag'] for c in channels if c.get('group')==selected_group}
+        detector=pullup_definition['detector']
+        kept=[r for r in detector['channel_pairs'] if r['candidate_channel'] in present and r['reference_channel'] in present]
+        if len(kept)!=len(detector['channel_pairs']):
+            pullup_definition={**pullup_definition,'detector':{**detector,'channel_pairs':kept}}
     if pullup_definition is not None:
         from .pullup import apply_pullup_detection
         detection=apply_pullup_detection(channels,pullup_definition,selected_group=selected_group,reference_channel=standard_channel)
@@ -441,7 +449,7 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                  ".js": "text/javascript; charset=utf-8"}
     idx_files = {name: (idx_dir / name).read_bytes() for name in
                  ("project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js",
-                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js")}
+                  "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js")}
     for page_name in ("project.html", "panels.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
 
@@ -489,7 +497,7 @@ def serve(port=8765, open_browser=False, projects_dir=None):
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
                                    "/api/str", "/api/demo-str", "/api/str-run", "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality", "/api/import-gm-kit",
-                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles"):
+                                   "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture"):
                 return self.respond(404, {"error": "Not found"})
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -518,6 +526,9 @@ def serve(port=8765, open_browser=False, projects_dir=None):
                 if parsed.path == '/api/codis':
                     from .codis import codis_request
                     return self.respond(200,codis_request(json.loads(raw)))
+                if parsed.path == '/api/mixture':
+                    from .mixture import mixture_request
+                    return self.respond(200,mixture_request(json.loads(raw)))
                 if parsed.path == '/api/profiles':
                     from .profiles import profile_request
                     return self.respond(200,profile_request(json.loads(raw)))
