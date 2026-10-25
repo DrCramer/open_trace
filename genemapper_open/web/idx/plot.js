@@ -1,10 +1,16 @@
 // OpenTrace Samples Plot window.
 (function(){
 const $=id=>document.getElementById(id);
-const DYE_COLORS={DATA1:'#0000ff',DATA2:'#00a000',DATA3:'#000000',DATA4:'#ff0000',DATA105:'#b000d0',DATA106:'#ff8000'};
-const DYE_KEYS=['DATA1','DATA2','DATA3','DATA4','DATA105','DATA106'];
-const DYE_NAMES={DATA1:'blue',DATA2:'green',DATA3:'yellow',DATA4:'red',DATA105:'purple',DATA106:'orange'};
-const GQ_FILL={pass:'#3ccf4e',check:'#f5c542',low:'#ff4d4d',na:'#c8c8c8'};
+const DYE_COLORS={DATA1:'#0000ff',DATA2:'#00a000',DATA3:'#000000',DATA4:'#ff0000',DATA105:'#ff8000',DATA106:'#b000d0'};
+// DATA105 = 5th dye (orange LIZ in 5- and 6-dye data), DATA106 = 6th dye (purple SID of 6-dye kits); panes in the order B G Y R P O
+const DYE_KEYS=['DATA1','DATA2','DATA3','DATA4','DATA106','DATA105'];
+const DYE_NAMES={DATA1:'blue',DATA2:'green',DATA3:'yellow',DATA4:'red',DATA105:'orange',DATA106:'purple'};
+// marker header colours of ID-X plots (green / yellow-orange / red GQ; grey = edited or no GQ)
+const GQ_FILL={pass:'#009900',check:'#ff9900',low:'#cc0000',na:'#7f7f7f'};
+const BIN_FILL='#d8d8d8',VBIN_FILL='#fecbcb';
+// allele-calling window and bin offsets of a sample's marker (bins shift by the ladder offsets of its run)
+function markerCalling(s,name){const m=s.report?.allele_calling?.markers;if(!m)return null;return Array.isArray(m)?m.find(x=>x.name===name):m[name]||Object.values(m).find(x=>x.name===name)}
+const sampleEdited=s=>(s.markers||[]).some(r=>r.edited);
 const PQV_KEYS=['SOS','SQ','SSPK','MIX','OMR','CGQ'];
 const METRIC_PQV={allele_number:'AN',absolute_height:'LPH',high_height:'MPH',spike:'SPK',ratio:'PHR',broad:'BD',offscale:'OS',overlap:'OVL',binning:'BIN'};
 
@@ -14,7 +20,7 @@ const view={panes:2,layout:'separate',labels:'h',bins:true,header:true,markerRan
  alleleChanges:true,sizeStdLabels:false,controlsTop:false,laddersTop:false,customColors:false};
 // ---------- plot settings (Plot Settings Editor) ----------
 const PS_ACTIVE='opentrace.plotSettings.active';
-const NAME_DYE={blue:'DATA1',green:'DATA2',yellow:'DATA3',red:'DATA4',purple:'DATA105',orange:'DATA106'};
+const NAME_DYE={blue:'DATA1',green:'DATA2',yellow:'DATA3',red:'DATA4',purple:'DATA106',orange:'DATA105'};
 let setting=null;
 function settingNames(){return PlotSettings.list().map(r=>r.setting.name).filter(n=>!window.Sec||!Sec.items||Sec.items.can('plots',n,'read'))}
 function activeName(){let n='';try{n=localStorage.getItem(PS_ACTIVE)||''}catch(e){}const names=settingNames();return names.includes(n)?n:(names.includes('Data Interpretation')?'Data Interpretation':names[0])}
@@ -22,7 +28,7 @@ function applySetting(name){setting=PlotSettings.get(name)||PlotSettings.factory
  const D=setting.display.persistence==='last'&&setting.lastView?{...setting.display,...setting.lastView}:setting.display;
  Object.assign(view,{panes:D.panes,layout:D.layout,labels:D.labels,bins:D.bins,header:D.header,markerRange:D.markerRange,table:D.table==='lev'?'none':D.table,
   xAxis:D.xAxis,yAxis:D.yAxis,yValue:D.yValue,peakPositions:D.peakPositions,offscale:D.offscale,toolbar:D.toolbar,alleleChanges:D.alleleChanges,
-  sizeStdLabels:D.sizeStdLabels,controlsTop:D.controlsTop,laddersTop:D.laddersTop,x0:null,x1:null});
+  sizeStdLabels:D.sizeStdLabels,controlsTop:D.controlsTop,laddersTop:D.laddersTop,markerIndicator:D.markerIndicator!==false,x0:null,x1:null});
  view.dyes=new Set(Object.entries(D.dyes).filter(([,on])=>on).map(([d])=>NAME_DYE[d]));
  view.userZoom=false;if(!D.allDyes&&D.xAxis==='bp'&&D.end>D.start){view.x0=D.start;view.x1=D.end}
  if(D.table==='lev')setTimeout(()=>{try{window.opener.OT.labelEditViewer()}catch(e){}},0)}
@@ -99,7 +105,7 @@ function draw(){
    if(on('sampleFileName'))head.append(el('div',{class:'c',style:'width:250px',text:p.overlay?'':s.file}));
    if(on('sampleName'))head.append(el('div',{class:'c',style:'width:150px',text:p.overlay?'':s.name}));
    if(on('panel'))head.append(el('div',{class:'c',style:'width:150px',text:p.overlay?'':(s.kit?.panel||s.kit?.name||'')}));
-   for(const k of PQV_KEYS.filter(on)){const c=el('div',{class:'c',style:'width:46px;justify-content:center'});c.innerHTML=p.overlay?'':pqv(s.pqv?.[k]);head.append(c)}
+   for(const k of PQV_KEYS.filter(on)){const c=el('div',{class:'c',style:'width:46px;justify-content:center'});c.innerHTML=p.overlay?'':pqv(s.pqv?.[k],k!=='SQ'&&sampleEdited(s));head.append(c)}
    if(!p.overlay){const lab=el('label',{class:'c',style:'gap:4px'});lab.append(el('input',{type:'checkbox'}),T('markSample'));head.append(lab);head._sample=s;head.title=T('headerMenuHint')}
    pane.append(head)}
   const canvas=el('canvas');canvas.height=h;pane.append(canvas);area.append(pane);
@@ -112,9 +118,9 @@ function draw(){
 function paint(cv,items,x0,x1,onlyMarker){
  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.height;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
  const g=cv.getContext('2d');g.scale(dpr,dpr);g.fillStyle='#fff';g.fillRect(0,0,W,H);g.font='11px Tahoma,Arial';
- const LS=setting?.labels||PlotSettings.base('').labels;const fs=LS.size||11;const lineH=fs+3;
+ const LS=setting?.labels||PlotSettings.base('').labels;const fs=LS.size||11;const lineH=fs+5;
  const maxLines=Math.max(1,...['assigned','custom','ladder','artifact'].map(k=>{const i=LS[k].indexOf('none');return i<0?4:Math.max(1,i)}));const labelH=maxLines*lineH+3;
- const L=50,R=12,top=view.markerRange?36:16,bottom=H-(view.labels==='none'?16:10+2*(labelH+2));
+ const L=56,R=14,top=view.markerRange?40:18,bottom=H-(view.labels==='none'?16:10+2*(labelH+2));
  const s=items[0].sample;const cur=curveOf(s.analysis);const dp=view.xAxis==='dp';
  const pos=(bp,scan)=>dp?(scan??bpToScan(cur,bp)):bp;   // plot coordinate of a peak / bin edge
  const Xc=v=>L+(v-x0)/(x1-x0)*(W-L-R);const X=bp=>Xc(dp?bpToScan(cur,bp):bp);
@@ -124,31 +130,41 @@ function paint(cv,items,x0,x1,onlyMarker){
  for(const m of markers.filter(m=>dyes.includes(m.channel))){
   const row=(s.markers||[]).find(r=>r.marker===m.name);const xa=X(m.min_bp),xb=X(m.max_bp);
   // marker header colour = GQ; grey when its allele labels were edited
-  if(view.markerRange){const col=row?.edited?'#a8a8a8':GQ_FILL[row?.gqCat||'na'];
-   // printed plots: marker header backgrounds are unfilled and outlined in colour (help: Reviewing Color-Coded Marker Headers)
-   if(view.printing){g.fillStyle='#fff';g.fillRect(xa,4,xb-xa,14);g.lineWidth=2;g.strokeStyle=col;g.strokeRect(xa+1,5,xb-xa-2,12);g.lineWidth=1}
-   else{g.fillStyle=col;g.fillRect(xa,4,xb-xa,14);g.strokeStyle='#555';g.strokeRect(xa+.5,4.5,xb-xa-1,13)}
-   g.fillStyle='#000';g.save();g.beginPath();g.rect(xa,4,xb-xa,14);g.clip();g.fillText((row?.pli?'** ':'')+m.name,xa+3,15);g.restore();
-   m._hit={x0:xa,x1:xb,y0:4,y1:18}}
-  if(view.bins)for(const b of m.bins||[]){const ba=X(b.center_bp-(b.left_bp??.5)),bb=X(b.center_bp+(b.right_bp??.5));
-   g.fillStyle=b.virtual?'rgba(255,150,190,.35)':'rgba(150,150,150,.28)';g.fillRect(ba,top,Math.max(1,bb-ba),bottom-top)}}
+  if(view.markerRange){const col=row?.edited?GQ_FILL.na:GQ_FILL[row?.gqCat||'na'];const hy=3,hh=16;
+   // ID-X 1.4 prints filled headers like the screen; the ID-X 1.6 help describes unfilled headers outlined in colour (Page Setup choice)
+   if(view.printing&&view.headerStyle==='outline'){g.fillStyle='#fff';g.fillRect(xa,hy,xb-xa,hh);g.lineWidth=2;g.strokeStyle=col;g.strokeRect(xa+1,hy+1,xb-xa-2,hh-2);g.lineWidth=1}
+   else{g.fillStyle=col;g.fillRect(xa,hy,xb-xa,hh);g.strokeStyle='#000';g.strokeRect(xa+.5,hy+.5,xb-xa-1,hh-1)}
+   g.save();g.font='12px Arial,Helvetica,sans-serif';g.textAlign='center';g.fillStyle='#000';const name=(row?.pli?'** ':'')+m.name;
+   g.fillText(g.measureText(name).width<=xb-xa-4?name:'...',(xa+xb)/2,hy+hh-4);g.restore();
+   m._hit={x0:xa,x1:xb,y0:hy,y1:hy+hh}}
+  if(view.bins){const off=markerCalling(s,m.name)?.offsets?.by_bin||{};
+   for(const b of m.bins||[]){const d=off[b.label]?.offset_bp||0;const ba=X(b.center_bp-d-(b.left_bp??.5)),bb=X(b.center_bp-d+(b.right_bp??.5));
+    g.fillStyle=b.virtual?VBIN_FILL:BIN_FILL;g.fillRect(ba,top,Math.max(1,bb-ba),bottom-top)}}}
  // axes
- g.strokeStyle='#000';g.beginPath();g.moveTo(L,top);g.lineTo(L,bottom);g.lineTo(W-R,bottom);g.stroke();
- const step=niceStep((x1-x0)/8);g.fillStyle='#000';g.textAlign='center';
- for(let v=Math.ceil(x0/step)*step;v<=x1;v+=step){const x=Xc(v);g.fillText(String(+v.toFixed(1)),x,top-3);g.beginPath();g.moveTo(x,top);g.lineTo(x,top+3);g.stroke()}
+ g.strokeStyle='#000';g.strokeRect(L+.5,top+.5,W-L-R-1,bottom-top);
+ const step=niceStep((x1-x0)/7);g.fillStyle='#000';g.textAlign='center';g.font='12px Arial,Helvetica,sans-serif';
+ for(let v=Math.ceil(x0/step)*step;v<=x1;v+=step){const x=Xc(v);g.fillText(String(+v.toFixed(1)),x,top-5);g.beginPath();g.moveTo(x,top-3);g.lineTo(x,top+4);g.stroke()}
+ for(let v=Math.ceil(x0/step*2)*step/2;v<=x1;v+=step/2){const x=Xc(v);g.beginPath();g.moveTo(x,top);g.lineTo(x,top+2);g.stroke()}
+ g.font='11px Tahoma,Arial';
  // traces
  let ymax=1;const traces=[];
  for(const it of items)for(const t of traceData(it,x0,x1)){ymax=Math.max(ymax,t.max);traces.push(t)}
  if(!traces.length){g.fillStyle='#777';g.textAlign='center';g.fillText(T('noValues'),W/2,(top+bottom)/2);return}
  // Y axis: scale individually, to the maximum Y of all panes, or to the entered value
  ymax=view.yAxis==='entered'?view.yValue:view.yAxis==='max'&&view.yGlobal?view.yGlobal*1.08:ymax*1.08;const Y=v=>bottom-(Math.min(v,ymax*1.2)/ymax)*(bottom-top);
- g.textAlign='right';const ys=niceStep(ymax/4);for(let v=0;v<=ymax;v+=ys){const y=Y(v);g.fillText(String(Math.round(v)),L-4,y+4);g.beginPath();g.moveTo(L-3,y);g.lineTo(L,y);g.stroke()}
+ g.textAlign='right';g.font='12px Arial,Helvetica,sans-serif';const ys=niceStep(ymax/2.2);
+ for(let v=0;v<=ymax;v+=ys){const y=Y(v);g.fillText(String(Math.round(v)),L-6,y+4);g.beginPath();g.moveTo(L-5,y);g.lineTo(L,y);g.stroke()}
+ for(let v=ys/2;v<=ymax;v+=ys){const y=Y(v);g.beginPath();g.moveTo(L-3,y);g.lineTo(L,y);g.stroke()}
+ g.font='11px Tahoma,Arial';
  g.save();g.beginPath();g.rect(L,top,W-L-R,bottom-top);g.clip();
  // off-scale data: pink band (Display Settings "Off-scale data")
  if(view.offscale)for(const t of traces)for(const pk of t.peaks)if(pk.offscaled&&pk.size_bp!=null){const a=Xc(pos(pk.size_bp,pk.begin??pk.scan-3)),b=Xc(pos(pk.size_bp,pk.end??pk.scan+3));
   const xa=dp?a:X(pk.size_bp)-3,xb=dp?b:X(pk.size_bp)+3;g.fillStyle='rgba(255,105,180,.3)';g.fillRect(Math.min(xa,xb),top,Math.max(2,Math.abs(xb-xa)),bottom-top)}
  traces.forEach((t,ti)=>{g.strokeStyle=view.customColors&&setting?setting.display.customColors[ti%setting.display.customColors.length]:(DYE_COLORS[t.tag]||'#333');
   g.lineWidth=1;g.beginPath();t.pts.forEach(([x,v],i)=>i?g.lineTo(Xc(x),Y(v)):g.moveTo(Xc(x),Y(v)));g.stroke()});
+ // marker indicators: red triangles at the start and end of each marker range after bin offsetting
+ if(view.markerIndicator&&!dp)for(const m of markers.filter(m=>dyes.includes(m.channel))){const w=markerCalling(s,m.name)?.window_bp||[m.min_bp,m.max_bp];
+  for(const v of w){const x=X(v);if(x<L-1||x>W-R+1)continue;g.fillStyle='#ff0000';g.beginPath();g.moveTo(x-4,bottom);g.lineTo(x,bottom-10);g.lineTo(x+4,bottom);g.closePath();g.fill()}}
  // peak position indicators: a tick under each detected peak
  if(view.peakPositions)for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null&&!dp)continue;const x=Xc(pos(pk.size_bp,pk.scan));if(x<L||x>W-R)continue;
   g.strokeStyle=DYE_COLORS[t.tag]||'#333';g.beginPath();g.moveTo(x,bottom-1);g.lineTo(x,bottom-7);g.stroke()}
@@ -159,7 +175,8 @@ function paint(cv,items,x0,x1,onlyMarker){
  g.restore();
  // allele labels in boxes under the axis
  const labelBoxes=[];let noRoom=false;
- if(view.labels!=='none'){g.textAlign='center';const placed=[];g.font=`${fs}px ${LS.font||'Tahoma'}`;
+ if(view.labels!=='none'){g.textAlign='center';const placed=[];
+  g.font=`${fs+2}px ${PlotSettings.cssFont(LS.font)}`;
   for(const t of traces){const calls=(t.sample.report?.calls||[]).filter(c=>c.channel===t.tag&&(dp?c.scan>=x0&&c.scan<=x1:c.size_bp>=x0&&c.size_bp<=x1));
    const dyeCol=DYE_COLORS[t.tag]==='#000000'?'#7a6a00':(DYE_COLORS[t.tag]||'#000');
    for(const c of calls){const x=Xc(pos(c.size_bp,c.scan));const lines=labelLines(c,t.sample);
@@ -167,7 +184,7 @@ function paint(cv,items,x0,x1,onlyMarker){
     const y=bottom+6+row*(labelH+2);const h=lines.length*lineH+2;
     const border=(c.flags||[]).length?'#e040a0':LS.color==='bw'?'#000':dyeCol;g.strokeStyle=border;g.fillStyle='#fff';g.fillRect(x-w/2,y,w,h);g.strokeRect(x-w/2+.5,y+.5,w-1,h-1);
     g.fillStyle=view.alleleChanges&&c.user_edited?'#b00060':LS.color==='dyeAll'?dyeCol:'#000';lines.forEach((l,i)=>g.fillText(l,x,y+lineH*(i+1)-2));
-    g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#999';g.stroke();
+    g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle=LS.color==='bw'?'#999':dyeCol;g.stroke();
     labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+h,call:c,sample:t.sample})}
    for(const o of (t.sample.omr||[]).filter(o=>{const v=pos(o.size_bp,o.scan);return o.channel===t.tag&&v>=x0&&v<=x1})){const x=X(o.size_bp);let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<30))row++;if(row>1){noRoom=true;continue}placed.push({x,row});
     const y=bottom+6+row*16,w=g.measureText('OMR').width+8;g.strokeStyle='#d0700a';g.fillStyle='#fff3e0';g.fillRect(x-w/2,y,w,14);g.strokeRect(x-w/2+.5,y+.5,w-1,13);
@@ -179,7 +196,7 @@ function paint(cv,items,x0,x1,onlyMarker){
     g.fillStyle='#b0006a';g.fillText(a.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#e040a0';g.stroke();
     if(a.user)labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,artifact:a,sample:t.sample})}}}
  // ID-X "No room for labels": labels that do not fit in the label rows are not drawn
- if(noRoom){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
+ if(noRoom){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';const tw=g.measureText(T('noRoomLabels')).width;g.fillStyle='rgba(255,255,255,.9)';g.fillRect(W-R-tw-8,H-16,tw+8,15);g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null)continue;const v=pos(pk.size_bp,pk.scan);if(v>=x0&&v<=x1)peakPts.push({x:Xc(v),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample})}
  // selected peaks (ID-X: "the peak fills in when it is selected")
  for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
@@ -369,7 +386,7 @@ const PAGE_KEY='opentrace.pageSetup.v1';
 const SIZES={A4:[210,297],Letter:[216,279],Legal:[216,356]};
 function pageOpts(){let v={};try{v=JSON.parse(localStorage.getItem(PAGE_KEY)||'{}')||{}}catch(e){}
  return {...v,orientation:v.orientation==='portrait'?'portrait':'landscape',paper:['A4','Letter','Legal'].includes(v.paper)?v.paper:'A4',
-  header:v.header!==false,plot:['honor','small','medium','large'].includes(v.plot)?v.plot:'honor'}}
+  header:v.header!==false,plot:['honor','small','medium','large'].includes(v.plot)?v.plot:'honor',headerStyle:v.headerStyle==='outline'?'outline':'filled'}}
 function plotPageSetup(){const o=pageOpts();
  dialog(T('pageSetup').replace(/\.+$/,''),b=>{b.classList.add('ppsdlg');
   const paper=el('select',{id:'ppPaper'});for(const p of Object.keys(SIZES))paper.append(new Option(p,p));paper.value=o.paper;paper.addEventListener('change',()=>o.paper=paper.value);
@@ -379,36 +396,65 @@ function plotPageSetup(){const o=pageOpts();
    r.addEventListener('change',()=>{if(r.checked)o.plot=v});fs.append(el('label',{class:'chk'},r,document.createTextNode(' '+T(k))))}
   fs.append(el('div',{class:'note',text:T('ppHonorNote')}));
   const hd=el('input',{type:'checkbox',id:'ppHeader'});hd.checked=o.header;hd.addEventListener('change',()=>o.header=hd.checked);
+  const mh=el('select',{id:'ppMarkerHeader'});mh.append(new Option(T('ppHeadFilled'),'filled'),new Option(T('ppHeadOutline'),'outline'));mh.value=o.headerStyle;mh.addEventListener('change',()=>o.headerStyle=mh.value);
   b.append(el('div',{class:'field'},el('label',{text:T('psPaper')}),paper),el('div',{class:'field'},el('label',{text:T('psOrientation')}),or),fs,
-   el('label',{class:'chk'},hd,document.createTextNode(' '+T('psHeaderText'))))},
+   el('label',{class:'chk'},hd,document.createTextNode(' '+T('psHeaderText'))),el('div',{class:'field'},el('label',{text:T('ppMarkerHeaders')}),mh))},
   [[T('ok'),()=>{try{localStorage.setItem(PAGE_KEY,JSON.stringify(o))}catch(e){}return true},true],[T('cancel'),()=>true]])}
 // panes per page in "Honor Plots per Pane" (help: Letter/A4 7 portrait, 5 landscape; Legal 8 portrait, 5 landscape)
 function panesPerPage(o){const max=o.orientation==='portrait'?(o.paper==='Legal'?8:7):5;return Math.max(1,Math.min(view.panes,max))}
+// Printed plot pages as ID-X prints them: application/version and "Project: <name>" at the top, one row of column
+// headings (the sample header columns of the plot setting), every pane boxed with its own header row (sample name and
+// PQV symbols in those columns), and a footer with the print date, "Printed by: <user>" and "Page i of n".
+function printColumns(){const H=setting?.sampleHeader||{};const on=k=>H[k]!==false;
+ const cols=[];if(on('sampleFileName'))cols.push(['file',T('colSampleFile')]);if(on('sampleName'))cols.push(['name',T('colSampleName')]);if(on('panel'))cols.push(['panel',T('colPanel')]);
+ for(const k of PQV_KEYS.filter(on))cols.push(['pqv:'+k,k]);return cols}
 function printPages(o){
  const [w,h]=SIZES[o.paper];const [pw,ph]=o.orientation==='portrait'?[w,h]:[h,w];const PX=3.78;   // px per mm at 96 dpi
- const usableW=pw-20,headH=o.header?8:0,usableH=ph-20-headH-6;
+ const usableW=pw-20,headH=o.header?20:0,colH=6,footH=9,rowH=5.5;
+ const usableH=ph-20-headH-colH-footH;
  const per=o.plot==='honor'?panesPerPage(o):Math.max(1,Math.floor(usableH/({small:40,medium:60,large:90}[o.plot])));
- const paneH=usableH/per;const panes=paneList();const [d0,d1]=domain();
+ const paneH=usableH/per;const imgH=paneH-rowH-3;const panes=paneList();const [d0,d1]=domain();
  const host=el('div',{style:'position:absolute;left:-20000px;top:0'});document.body.append(host);const imgs=[];
- view.printing=true;
+ view.printing=true;view.headerStyle=o.headerStyle;
  for(const p of panes){const items=p.overlay?p.items:[p];const s=items[0].sample;
   let x0=view.x0??d0,x1=view.x1??d1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);x0=p.marker.min_bp-mg;x1=p.marker.max_bp+mg;if(view.xAxis==='dp'){x0=bpToScan(c,x0);x1=bpToScan(c,x1)}}
-  const cv=el('canvas',{style:`width:${Math.round(usableW*PX)}px`});cv.height=Math.round((paneH-5)*PX);host.append(cv);
+  const cv=el('canvas',{style:`width:${Math.round((usableW-2)*PX)}px`});cv.height=Math.round(imgH*PX);host.append(cv);
   paint(cv,items,x0,x1,p.marker);
-  const label=p.overlay?T('overlay'):[s.file,s.name,p.marker?.name].filter(Boolean).join('   ');imgs.push({src:cv.toDataURL('image/png'),label})}
+  imgs.push({src:cv.toDataURL('image/png'),sample:p.overlay?null:s,marker:p.marker||null,overlay:!!p.overlay})}
  view.printing=false;host.remove();
  const pages=[];for(let i=0;i<imgs.length;i+=per)pages.push(imgs.slice(i,i+per));
- return {pages,pw,ph,usableW,paneH,headH}}
+ return {pages,pw,ph,usableW,paneH,imgH,headH,colH,footH,rowH}}
+function printDate(){const d=new Date(),loc=I18N.lang==='ru'?'ru-RU':'en-US';
+ const wd=d.toLocaleDateString(loc,{weekday:'short'}),mo=d.toLocaleDateString(loc,{month:'short'}).replace('.','');
+ const tm=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).replace(' ','');
+ const tz=(d.toLocaleTimeString('en-US',{timeZoneName:'short'}).split(' ').pop())||'';
+ return `${wd[0].toUpperCase()+wd.slice(1).replace('.','')} ${mo} ${d.getDate()},${d.getFullYear()} ${tm}, ${tz}`}
+function printUser(){try{return window.opener?.Sec?.user?.name||window.opener?.Sec?.user?.user||'OpenTrace'}catch(e){return 'OpenTrace'}}
 function printPlots(preview){if(!payload||!payload.samples.length)return message(T('selectSamplesFirst'));
- const o=pageOpts();const r=printPages(o);
+ const o=pageOpts();const r=printPages(o);const cols=printColumns();
  let area=document.getElementById('plotPrint');if(area)area.remove();area=el('div',{id:'plotPrint',class:preview?'ppreview':''});
  const st=el('style',{id:'plotPrintStyle'});st.textContent=`@page{size:${o.paper.toLowerCase()} ${o.orientation};margin:10mm}`;document.getElementById('plotPrintStyle')?.remove();document.head.append(st);
  if(preview){const bar=el('div',{class:'ppbar noprint'});const bt=(txt,fn,id)=>{const b=el('button',{class:'btn',type:'button',text:txt,id});b.addEventListener('click',fn);return b};
   bar.append(bt(T('print'),()=>{window.print()},'ppPrint'),bt(T('closeWin'),()=>area.remove(),'ppClose'),el('span',{text:' '+fmt('ppPages',r.pages.length,o.paper,T(o.orientation==='portrait'?'psPortrait':'psLandscape'))}));area.append(bar)}
- const proj=payload.project||T('untitled'),title=T(isGeno()?'genotypesPlot':'samplesPlot'),date=new Date().toLocaleString();
+ const proj=payload.project||T('untitled');const date=printDate(),user=printUser();
+ const ver=(payload.samples.map(s=>s.analysis?.analysis_version).find(Boolean)||'OpenTrace').replace('/',' ').replace(/\.0$/,'');
+ // column widths: the name column takes a fifth of the width, PQV columns share the rest (as in ID-X)
+ const nNames=cols.filter(c=>!c[0].startsWith('pqv:')).length,nQ=cols.length-nNames;
+ const colW=c=>c[0].startsWith('pqv:')?`${(100-22*nNames)/Math.max(1,nQ)}%`:'22%';
+ const colgroup=()=>el('colgroup',{},...cols.map(c=>el('col',{style:`width:${colW(c)}`})));
+ const headRow=(it)=>{const t=el('table',{class:'pprow'});t.append(colgroup());const tr=el('tr');const s=it.sample;
+  for(const [k] of cols){const td=el('td');
+   if(!s){if(k==='name'||k==='file')td.textContent=it.overlay&&k===cols[0][0]?T('overlay'):''}
+   else if(k==='file')td.textContent=s.file;else if(k==='name')td.textContent=s.name+(it.marker?'   '+it.marker.name:'');else if(k==='panel')td.textContent=s.kit?.panel||s.kit?.name||'';
+   else{td.className='pq';const q=k.slice(4);td.innerHTML=pqv(s.pqv?.[q],q!=='SQ'&&sampleEdited(s))}
+   tr.append(td)}
+  t.append(tr);return t};
  r.pages.forEach((pg,i)=>{const page=el('div',{class:'ppage',style:`width:${r.pw-20}mm;height:${r.ph-20}mm`});
-  if(o.header)page.append(el('div',{class:'pphead'},el('b',{text:proj}),el('span',{text:title+(payload.printComment?' — '+payload.printComment:'')}),el('span',{text:`${date}   ${i+1}/${r.pages.length}`})));
-  for(const im of pg)page.append(el('div',{class:'pplabel',text:im.label}),el('img',{src:im.src,style:`width:${r.usableW}mm;height:${(r.paneH-5)}mm`}));
+  if(o.header)page.append(el('div',{class:'pphead',style:`height:${r.headH-2}mm`},el('div',{class:'ppapp'},el('b',{text:'OpenTrace'}),el('span',{text:ver})),
+   el('div',{class:'ppproj',text:`Project: ${proj}`+(payload.printComment?` — ${payload.printComment}`:'')}),el('div')));
+  const ch=el('table',{class:'ppcols'});ch.append(colgroup(),el('tr',{},...cols.map(c=>el('th',{text:c[1]}))));page.append(ch);
+  for(const im of pg)page.append(el('div',{class:'ppane',style:`height:${r.paneH-2}mm`},headRow(im),el('img',{src:im.src,style:`width:${r.usableW-2}mm;height:${r.imgH}mm`})));
+  page.append(el('div',{class:'ppfoot'},el('span',{text:date}),el('span',{text:`Printed by: ${user}`}),el('span',{text:`Page ${i+1} of ${r.pages.length}`})));
   area.append(page)});
  document.body.append(area);
  if(!preview){document.body.classList.add('printingPlots');const done=()=>{document.body.classList.remove('printingPlots');area.remove();window.removeEventListener('afterprint',done)};
@@ -427,7 +473,7 @@ function renderLower(){
  const cols=view.table==='sizing'?[T('colSampleName'),...scols.map(([id,,h])=>T('psCol_'+id)==='psCol_'+id?h:T('psCol_'+id))]:[T('colSampleName'),T('colMarker'),T('colAllele')+' 1',T('colAllele')+' 2','GQ'];
  const hr=el('tr');for(const c of cols)hr.append(el('th',{text:c}));t.append(el('thead',{},hr));const tb=el('tbody');
  for(const s of payload.samples){
-  if(view.table==='sizing'){const letters={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R',DATA105:'P',DATA106:'O'};const nth={};
+  if(view.table==='sizing'){const letters={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R',DATA105:'O',DATA106:'P'};const nth={};
    for(const c of s.report?.calls||[]){const pk=(s.report.peaks||[]).find(p=>p.id===c.source_peak_id);nth[c.channel]=(nth[c.channel]||0)+1;
     const val={sampleFileName:s.file,marker:c.marker,dyeSamplePeak:`${letters[c.channel]||'?'},${nth[c.channel]}`,minutes:'',size:c.size_bp.toFixed(2),
      height:String(Math.round(c.height)),area:String(pk?.area??''),dataPoint:String(Math.round(c.scan)),alleleCall:String(c.label)};

@@ -442,7 +442,7 @@ function renderGenotypes(){
   if(r.calls.length>TableSettings.active().genotypes.numAlleles)tr.title=T('moreAlleles');
   tr.addEventListener('mousedown',e=>selectGeno(e,key,keys));tr.addEventListener('dblclick',()=>displayPlots());tb.append(tr)});
  t.append(tb);grid.append(t)}
-function dyeLetter(tag){const i={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R'}[tag];return i||(tag==='DATA105'?'P':tag==='DATA106'?'O':'')}
+function dyeLetter(tag){const i={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R'}[tag];return i||(tag==='DATA105'?'O':tag==='DATA106'?'P':'')}
 
 // ---------- analysis summary ----------
 const worst=s=>{const v=Object.values(samplePqv(s));return v.includes('low')?'low':v.includes('check')?'check':'pass'};

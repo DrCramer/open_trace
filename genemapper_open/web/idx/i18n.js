@@ -403,6 +403,7 @@ en:{
  piChanged:'Samples marked Analysis Setting Changed: {0}',piAdded:'Analysis settings added:',piOverwritten:'Analysis settings overwritten:',
  piSkipped:'Analysis settings skipped (same name exists):',piDenied:'Sorry, you don\'t have Update access right to import: {0}. They will not be imported.',
  piNameUsed:'{0} has already been used, please enter a new name.',piProblem:'Problem Importing Project.',
+ ppMarkerHeaders:'Marker headers in printed plots:',ppHeadFilled:'Filled (as printed by ID-X 1.4)',ppHeadOutline:'Unfilled, outlined in colour (ID-X 1.6 help)',
 },
 ru:{
  app:'OpenTrace',file:'Файл',edit:'Правка',analysis:'Анализ',view:'Вид',tools:'Инструменты',admin:'Администрирование',help:'Справка',
@@ -815,6 +816,7 @@ ru:{
  piOverwritten:'Перезаписаны настройки анализа:',piSkipped:'Пропущены настройки анализа (имя уже есть):',
  piDenied:'Нет права на изменение для импорта: {0}. Эти настройки не импортированы.',piNameUsed:'Имя {0} уже используется, введите новое имя.',
  piProblem:'Проблема при импорте проекта.',
+ ppMarkerHeaders:'Заголовки маркеров при печати:',ppHeadFilled:'Заливка (как печатает ID-X 1.4)',ppHeadOutline:'Без заливки, цветной контур (справка ID-X 1.6)',
 }};
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}

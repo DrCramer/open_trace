@@ -23,27 +23,35 @@ const LABEL_TYPES=[['none','None',''],['alleleCall','Allele Call','al'],['size',
  ['dataPoint','Data Point','dp'],['aeReason','AE Reason for Change','ae']];
 const LABEL_KINDS=[['assigned','assignedAlleleLabel','Assigned Allele'],['custom','customAlleleLabel','Custom Allele'],
  ['ladder','allelicLadderLabel','Allelic Ladder'],['artifact','artifactLabel','Artifact']];
-const FONTS=['Arial','Tahoma','Verdana','Times New Roman','Courier New'];
+// Java logical fonts as stored by ID-X (Serif, Dialog ...) plus common system fonts
+const FONTS=['Serif','SansSerif','Dialog','DialogInput','Monospaced','Arial','Tahoma','Verdana','Times New Roman','Courier New'];
+function cssFont(name){const n=String(name||'');return n==='Serif'?'"Times New Roman",Times,serif':n==='SansSerif'||n==='Dialog'?'Arial,Helvetica,sans-serif':
+ n==='Monospaced'||n==='DialogInput'?'"Courier New",monospace':`"${n.replace(/"/g,'')}",Arial,sans-serif`}
+// label content names as written in PlotSettingContainer XML (assignedAlleleLabel1..4 ...)
+const LABEL_XML={none:'NONE',alleleCall:'Allele Call',size:'Size',height:'Height',area:'Area',dataPoint:'Data Point',aeReason:'AE Reason For Change'};
+const labelFromXml=v=>{const x=String(v||'').trim().toLowerCase();if(x==='artifact label')return 'alleleCall';
+ return Object.keys(LABEL_XML).find(k=>LABEL_XML[k].toLowerCase()===x||k.toLowerCase()===x)||null};
+// colours: ID-X stores java.awt.Color ARGB as signed ints
+const colorFromXml=v=>{v=String(v).trim();if(/^#[0-9a-f]{6}$/i.test(v))return v.toLowerCase();const n=parseInt(v,10);if(!isFinite(n))return null;return '#'+((n>>>0)&0xffffff).toString(16).padStart(6,'0')};
+const colorToXml=c=>String((parseInt(c.slice(1),16)|0xff000000)|0);
 const all=(rows,v)=>Object.fromEntries(rows.map(r=>[r[0],v]));
 
+const DEFAULT_COLORS='-13405973,-15937240,-16777216,-63482,-26317,-8355712,-6724096,-915324,-12602374,-14895826,-5046093,-39276,-1841112,-4024346,-14881137,-6684673'.split(',').map(colorFromXml);
 function base(name,description){return {name,description:description||'',
  sampleHeader:all(SAMPLE_HEADER,true),genotypeHeader:all(GENO_HEADER,true),
- sizingTable:{cols:all(SIZING_COLS,true),font:'Arial',size:11},
+ sizingTable:{cols:all(SIZING_COLS,true),font:'Dialog',size:11},
  labels:{assigned:['alleleCall','none','none','none'],custom:['alleleCall','none','none','none'],ladder:['alleleCall','none','none','none'],
-  artifact:['alleleCall','none','none','none'],font:'Tahoma',size:11,color:'bw',prefixes:false,editType:false,pqvTrigger:false,virtualBlack:false},
+  artifact:['alleleCall','none','none','none'],font:'Serif',size:10,color:'dyeBorder',prefixes:false,editType:false,pqvTrigger:false,virtualBlack:false},
  display:{persistence:'these',panes:2,header:true,markerRange:true,markerIndicator:true,bins:true,peakPositions:false,alleleChanges:true,toolbar:true,offscale:true,
-  controlsTop:false,laddersTop:false,sizeStdLabels:false,labels:'h',xAxis:'bp',yAxis:'individual',yValue:1000,
+  controlsTop:false,laddersTop:false,sizeStdLabels:true,labels:'v',xAxis:'bp',yAxis:'individual',yValue:8191,
   dyes:Object.fromEntries(DYES.map(d=>[d,true])),allDyes:true,start:0,end:500,table:'genotypes',layout:'separate',printQVD:false,
-  customColors:['#1f4fd6','#1a9b2e','#b59a00','#d32020','#7a35b5','#e67e22','#000000','#00a3a3'],markerMargin:5}}}
-// Factory settings: "Data Interpretation" (glossary: two panes, 75-460 bp, Genotypes table and QVD, blue/green/yellow/red)
-// and a sizing review setting (Sizing table, all dyes, size-standard labels).
-function factory(){
- const di=base('Data Interpretation','Default setting to evaluate anomalies using quality value flags and details');
- Object.assign(di.display,{panes:2,allDyes:false,start:75,end:460,table:'genotypes',dyes:{blue:true,green:true,yellow:true,red:true,purple:false,orange:false}});
- const sz=base('Sizing','Size standard and sizing review');
- Object.assign(sz.display,{panes:1,allDyes:true,table:'sizing',layout:'combine',sizeStdLabels:true});sz.labels.assigned=['alleleCall','size','none','none'];
- return [di,sz]}
-
+  customColors:DEFAULT_COLORS.slice(),markerMargin:5}}}
+// Factory settings: the plot settings shipped with ID-X (PlotSettingContainer files "Data Interpretation" ... "Mixture
+// Analysis Defaults"), kept as their differences from base() (which carries the shared values of those files).
+const FACTORY=[{"name":"Data Interpretation","sampleHeader":{"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460}},{"name":"Data Interpretation_6Dye","sampleHeader":{"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460}},{"name":"Sizing Data","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SQ":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"AN":false,"BIN":false,"PHR":false,"LPH":false,"MPH":false,"BD":false,"SPK":false,"OS":false,"OVL":false,"CC":false,"GQ":false},"display":{"persistence":"last","alleleChanges":false,"start":75,"end":460,"table":"sizing","layout":"combine"}},{"name":"Traditional Genotype Plot","sampleHeader":{"sampleFileName":false,"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460,"table":"none"}},{"name":"Traditional Genotype Plot_6Dye","sampleHeader":{"sampleFileName":false,"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460,"table":"none"}},{"name":"Overlay LIZ Dye","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":1,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"red":false,"purple":false},"allDyes":false,"start":50,"end":550,"table":"sizing","layout":"overlay"}},{"name":"Overlay ROX Dye","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":1,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"purple":false,"orange":false},"allDyes":false,"start":50,"end":550,"table":"sizing","layout":"overlay"}},{"name":"Check LIZ Size Standard","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"red":false,"purple":false},"allDyes":false,"start":50,"end":550,"table":"none"}},{"name":"Check ROX Size Standard","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"purple":false,"orange":false},"allDyes":false,"start":50,"end":550,"table":"none"}},{"name":"View Label Edits","sampleHeader":{"sampleFileName":false,"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460,"table":"lev"}},{"name":"Mixture Analysis Defaults","labels":{"virtualBlack":true},"display":{"persistence":"last","alleleChanges":false,"end":1000,"table":"none"}}];
+function deepMerge(dst,src){for(const [k,v] of Object.entries(src)){if(v&&typeof v==='object'&&!Array.isArray(v)&&dst[k]&&typeof dst[k]==='object')deepMerge(dst[k],v);else dst[k]=v}return dst}
+function factory(){return FACTORY.map(d=>deepMerge(base(d.name,d.description),clone(d)))}
+const FACTORY_VERSION=2;
 function validate(s){
  if(!s||typeof s!=='object')throw Error(T('xmlInvalid'));
  s.name=String(s.name||'').trim();if(!s.name)throw Error(T('psNameRequired'));if(s.name.length>255)throw Error(T('psNameLong'));
@@ -66,8 +74,12 @@ function validate(s){
  if(!['these','last'].includes(D.persistence))D.persistence='these';
  return d}
 
-function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'null');if(v&&Array.isArray(v.settings)&&v.settings.length)return v}catch(e){}
- return {settings:factory().map(s=>({setting:s,saved:new Date().toISOString()}))}}
+function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'null');if(v&&Array.isArray(v.settings)&&v.settings.length){
+  // 0.51: the factory settings are the ones shipped with ID-X; earlier OpenTrace placeholders ("Data Interpretation", "Sizing") are replaced
+  if((v.factory||1)<FACTORY_VERSION){const now=new Date().toISOString();const f=factory();v.settings=v.settings.filter(r=>r.setting.name!=='Sizing'&&!f.some(x=>x.name===r.setting.name));
+   v.settings=f.map(x=>({setting:x,saved:now})).concat(v.settings);v.factory=FACTORY_VERSION;store(v)}
+  return v}}catch(e){}
+ return {factory:FACTORY_VERSION,settings:factory().map(s=>({setting:s,saved:new Date().toISOString()}))}}
 function store(db){try{localStorage.setItem(KEY,JSON.stringify(db));return true}catch(e){return false}}
 function list(){return load().settings}
 function get(name){return list().find(r=>r.setting.name===name)?.setting||null}
@@ -89,7 +101,7 @@ function toXml(s){
   '<appVersion>1.6</appVersion><fileVersion>1.0</fileVersion><xmlPlotSetting>'+t('name',s.name)+t('comments',s.description)+t('userName','OpenTrace');
  for(const [id,f] of SAMPLE_HEADER)x+=b(f,s.sampleHeader[id]);for(const [id,f] of GENO_HEADER)x+=b(f,s.genotypeHeader[id]);
  for(const [id,f] of SIZING_COLS)x+=b(f,s.sizingTable.cols[id]);x+=t('sizingTableFontName',s.sizingTable.font)+t('sizingTableFontSize',s.sizingTable.size);
- for(const [k,f] of LABEL_KINDS)x+=t(f,L[k].join(','));
+ for(const [k,f] of LABEL_KINDS)L[k].forEach((v,i)=>{x+=t(f+(i+1),k==='artifact'&&v==='alleleCall'?'Artifact Label':LABEL_XML[v]||'NONE')});
  x+=t('labelingFontName',L.font)+t('labelingFontSize',L.size)+t('labelingColorScheme',enc('color',L.color))+b('showDataTypePrefix',L.prefixes)+
   b('showManualChangePrefix',L.editType)+b('showPqvTriggerPeak',L.pqvTrigger)+b('invertMutantLabel',L.virtualBlack);
  x+='<plotDisplaySetting>'+t('persistenceMode',enc('persistence',D.persistence))+t('numPane',D.panes)+b('showPaneHeader',D.header)+b('showMarkerRange',D.markerRange)+
@@ -97,7 +109,7 @@ function toXml(s){
   b('showToolBar',D.toolbar)+b('showOffscale',D.offscale)+b('controlsAtTopOfPane',D.controlsTop)+b('laddersAtTopOfPane',D.laddersTop)+b('showSizeLabels',D.sizeStdLabels)+
   t('labelStatus',enc('labels',D.labels))+t('xAxisMode',enc('xAxis',D.xAxis))+t('yAxisScaleMode',enc('yAxis',D.yAxis))+t('yAxisScaleToUseValue',D.yValue)+
   b('dyeAllSelected',D.allDyes)+DYES.map(d=>b('dye'+DYE_XML[d]+'Selected',D.dyes[d])).join('')+t('allDyeStartRange',D.start)+t('allDyeEndRange',D.end)+
-  t('tableMode',enc('table',D.table))+t('dyeMode',enc('layout',D.layout))+b('printQualityValueDetails',D.printQVD)+t('customColors',D.customColors.join(','))+
+  t('tableMode',enc('table',D.table))+t('dyeMode',enc('layout',D.layout))+b('printQualityValueDetails',D.printQVD)+t('customColors',D.customColors.map(colorToXml).join(','))+
   t('markerMargin',D.markerMargin)+'</plotDisplaySetting></xmlPlotSetting></PlotSettingContainer>\n';
  return x}
 function fromXml(text){
@@ -111,7 +123,9 @@ function fromXml(text){
  for(const [id,f] of SIZING_COLS)s.sizingTable.cols[id]=bool(p,f,true);
  s.sizingTable.font=txt(p,'sizingTableFontName')||s.sizingTable.font;s.sizingTable.size=+(txt(p,'sizingTableFontSize')||s.sizingTable.size);
  if(!(s.sizingTable.size>=1&&s.sizingTable.size<=20))throw Error(T('psImportSizingFont'));
- for(const [k,f] of LABEL_KINDS){const v=txt(p,f);if(v){const a=v.split(',').map(x=>x.trim()).filter(x=>LABEL_TYPES.some(t=>t[0]===x));s.labels[k]=a.concat(['none','none','none','none']).slice(0,4)}}
+ for(const [k,f] of LABEL_KINDS){const num=[1,2,3,4].map(i=>txt(p,f+i));
+  if(num.some(v=>v!=null)){const a=num.map(v=>labelFromXml(v)||'none');const cut=a.indexOf('none');s.labels[k]=(cut<0?a:a.slice(0,cut)).concat(['none','none','none','none']).slice(0,4)}
+  else{const v=txt(p,f);if(v){const a=v.split(',').map(labelFromXml).filter(Boolean);s.labels[k]=a.concat(['none','none','none','none']).slice(0,4)}}}
  const L=s.labels;L.font=txt(p,'labelingFontName')||L.font;L.size=+(txt(p,'labelingFontSize')||L.size);if(!(L.size>=1&&L.size<=20))throw Error(T('psImportLabelFont'));
  L.color=dec('color',txt(p,'labelingColorScheme'),'bw');L.prefixes=bool(p,'showDataTypePrefix',false);L.editType=bool(p,'showManualChangePrefix',false);
  L.pqvTrigger=bool(p,'showPqvTriggerPeak',false);L.virtualBlack=bool(p,'invertMutantLabel',false);
@@ -123,7 +137,7 @@ function fromXml(text){
   D.labels=dec('labels',txt(d,'labelStatus'),'h');D.xAxis=dec('xAxis',txt(d,'xAxisMode'),'bp');D.yAxis=dec('yAxis',txt(d,'yAxisScaleMode'),'individual');
   D.yValue=+(txt(d,'yAxisScaleToUseValue')||D.yValue);for(const dy of DYES)D.dyes[dy]=bool(d,'dye'+DYE_XML[dy]+'Selected',D.dyes[dy]);
   D.start=+(txt(d,'allDyeStartRange')||D.start);D.end=+(txt(d,'allDyeEndRange')||D.end);D.table=dec('table',txt(d,'tableMode'),'genotypes');
-  D.layout=dec('layout',txt(d,'dyeMode'),'separate');const cc=txt(d,'customColors');if(cc)D.customColors=cc.split(',').map(x=>x.trim()).filter(x=>/^#[0-9a-f]{6}$/i.test(x)).concat(D.customColors).slice(0,8);
+  D.layout=dec('layout',txt(d,'dyeMode'),'separate');const cc=txt(d,'customColors');if(cc)D.customColors=cc.split(',').map(colorFromXml).filter(Boolean).concat(D.customColors).slice(0,16);
   D.markerMargin=+(txt(d,'markerMargin')||D.markerMargin)}
  return validate(s)}
 
@@ -203,5 +217,5 @@ if(window.Methods)Methods.registerKind(()=>({id:'plots',label:T('mgrPlots'),
  importText:async text=>({obj:/^\s*[{]/.test(text)?validate(JSON.parse(text)):fromXml(text),note:''}),
  exportText:async obj=>toXml(obj),imported:T('psImported'),confirmDelete:'psConfirmDelete'}));
 
-window.PlotSettings={KEY,DYES,SAMPLE_HEADER,GENO_HEADER,SIZING_COLS,LABEL_TYPES,LABEL_KINDS,list,get,put,remove,validate,factory,toXml,fromXml,openEditor,base};
+window.PlotSettings={cssFont,FONTS,KEY,DYES,SAMPLE_HEADER,GENO_HEADER,SIZING_COLS,LABEL_TYPES,LABEL_KINDS,list,get,put,remove,validate,factory,toXml,fromXml,openEditor,base};
 })();
