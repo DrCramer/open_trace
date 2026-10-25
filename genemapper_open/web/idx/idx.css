@@ -344,3 +344,5 @@ table.g td.c{text-align:center}
 .mxgrid .mxdye{min-width:32px;padding:1px 6px}.mxfile{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px;color:#333}
 .mxdlg input.num{width:64px;text-align:right}.mxres{border-collapse:collapse}.mxres th{background:#ece9d8;border:1px solid #a7a6aa;padding:2px 8px;font-weight:normal}
 .mxres td{border:1px solid #d4d0c8;padding:0}.mxres td input{border:0;width:70px}
+.pexdlg label.chk,.pimdlg label.chk{display:block;margin:4px 0}.pexdlg .note,.pimdlg .note{max-width:460px}
+.mgrdlg .dtabs .tab{white-space:nowrap}.mgrdlg{min-width:820px}

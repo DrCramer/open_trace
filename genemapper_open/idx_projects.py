@@ -22,6 +22,8 @@ MAX_NAME = 120
 MAX_META_BYTES = 8 * 1024 * 1024
 MAX_SAMPLE_BYTES = 128 * 1024 * 1024
 MAX_FSA_BYTES = 64 * 1024 * 1024
+MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024
+EXPORT_FORMAT = 'OpenTrace project export'
 SAMPLE_ID = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
 NAME = re.compile(r'^[^\x00-\x1f<>:"/\\|?*]{1,120}$')
 
@@ -206,6 +208,126 @@ class ProjectLibrary:
         shutil.rmtree(folder)
         return {'deleted': name}
 
+    def rename(self, name, new_name, access=None):
+        folder = self._find(name)
+        if folder is None:
+            raise ValueError(f'{name} does not exist.')
+        _check_name(new_name)
+        self._guard(folder, access, 'update')
+        if new_name != name and self._find(new_name) is not None:
+            raise ValueError(f'{new_name} has already been used, please enter a new name.')
+        meta = self._read_meta(folder)
+        meta['name'] = new_name
+        meta['modified'] = time.strftime('%Y-%m-%dT%H:%M:%S')
+        _atomic_write(folder / 'project.json', json.dumps(meta, ensure_ascii=False, allow_nan=False).encode('utf-8'))
+        return {'name': new_name, 'old': name}
+
+    def save_as(self, name, new_name, access=None, user_name=None):
+        folder = self._find(name)
+        if folder is None:
+            raise ValueError(f'{name} does not exist.')
+        self._guard(folder, access, 'read')
+        meta = self._read_meta(folder)
+        project = {k: v for k, v in meta.items() if k not in ('schema', 'name', 'created', 'modified', 'owner')}
+        info = self.save_meta(new_name, project, create=True, overwrite=False, access=access, user_name=user_name)
+        target = self._find(new_name)
+        for path in (folder / 'samples').iterdir():
+            if not path.name.endswith('.tmp') and path.is_file():
+                shutil.copyfile(path, target / 'samples' / path.name)
+        return info
+
+    # ---------- Project export / import (ID-X Manager > Projects > Export / Import) ----------
+    def export(self, name, *, settings=True, sample_files=False, access=None):
+        """One project as a ZIP package: project.json (+ analysis settings snapshots when ``settings``),
+        samples/<id>.json.gz and, only when ``sample_files``, samples/<id>.fsa (ID-X exports no sample files)."""
+        import io
+        import zipfile
+        folder = self._find(name)
+        if folder is None:
+            raise ValueError(f'{name} does not exist.')
+        self._guard(folder, access, 'read')
+        meta = self._read_meta(folder)
+        if not settings:
+            meta = {k: v for k, v in meta.items() if k != 'snapshots'}
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('opentrace-project.json', json.dumps({'format': EXPORT_FORMAT, 'version': 1, 'name': name,
+                       'exported': time.strftime('%Y-%m-%dT%H:%M:%S'), 'analysis_settings': bool(settings),
+                       'sample_files': bool(sample_files)}, ensure_ascii=False))
+            z.writestr('project.json', json.dumps(meta, ensure_ascii=False, allow_nan=False))
+            for sample in meta.get('samples', []):
+                sid = str(sample['id'])
+                data = folder / 'samples' / f'{sid}.json.gz'
+                if data.is_file():
+                    z.write(data, f'samples/{sid}.json.gz', compress_type=zipfile.ZIP_STORED)
+                fsa = folder / 'samples' / f'{sid}.fsa'
+                if sample_files and fsa.is_file():
+                    z.write(fsa, f'samples/{sid}.fsa')
+        data = buf.getvalue()
+        return {'name': name, 'package_b64': base64.b64encode(data).decode('ascii'), 'bytes': len(data),
+                'samples': len(meta.get('samples', []))}
+
+    def import_package(self, package_b64, *, name=None, mode='skip', access=None, user_name=None):
+        """Create a project from an export package. Only the known member names are read (no paths from the
+        archive reach the file system). ``mode`` (skip / overwrite) is recorded for the client, which merges the
+        analysis-settings snapshots into its libraries; with overwrite, analysed samples become 'changed'
+        (ID-X: "Analysis Setting Changed")."""
+        import io
+        import zipfile
+        if mode not in ('skip', 'overwrite'):
+            raise ValueError('mode must be skip or overwrite')
+        if not isinstance(package_b64, str):
+            raise ValueError('Project package required')
+        raw = base64.b64decode(package_b64, validate=True)
+        if len(raw) > MAX_PACKAGE_BYTES:
+            raise ValueError('Project package exceeds 2 GiB')
+        try:
+            z = zipfile.ZipFile(io.BytesIO(raw))
+        except zipfile.BadZipFile:
+            raise ValueError('Not an OpenTrace project export file') from None
+        with z:
+            def member(n, limit):
+                try:
+                    info = z.getinfo(n)
+                except KeyError:
+                    return None
+                if info.file_size > limit:
+                    raise ValueError(f'{n}: too large')
+                return z.read(info)
+            manifest = member('opentrace-project.json', 1 << 20)
+            if manifest is None or json.loads(manifest).get('format') != EXPORT_FORMAT:
+                raise ValueError('Not an OpenTrace project export file')
+            meta = json.loads(member('project.json', MAX_META_BYTES) or b'null')
+            if not isinstance(meta, dict) or not isinstance(meta.get('samples'), list):
+                raise ValueError('Project package has no project.json')
+            target = name if name else meta.get('name')
+            _check_name(target)
+            if self._find(target) is not None:
+                raise ValueError(f'{target} has already been used, please enter a new name.')
+            project = {k: v for k, v in meta.items() if k not in ('schema', 'name', 'created', 'modified', 'owner')}
+            changed = 0
+            for sample in project['samples']:
+                sample.pop('has_fsa', None)
+                sample.pop('has_data', None)
+                if mode == 'overwrite' and sample.get('status') == 'analyzed':
+                    sample['status'] = 'changed'
+                    changed += 1
+            info = self.save_meta(target, project, create=True, overwrite=False, access=access, user_name=user_name)
+            folder = self._find(target)
+            fsa_count = 0
+            for sample in project['samples']:
+                sid = str(sample['id'])
+                data = member(f'samples/{sid}.json.gz', MAX_SAMPLE_BYTES)
+                if data is not None:
+                    gzip.decompress(data)  # integrity check before the file is accepted
+                    _atomic_write(folder / 'samples' / f'{sid}.json.gz', data)
+                fsa = member(f'samples/{sid}.fsa', MAX_FSA_BYTES)
+                if fsa is not None:
+                    _atomic_write(folder / 'samples' / f'{sid}.fsa', fsa)
+                    fsa_count += 1
+        return {**info, 'samples': len(project['samples']), 'sample_files': fsa_count, 'status_changed': changed,
+                'mode': mode, 'snapshots': meta.get('snapshots') or {}}
+
     def request(self, request, access=None, user_name=None):
         """access(op, security_group, owner, check=False) raises (or, with check=True, returns False) when the
         current user's user groups lack that right in the project's security group."""
@@ -226,4 +348,14 @@ class ProjectLibrary:
             return self.open_sample(request.get('name'), request.get('id'), access)
         if action == 'delete':
             return self.delete(request.get('name'), access)
-        raise ValueError('action must be list, save_meta, save_sample, open, open_sample or delete')
+        if action == 'rename':
+            return self.rename(request.get('name'), request.get('new_name'), access)
+        if action == 'save_as':
+            return self.save_as(request.get('name'), request.get('new_name'), access, user_name)
+        if action == 'export':
+            return self.export(request.get('name'), settings=bool(request.get('settings', True)),
+                               sample_files=bool(request.get('sample_files')), access=access)
+        if action == 'import':
+            return self.import_package(request.get('package_b64'), name=request.get('new_name') or None,
+                                       mode=request.get('mode', 'skip'), access=access, user_name=user_name)
+        raise ValueError('action must be list, save_meta, save_sample, open, open_sample, delete, rename, save_as, export or import')

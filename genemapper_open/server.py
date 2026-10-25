@@ -618,9 +618,9 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                     request = json.loads(raw)
                     user = security.session_user(ticket)
                     action = request.get('action') if isinstance(request, dict) else None
-                    if action in ('save_meta', 'save_sample', 'delete'):
+                    if action in ('save_meta', 'save_sample', 'delete', 'import', 'rename', 'save_as'):
                         security.require(user, 'UPDATE_PROJECT')
-                    elif action in ('list', 'open', 'open_sample'):
+                    elif action in ('list', 'open', 'open_sample', 'export'):
                         security.require(user, 'READ_PROJECT')
                     def access(op, group, owner, check=False):
                         ok = security.object_allows(user, group or 'GeneMapper ID-X Security Group', op, owner)

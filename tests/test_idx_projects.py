@@ -87,6 +87,51 @@ class LibraryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.lib.open('missing')
 
+    def test_export_import_rename_save_as(self):
+        import io
+        import zipfile
+        meta = {**META, 'samples': [{'id': 's1', 'file': 'a.fsa', 'name': 'a', 'status': 'analyzed'},
+                                    {'id': 's2', 'file': 'b.fsa', 'name': 'b', 'status': 'unanalyzed'}],
+                'snapshots': {'methods': [{'name': 'M1'}], 'kits': []}}
+        self.lib.save_meta('P1', meta, create=True, user_name='u1')
+        fsa = b'ABIF' + bytes(200)
+        self.lib.save_sample('P1', 's1', fsa_b64=base64.b64encode(fsa).decode(), data={'report': {'calls': [7]}})
+        plain = self.lib.request({'action': 'export', 'name': 'P1', 'settings': False})
+        z = zipfile.ZipFile(io.BytesIO(base64.b64decode(plain['package_b64'])))
+        self.assertEqual(sorted(z.namelist()), ['opentrace-project.json', 'project.json', 'samples/s1.json.gz'])
+        self.assertNotIn('snapshots', json.loads(z.read('project.json')))
+        full = self.lib.request({'action': 'export', 'name': 'P1', 'settings': True, 'sample_files': True})
+        with self.assertRaisesRegex(ValueError, 'already been used'):
+            self.lib.request({'action': 'import', 'package_b64': full['package_b64']})
+        r = self.lib.request({'action': 'import', 'package_b64': full['package_b64'], 'new_name': 'P2', 'mode': 'overwrite'},
+                             user_name='u9')
+        self.assertEqual((r['name'], r['samples'], r['sample_files'], r['status_changed'], r['owner']), ('P2', 2, 1, 1, 'u9'))
+        self.assertEqual(r['snapshots']['methods'], [{'name': 'M1'}])
+        opened = self.lib.open('P2')
+        self.assertEqual([s['status'] for s in opened['samples']], ['changed', 'unanalyzed'])
+        self.assertEqual(base64.b64decode(self.lib.open_sample('P2', 's1')['fsa_b64']), fsa)
+        r = self.lib.request({'action': 'import', 'package_b64': plain['package_b64'], 'new_name': 'P3'})
+        self.assertEqual((r['sample_files'], r['status_changed'], r['snapshots']), (0, 0, {}))
+        self.assertIsNone(self.lib.open_sample('P3', 's1')['fsa_b64'])
+        self.assertEqual(self.lib.open_sample('P3', 's1')['data'], {'report': {'calls': [7]}})
+        # hostile archives: not a package, path members ignored
+        with self.assertRaisesRegex(ValueError, 'Not an OpenTrace'):
+            self.lib.request({'action': 'import', 'package_b64': base64.b64encode(b'PK junk').decode()})
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as w:
+            w.writestr('opentrace-project.json', json.dumps({'format': 'OpenTrace project export'}))
+            w.writestr('project.json', json.dumps({'name': 'Evil', 'samples': [{'id': 's1'}]}))
+            w.writestr('../../evil.txt', 'x')
+        self.lib.request({'action': 'import', 'package_b64': base64.b64encode(buf.getvalue()).decode()})
+        self.assertFalse((Path(self.tmp.name) / 'evil.txt').exists())
+        # rename / save as
+        self.lib.request({'action': 'rename', 'name': 'P3', 'new_name': 'P3 renamed'})
+        self.assertIn('P3 renamed', [p['name'] for p in self.lib.list()])
+        with self.assertRaisesRegex(ValueError, 'already been used'):
+            self.lib.request({'action': 'rename', 'name': 'P2', 'new_name': 'P1'})
+        self.lib.request({'action': 'save_as', 'name': 'P1', 'new_name': 'P1 copy'})
+        self.assertEqual(self.lib.open_sample('P1 copy', 's1')['data'], {'report': {'calls': [7]}})
+
     def test_same_slug_different_names_and_delete(self):
         self.lib.save_meta('a b', META, create=True)
         self.lib.save_meta('a_b', META, create=True)

@@ -521,7 +521,7 @@ function projectMeta(){const used=new Set(state.project.samples.map(s=>s.method)
  return {comment:state.project.comment||'',security_group:state.project.securityGroup||Sec.defaultGroup(),run_folders:state.project.runFolders,bin_offsets:state.project.binOffsets||[],reports:state.project.reports||[],mixture:state.project.mixture||{},
   samples:state.project.samples.map(s=>({id:sid(s),file:s.file,name:s.name,type:s.type,runFolder:s.runFolder,method:s.method,panelKey:s.panelKey||'',panel:s.panel||'',
    sizeStd:s.sizeStd,status:s.status,sampleId:s.sampleId||'',comment:s.comment??null,profileId:s.profileId||'',specimenCategory:s.specimenCategory||'',customControl:s.customControl||'',ud:s.ud||{},origin:s.origin||'',matrix:s.matrix||'',inst:s.inst||null,ladderQuality:s.ladderQuality??null,ladderUsed:!!s.ladderUsed,alasSkipped:!!s.alasSkipped,referenceBins:!!s.referenceBins,sqOverride:s.sqOverride||null,edits:s.edits||[]})),
-  snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),matrices:state.project.samples.map(s=>s.matrix&&Matrices.get(s.matrix)).filter((m,i,a)=>m&&a.indexOf(m)===i),tableSetting:TableSettings.active(),
+  snapshots:{methods:Methods.list().filter(r=>used.has(r.method.name)).map(r=>r.method),matrices:state.project.samples.map(s=>s.matrix&&Matrices.get(s.matrix)).filter((m,i,a)=>m&&a.indexOf(m)===i),sizeStds:[...new Set(state.project.samples.map(s=>s.sizeStd))].map(n=>SizeStd.get(n)).filter(Boolean),tableSetting:TableSettings.active(),
    kits:KitStore.load().kits.filter(k=>kitsUsed.has(k.name)),example:state.kit&&state.project.samples.some(s=>s.panelKey===EXAMPLE_KEY)?
     {kit:state.kit,lq:state.ladderQuality,mq:state.markerQuality}:null}}}
 async function writeProject(name,{create=false}={}){
@@ -583,6 +583,7 @@ async function loadProject(name){
   const notes=[];const snap=meta.snapshots||{};
   for(const m of snap.methods||[])if(!Methods.get(m.name)){Methods.put(m);notes.push(T('mgrMethods')+': '+m.name)}
   for(const m of snap.matrices||[])if(!Matrices.get(m.name)){try{Matrices.put(m);notes.push(T('mgrMatrices')+': '+m.name)}catch(e){}}
+  for(const m of snap.sizeStds||[])if(!SizeStd.get(m.name)){try{SizeStd.put(m);notes.push(T('mgrSizeStandards')+': '+m.name)}catch(e){}}
   if(snap.kits&&snap.kits.length){const db=KitStore.load();let added=false;for(const k of snap.kits)if(!db.kits.some(x=>x.name===k.name)){db.kits.push(k);added=true;notes.push(T('panelMgrTitle')+': '+k.name)}
    if(added){KitStore.save(db);dropCaches()}}
   if(snap.tableSetting&&!TableSettings.get(snap.tableSetting.name)){try{TableSettings.put(snap.tableSetting);notes.push(T('mgrTables')+': '+snap.tableSetting.name)}catch(e){}}
@@ -1158,6 +1159,77 @@ function sampleExtra(s){const m=Methods.get(s.method)||{};const p=m.peak_detecto
   [T('si_slopes'),p.slope_start!=null?`${p.slope_start} / ${p.slope_end}`:''],[T('si_analysisVersion'),s.analysis?.analysis_version||'—']]}}
 SampleViews.init({samples:()=>sortedSamples().filter(s=>state.selected.has(s.id)),extra:sampleExtra});
 Methods.init(jsonPost);
+// ---------- Manager > Projects tab: Open, Save As, Rename, Delete, Export, Import (ID-X ProjectActor / ProjectExporter / ProjectImporter) ----------
+let projectRows=[];
+const projFmt=(k,...a)=>T(k).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
+function askName(title,value){return new Promise(res=>{dialog(title,b=>{b.append(el('div',{class:'field'},el('label',{text:T('amName')}),el('input',{type:'text',id:'pnName',value})))},
+ [[T('ok'),b=>{const v=b.querySelector('#pnName').value.trim();if(!v)return false;res(v)},true],[T('cancel'),()=>{res(null)}]]).root.querySelector('.x').addEventListener('click',()=>res(null))})}
+// analysis settings carried by a project package: ID-X imports them unless the user lacks the Update right of that kind
+function mergeSettings(snap,mode){
+ const out={added:[],overwritten:[],skipped:[],denied:[]};const can=f=>!window.Sec||Sec.can(f);
+ const kinds=[['methods',T('mgrMethods'),'UPDATE_ANALYSIS_METHOD',m=>m.name,n=>Methods.get(n),m=>Methods.put(m)],
+  ['sizeStds',T('mgrSizeStandards'),'UPDATE_SIZE_STANDARD',m=>m.name,n=>SizeStd.get(n),m=>SizeStd.put(m)],
+  ['matrices',T('mgrMatrices'),'UPDATE_MATRIX',m=>m.name,n=>Matrices.get(n),m=>Matrices.put(m)],
+  ['kits',T('panelMgrTitle'),'UPDATE_PANEL',k=>k.name,n=>KitStore.load().kits.find(k=>k.name===n),k=>{const db=KitStore.load();const i=db.kits.findIndex(x=>x.name===k.name);if(i>=0)db.kits[i]=k;else db.kits.push(k);KitStore.save(db)}]];
+ for(const [key,label,right,name,get,put] of kinds){const list=snap[key]||[];if(!list.length)continue;
+  if(!can(right)){out.denied.push(label);continue}
+  for(const o of list){const n=name(o);const has=!!get(n);if(has&&mode!=='overwrite'){out.skipped.push(`${label}: ${n}`);continue}
+   try{put(o);(has?out.overwritten:out.added).push(`${label}: ${n}`)}catch(e){out.skipped.push(`${label}: ${n} (${e.message})`)}}}
+ if(out.overwritten.length){kitCache.clear();settingsCache.clear()}
+ return out}
+function exportProjectsDialog(names){
+ if(!names.length)return message(T('selectRow'));
+ if(state.project.dirty&&names.includes(state.project.savedAs))return message(projFmt('peInUse',state.project.savedAs));
+ dialog(T('peTitle'),b=>{b.classList.add('pexdlg');const cb=(id,label,on)=>el('label',{class:'chk'},el('input',{type:'checkbox',id,...(on?{checked:''}:{})}),document.createTextNode(' '+label));
+  b.append(el('p',{text:names.join(', ')}),cb('peAuto',T('peAutoName'),true),cb('peSettings',T('peWithSettings'),true),cb('peFsa',T('peSampleFiles'),false),el('p',{class:'note',text:T('peNote')}))},
+  [[T('mgrExport'),async b=>{const auto=b.querySelector('#peAuto').checked,settings=b.querySelector('#peSettings').checked,files=b.querySelector('#peFsa').checked;
+    for(const n of names){let file=n;if(!auto){file=await askName(projFmt('peExportOne',n),n);if(!file)continue}
+     $('statusText').textContent=projFmt('peExporting',n);
+     try{const r=await jsonPost('/api/idx-project',{action:'export',name:n,settings,sample_files:files});
+      Methods.download(`${file.replace(/[\\/:*?"<>|]+/g,'_')}.otproj`,b64ToBlob(r.package_b64,file+'.otproj'),'application/zip');
+      Sec.record([{map:'Project',attribute:'exported',instance:n,old:'',new:file+'.otproj',event:'Export Project'}])}catch(e){message(T('peProblem')+'\n'+e.message);return}}
+    $('statusText').textContent=projFmt('peDone',names.length)},true],[T('cancel'),()=>true]])}
+function importProjectDialog(refresh){
+ if(!Sec.need('UPDATE_PROJECT'))return;let file=null;
+ dialog(T('piTitle'),b=>{b.classList.add('pimdlg');const inp=el('input',{type:'file',accept:'.otproj,.zip',style:'display:none'});const lbl=el('span',{id:'piFile',text:T('mxNoFile')});
+  inp.addEventListener('change',()=>{file=inp.files[0]||null;lbl.textContent=file?file.name:T('mxNoFile')});
+  const choose=el('button',{class:'btn',type:'button',id:'piChoose',text:T('piChoose')});choose.addEventListener('click',()=>inp.click());
+  const rb=(v,label,on)=>el('label',{class:'chk'},el('input',{type:'radio',name:'piMode',value:v,...(on?{checked:''}:{})}),document.createTextNode(' '+label));
+  b.append(el('div',{style:'display:flex;gap:8px;align-items:center'},choose,lbl,inp),el('fieldset',{},el('legend',{text:T('piSettings')}),el('div',{text:T('piSameName')}),rb('skip',T('piSkip'),true),rb('overwrite',T('piOverwrite'))))},
+  [[T('mgrImport'),async b=>{if(!file){message(T('selectRow'));return false}const mode=b.querySelector('input[name=piMode]:checked').value;
+    if(mode==='overwrite'&&!(await Methods.ask(T('piConfirm'))))return false;
+    let pkg;try{pkg=await blobToB64(file)}catch(e){message(e.message);return false}
+    let newName=null;
+    for(;;){$('statusText').textContent=projFmt('piImporting',file.name);
+     try{const r=await jsonPost('/api/idx-project',{action:'import',package_b64:pkg,mode,new_name:newName});
+      const m=mergeSettings(r.snapshots||{},mode);
+      Sec.record([{map:'Project',attribute:'created',instance:r.name,old:'',new:file.name,event:'Import Project'}]);
+      const lines=[projFmt('piDone',r.name,r.samples)];
+      if(!r.sample_files&&r.samples)lines.push(T('piNoFiles'));else if(r.sample_files<r.samples)lines.push(projFmt('piSomeFiles',r.sample_files,r.samples));
+      if(r.status_changed)lines.push(projFmt('piChanged',r.status_changed));
+      if(m.added.length)lines.push(T('piAdded')+'\n  '+m.added.join('\n  '));
+      if(m.overwritten.length)lines.push(T('piOverwritten')+'\n  '+m.overwritten.join('\n  '));
+      if(m.skipped.length)lines.push(T('piSkipped')+'\n  '+m.skipped.join('\n  '));
+      for(const k of m.denied)lines.push(projFmt('piDenied',k));
+      message(lines.join('\n\n'),T('piTitle'));$('statusText').textContent=lines[0];await refresh();return true}
+     catch(e){if(/already been used/.test(e.message)){newName=await askName(projFmt('piNameUsed',newName||file.name.replace(/\.[^.]+$/,'')),(newName||'')+' (2)');if(!newName)return true;continue}
+      message(T('piProblem')+'\n'+e.message);return false}}}],[T('cancel'),()=>true]])}
+Methods.registerKind(()=>({id:'projects',first:true,multi:true,label:T('mgrProjects'),heads:[T('colOwner'),T('colSampleCount')],
+ rows:()=>projectRows.map(p=>({name:p.name,saved:p.modified,a:p.owner||'',b:String(p.samples)})),group:r=>projectRows.find(p=>p.name===r.name)?.security_group||'',
+ load:async()=>{projectRows=(await jsonPost('/api/idx-project',{action:'list'})).projects},
+ open:async(name,{close})=>{if(!Sec.need('READ_PROJECT'))return;if(!(await confirmDiscard()))return;close();await loadProject(name)},
+ buttons:({btn,selected,refresh,close})=>{const one=()=>{const s=selected();if(s.length!==1){message(T('selectRow'));return null}return s[0]};
+  return [btn(T('mgrOpen'),async()=>{const n=one();if(!n||!Sec.need('READ_PROJECT'))return;if(!(await confirmDiscard()))return;close();await loadProject(n)},'prjOpenBtn'),
+   btn(T('mgrSaveAs'),async()=>{const n=one();if(!n||!Sec.need('UPDATE_PROJECT'))return;const v=await askName(projFmt('prjSaveAs',n),n+' copy');if(!v)return;
+    try{await jsonPost('/api/idx-project',{action:'save_as',name:n,new_name:v});Sec.record([{map:'Project',attribute:'created',instance:v,old:n,new:v,event:'Save Project As'}]);await refresh()}catch(e){message(e.message)}},'prjSaveAsBtn'),
+   btn(T('mgrRename'),async()=>{const n=one();if(!n||!Sec.need('UPDATE_PROJECT'))return;if(n===state.project.savedAs)return message(projFmt('prjIsOpen',n));const v=await askName(projFmt('prjRename',n),n);if(!v||v===n)return;
+    try{await jsonPost('/api/idx-project',{action:'rename',name:n,new_name:v});Sec.record([{map:'Project',attribute:'name',instance:v,old:n,new:v,event:'Rename Project'}]);await refresh()}catch(e){message(e.message)}},'prjRenameBtn'),
+   btn(T('mgrImport'),()=>importProjectDialog(refresh),'prjImportBtn'),
+   btn(T('mgrExport'),()=>{const s=selected();if(!s.length||!Sec.need('READ_PROJECT'))return message(T('selectRow'));exportProjectsDialog(s)},'prjExportBtn'),
+   btn(T('mgrDelete'),async()=>{const s=selected();if(!s.length)return message(T('selectRow'));if(!Sec.need('UPDATE_PROJECT'))return;
+    for(const n of s){if(n===state.project.savedAs){message(projFmt('prjIsOpen',n));continue}if(!(await Methods.ask(T('confirmDeleteProject').replace('{0}',n))))continue;
+     const ch=await Sec.change({map:'Project',attribute:'deleted',instance:n,old:n,new:'',event:'Delete Project',esig:{group:'GM_PROJECT',action:'DELETE_PROJECT'}});if(!ch)continue;
+     try{await jsonPost('/api/idx-project',{action:'delete',name:n});await ch.commit()}catch(e){message(e.message)}}await refresh()},'prjDeleteBtn')]}}));
 buildChrome();render();
 window.addEventListener('opentrace-security',()=>{buildChrome();render()});
 Sec.init().then(ok=>{if(ok===false)return;buildChrome();render();

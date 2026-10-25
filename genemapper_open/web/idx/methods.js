@@ -136,17 +136,25 @@ function methodKind(){return {id:'methods',label:T('mgrMethods'),sec:{map:'Analy
  exportText:async obj=>(await post('/api/analysis-method',{action:'export_xml',method:obj})).xml,
  imported:T('methodImported'),confirmDelete:'confirmDeleteMethod'}}
 function openManager(tab){
- let selected=null;let kindId=tab||'methods';
+ let selected=null;let kindId=tab||'methods';let multi=new Set();let anchor=null;const loaded=new Set();
  const d=dialog(T('mgrTitle'),b=>{b.classList.add('mgrdlg')},[[T('mgrDone'),()=>true,true]]);
- const draw=()=>{const b=d.body;b.replaceChildren();const kinds=[methodKind(),...KINDS.map(f=>f())];const K=kinds.find(k=>k.id===kindId)||kinds[0];
+ const draw=()=>{const b=d.body;b.replaceChildren();const reg=KINDS.map(f=>f());const kinds=[...reg.filter(k=>k.first),methodKind(),...reg.filter(k=>!k.first)];const K=kinds.find(k=>k.id===kindId)||kinds[0];
+  // kinds backed by the server (Projects) load their rows when the tab is first shown
+  if(K.load&&!loaded.has(K.id)){loaded.add(K.id);K.load().then(draw,e=>message(e.message))}
   const tabs=el('div',{class:'tabs dtabs'});
-  for(const k of kinds){const x=el('div',{class:'tab'+(k===K?' on':''),text:k.label,'data-kind':k.id});x.addEventListener('mousedown',()=>{kindId=k.id;selected=null;draw()});tabs.append(x)}
+  for(const k of kinds){const x=el('div',{class:'tab'+(k===K?' on':''),text:k.label,'data-kind':k.id});x.addEventListener('mousedown',()=>{kindId=k.id;selected=null;multi=new Set();draw()});tabs.append(x)}
   const IT=window.Sec&&Sec.items,canItem=(n,op)=>!IT||IT.can(K.id,n,op);
   const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...[T('colName'),T('colLastSaved'),...K.heads,T('securityGroupLbl')].map(h=>el('th',{text:h})))));
   // only items whose security group the user's user groups may read are listed (ID-X Manager)
-  const tb=el('tbody');for(const r of K.rows().filter(r=>canItem(r.name,'read'))){const tr=el('tr',{class:r.name===selected?'sel':''});
-   tr.append(el('td',{text:r.name}),el('td',{text:new Date(r.saved).toLocaleString()}),el('td',{text:r.a||''}),el('td',{text:r.b||''}),el('td',{text:IT?IT.get(K.id,r.name).group:''}));
-   tr.addEventListener('mousedown',()=>{selected=r.name;tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});tr.addEventListener('dblclick',()=>openSel());tb.append(tr)}
+  const visible=K.rows().filter(r=>K.group?true:canItem(r.name,'read'));
+  const tb=el('tbody');for(const r of visible){const tr=el('tr',{class:(K.multi?multi.has(r.name):r.name===selected)?'sel':''});
+   tr.append(el('td',{text:r.name}),el('td',{text:r.saved?new Date(r.saved).toLocaleString():''}),el('td',{text:r.a||''}),el('td',{text:r.b||''}),el('td',{text:K.group?K.group(r):IT?IT.get(K.id,r.name).group:''}));
+   tr.addEventListener('mousedown',e=>{selected=r.name;
+    if(K.multi){const names=visible.map(x=>x.name);if(e.shiftKey&&anchor!=null){const a=names.indexOf(anchor),z=names.indexOf(r.name);if(!e.ctrlKey)multi=new Set();
+      for(let i=Math.min(a,z);i<=Math.max(a,z);i++)multi.add(names[i])}else if(e.ctrlKey||e.metaKey){multi.has(r.name)?multi.delete(r.name):multi.add(r.name);anchor=r.name}else{multi=new Set([r.name]);anchor=r.name}
+     tb.querySelectorAll('tr').forEach((x,i)=>x.classList.toggle('sel',multi.has(names[i])))}
+    else tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});
+   tr.addEventListener('dblclick',()=>K.open?K.open(r.name,{close:d.close}):openSel());tb.append(tr)}
   t.append(tb);
   const btn=(label,fn,id)=>{const x=el('button',{class:'btn',type:'button',text:label,...(id?{id}:{})});x.addEventListener('click',fn);return x};
   const sec=K.sec,can=f=>!sec||!window.Sec||Sec.can(f),upd=()=>can(sec?.update);
@@ -156,6 +164,8 @@ function openManager(tab){
   const openSel=()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));if(sec&&!can(sec.read))return Sec.denied();if(IT&&!IT.need(K.id,selected,'read'))return;
    K.edit(m,{restrict:restrict(),onSave:(mm,prev)=>{K.put(mm,prev);if(IT)IT.rename(K.id,prev||m.name,mm.name);selected=mm.name;draw()}})};
   const pick=async cur=>!IT?null:await Sec.chooseGroup(cur);
+  if(K.buttons){b.append(tabs,el('div',{class:'grid mgrgrid'},t),el('div',{class:'btnrow'},...K.buttons({btn,selected:()=>K.multi?visible.map(x=>x.name).filter(n=>multi.has(n)):selected?[selected]:[],
+   refresh:async()=>{await K.load();multi=new Set();selected=null;draw()},close:()=>d.close()})));return}
   b.append(tabs,el('div',{class:'grid mgrgrid'},t),el('div',{class:'btnrow'},
    btn(T('mgrNew'),async()=>{if(!upd())return Sec.denied();const g=await pick();if(IT&&!g)return;
     try{const f=await K.create();K.edit(f,{title:K.newTitle,onSave:(mm)=>{K.put(mm);if(IT)IT.set(K.id,mm.name,g);selected=mm.name;draw()}})}catch(e){message(e.message)}},'mgrNewBtn'),
