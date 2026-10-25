@@ -13,6 +13,8 @@ emulate Java overflow. Existing UI/CLI analysis does not enable this implicitly.
 from collections import deque
 import math
 
+from . import _core
+
 MAX_POINTS = 1_000_000
 MAX_WINDOW = 100_001
 
@@ -20,7 +22,9 @@ MAX_WINDOW = 100_001
 def _trace(values):
     if not isinstance(values, (list, tuple)) or not 1 <= len(values) <= MAX_POINTS:
         raise ValueError("Trace must be a nonempty bounded list or tuple")
-    if any(type(x) is not int or not -(2**31) <= x < 2**31 for x in values):
+    ok = _core.CORE.is_int32_trace(values) if _core.CORE is not None else \
+        not any(type(x) is not int or not -(2**31) <= x < 2**31 for x in values)
+    if not ok:
         raise ValueError("Trace values must be signed 32-bit integers")
     return list(values)
 
@@ -69,6 +73,8 @@ def estimate_baseline(values, *, window, spike_window, smoothing_window=1):
     """Return a floating baseline with explicit odd widths and clipped edges."""
     signal = _trace(values)
     broad, narrow, smooth = map(_window, (window, spike_window, smoothing_window))
+    if _core.CORE is not None:
+        return _core.CORE.estimate_baseline(signal, broad, narrow, smooth)
 
     def opening(trace, radius):
         return _extrema(_extrema(trace, radius, False), radius, True)
@@ -92,6 +98,8 @@ def smooth_trace(values, *, passes):
     signal = _trace(values)
     if type(passes) is not int or not 0 <= passes <= 32:
         raise ValueError("Smoothing passes must be an integer in [0, 32]")
+    if _core.CORE is not None:
+        return _core.CORE.smooth_trace(signal, passes)
     for _ in range(passes):
         if len(signal) < 3:
             break
@@ -107,9 +115,13 @@ def prepare_trace(values, *, window, spike_window, smoothing_window=1, smooth_pa
     No input array is modified. The baseline estimate may be negative.
     """
     signal = _trace(values)
-    baseline = estimate_baseline(signal, window=window, spike_window=spike_window,
-                                 smoothing_window=smoothing_window)
-    corrected = [math.floor(max(0.0, x-b)+0.5) for x, b in zip(signal, baseline)]
+    if _core.CORE is not None:
+        broad, narrow, smooth = map(_window, (window, spike_window, smoothing_window))
+        baseline, corrected = _core.CORE.baseline_correct(signal, broad, narrow, smooth)
+    else:
+        baseline = estimate_baseline(signal, window=window, spike_window=spike_window,
+                                     smoothing_window=smoothing_window)
+        corrected = [math.floor(max(0.0, x-b)+0.5) for x, b in zip(signal, baseline)]
     # A signed-int input can yield a nonnegative residual larger than INT_MAX.
     # Reject that unsupported case explicitly instead of emulating Java overflow.
     if any(x >= 2**31 for x in corrected):

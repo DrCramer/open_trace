@@ -16,6 +16,7 @@ from .analysis import find_peaks, parse_anchors
 from .demo import demo_bytes, sizing_demo_bytes, pipeline_demo_bytes
 
 from . import __version__
+from . import _core
 
 MAX_JSON_BYTES = 1024 * 1024 * 1024
 
@@ -297,7 +298,7 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
         raise AbifError("No supported numeric DATA traces found; unknown DATA types remain opaque")
     matrix_info = _apply_matrix(sample, channels, matrix)
     for ch in channels:
-        if any(not math.isfinite(value) for value in ch["values"]):
+        if not (_core.CORE.all_finite(ch["values"]) if _core.CORE is not None else all(math.isfinite(value) for value in ch["values"])):
             raise AbifError(f"{ch['tag']}: non-finite numeric values")
         if analysis_range is not None:
             _apply_analysis_range(ch, analysis_range)

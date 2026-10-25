@@ -9,6 +9,8 @@ pair summation is a numerical design choice, not original JVM LU/convolution.
 import math
 from numbers import Real
 
+from . import _core
+
 MAX_POINTS = 1_000_000
 
 
@@ -53,7 +55,9 @@ def cubic_sg_derivative(values, *, window=15, degree=3):
     """Derivative at unit scan spacing; first/last half-window outputs are zero."""
     if not isinstance(values, (list, tuple)) or not 1 <= len(values) <= MAX_POINTS:
         raise ValueError('Signal must be a nonempty bounded list or tuple')
-    if any(type(x) is not int or not -(2**31) <= x < 2**31 for x in values):
+    ok = _core.CORE.is_int32_trace(values) if _core.CORE is not None else \
+        not any(type(x) is not int or not -(2**31) <= x < 2**31 for x in values)
+    if not ok:
         raise ValueError('Signal values must be signed 32-bit integers')
     if type(window) is not int or not 5 <= window <= 101 or window % 2 != 1 or len(values) < window:
         raise ValueError('Cubic SG window must be odd, 5..101, and <= signal length')
@@ -66,6 +70,8 @@ def cubic_sg_derivative(values, *, window=15, degree=3):
         if type(degree) is not int or not 1 <= degree < window:
             raise ValueError('SG polynomial degree must be an integer below the window size')
         weights = sg_derivative_weights(window, degree)
+    if _core.CORE is not None:
+        return _core.CORE.sg_derivative(list(values), weights)
     derivative = [0.0]*len(values)
     for center in range(radius, len(values)-radius):
         derivative[center] = math.fsum(weight*(values[center+k]-values[center-k])
@@ -198,6 +204,17 @@ def detect_sg_peaks(values, *, threshold=100.0, window=15, min_width=2.0,
                 or any(not _finite(x) for x in interval) or not 0 <= interval[0] <= interval[1] < len(values)):
             raise ValueError('Offscale intervals must lie within the selected signal')
     derivative = cubic_sg_derivative(values, window=window, degree=degree)
+    if _core.CORE is not None:
+        peaks, counts = _core.CORE.detect_peaks(list(values), derivative, float(threshold), float(min_width),
+                                                float(tau_begin), float(tau_end),
+                                                [(float(a), float(b)) for a, b in offscale_intervals])
+        diagnostics = {'sg_candidates': counts['sg_candidates'], 'invalid_bounds': counts['invalid_bounds'],
+                       'height_rejected': counts['height_rejected'], 'width_rejected': counts['width_rejected'],
+                       'edge_rejected': counts['edge_rejected'], 'duplicate_snapped_scans': counts['duplicate_snapped_scans'],
+                       'degree': degree, 'window': window, 'threshold': float(threshold),
+                       'companion_metrics': False, 'original_runtime_validated': False,
+                       'accepted_peaks': counts['accepted_peaks']}
+        return {'peaks': peaks, 'diagnostics': diagnostics}
     candidates = _candidates(derivative)
     diagnostics = {'sg_candidates': len(candidates), 'invalid_bounds': 0, 'height_rejected': 0,
                    'width_rejected': 0, 'edge_rejected': 0, 'duplicate_snapped_scans': 0,

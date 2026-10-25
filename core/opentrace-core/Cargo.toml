@@ -1,0 +1,9 @@
+[package]
+name = "opentrace-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "OpenTrace analysis core: trace preparation, SG peak detection (ports of the Python reference)"
+
+[lib]
+crate-type = ["rlib"]
