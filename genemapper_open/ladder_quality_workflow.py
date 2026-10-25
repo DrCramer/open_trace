@@ -5,7 +5,7 @@ Legacy kit_sample_parameters is a separately declared comparison policy. The
 independent matching optimizer and remaining AL/PQV limitations stay explicit.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 import math
 from .allele_calling import call_sample
@@ -50,7 +50,7 @@ def load_ladder_quality_definition(source):
     for name,recipe in source['markers'].items():
         if not isinstance(name,str) or not 1<=len(name)<=128:raise ValueError('Bounded marker name required')
         validate_ladder_recipe(recipe)
-    return deepcopy(dict(source))
+    return fastcopy(dict(source))
 
 
 def gate_ladder_offsets(peaks,kit,matching,definition,*,sizing,missing_offset_policy='reject',call_observations=None):
@@ -74,7 +74,7 @@ def gate_ladder_offsets(peaks,kit,matching,definition,*,sizing,missing_offset_po
                 call_sample(peaks,kit,matching,sizing_accepted=True,missing_offset_policy=missing_offset_policy))
     else:
         if not isinstance(call_observations,Mapping):raise ValueError('Ladder call observations must be an object')
-        observations=deepcopy(call_observations)
+        observations=fastcopy(call_observations)
     expected_method='ladder_matching_calls' if policy=='ladder_matching_calls' else 'explicit_kit_ordered_sample_filters'
     if observations.get('diagnostics',{}).get('method')!=expected_method:
         raise ValueError('Ladder call observation source differs from requested policy')
@@ -104,7 +104,7 @@ def gate_ladder_offsets(peaks,kit,matching,definition,*,sizing,missing_offset_po
         if (matching.get('markers',{}).get(name) or {}).get('status')!='accepted':reason='ladder_matching_not_accepted'
         elif observed is None or observed['status']!='tentative':reason='ladder_call_observations_unavailable'
         elif recipe is None:reason='explicit_ladder_quality_recipe_missing'
-        effective=deepcopy(recipe)
+        effective=fastcopy(recipe)
         if reason is None:
             reviews=observed['peak_review']
             indices=[p['peak_index'] for p in reviews]
@@ -145,9 +145,9 @@ def gate_ladder_offsets(peaks,kit,matching,definition,*,sizing,missing_offset_po
     result['input_observations_sha256']=digest({'peaks':peaks,'kit':kit,'matching':matching,
                                                'sizing':sizing,'calling':observations})
     if 'spike_adjustments' in observations:
-        result['spike_adjustments']=deepcopy(observations['spike_adjustments'])
+        result['spike_adjustments']=fastcopy(observations['spike_adjustments'])
         result['not_applied'][0]='automatic pullup detector'
-    effective_offsets=deepcopy(matching)
+    effective_offsets=fastcopy(matching)
     effective_offsets['quality_gate']={key:result[key] for key in ('status','definition_sha256','al_subset_code','gate_passed','full_original_al')}
     for record in effective_offsets.get('markers',{}).values():
         record['matching_status_before_quality']=record['status']

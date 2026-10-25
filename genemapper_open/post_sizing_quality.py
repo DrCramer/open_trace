@@ -5,7 +5,7 @@ penalty and model-dependent exterior map rules come from retained ay/ah/o/af
 static contracts. No manufacturer thresholds, overrides or genotype truth.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import hashlib
 import json
 from .quality_control import _number,quality_category,broad_standard_penalty
@@ -38,7 +38,7 @@ def load_sizing_quality_definition(source):
     thresholds=source['thresholds']
     if not isinstance(thresholds,Mapping) or set(thresholds)!= {'good','bad'}:raise ValueError('Explicit good/bad SQ thresholds required')
     quality_category(.5,**thresholds)
-    return deepcopy(dict(source))
+    return fastcopy(dict(source))
 
 
 def standard_dimensions(peak,calibration):

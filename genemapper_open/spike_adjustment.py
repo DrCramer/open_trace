@@ -5,7 +5,7 @@ dirty-state and linked Java objects are outside this model. No calling stage
 is repeated after a flag is cleared. Marker order is our declared kit order.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 from .quality_control import _number, _bool
 
 
@@ -16,7 +16,7 @@ def validate_adjustments(policy):
     _bool(policy['sample_cutoff'],'sample_cutoff')
     _bool(policy['sample_marker_envelope'],'sample_marker_envelope')
     _number(policy['ladder_height_ratio'],'ladder_height_ratio',0,1e12)
-    return deepcopy(dict(policy))
+    return fastcopy(dict(policy))
 
 
 class SpikeState:
@@ -73,8 +73,8 @@ class SpikeState:
         return self.summary('sample',channel_envelopes=envelopes)
 
     def summary(self,kind,**details):
-        states=[deepcopy(self.states[i]) for i in sorted(self.states)]
-        return {'status':'evaluated_subset','sample_kind':kind,'policy':deepcopy(self.policy),
+        states=[fastcopy(self.states[i]) for i in sorted(self.states)]
+        return {'status':'evaluated_subset','sample_kind':kind,'policy':fastcopy(self.policy),
             'initial_spikes':sum(s['initial_spike'] for s in states),
             'current_spikes':sum(s['current_spike'] for s in states),
             'cleared_spikes':sum(s['initial_spike'] and not s['current_spike'] for s in states),
@@ -92,7 +92,7 @@ def adjust_ladder_spikes(peaks,observations,policy):
     """
     from .allele_calling import _prepare_peaks
     state=SpikeState(_prepare_peaks(peaks),policy)
-    observed=deepcopy(observations)
+    observed=fastcopy(observations)
     by_channel={}
     for marker in observed['markers']:
         if marker['status']=='tentative':by_channel.setdefault(marker['channel'],[]).append(marker)
@@ -114,10 +114,10 @@ def adjust_ladder_spikes(peaks,observations,policy):
 
 def apply_peak_states(peaks,summary):
     """Copy scalar current states onto our own source-peak model, retaining history."""
-    result=deepcopy(peaks)
+    result=fastcopy(peaks)
     for state in summary['peak_states']:
         peak=result[state['peak_index']]
-        peak['spike_adjustment']=deepcopy(state)
+        peak['spike_adjustment']=fastcopy(state)
         peak['spike']=state['current_spike']
         flags=peak.get('flags')
         if isinstance(flags,Mapping):

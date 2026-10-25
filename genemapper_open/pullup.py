@@ -5,7 +5,7 @@ routes and processing phase are our explicitly requested orchestration policy.
 No implicit all-vs-all detector, laboratory defaults or original-runtime claim.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 import math
 import re
@@ -53,7 +53,7 @@ def load_pullup_definition(source):
             if any(not isinstance(tag,str) or not re.fullmatch(r'DATA[0-9]{1,6}',tag) for tag in route.values()):
                 raise ValueError('Explicit DATA channel tags required')
             if route['candidate_channel']==route['reference_channel']:raise ValueError('Cross-channel route requires different dyes')
-    return deepcopy(dict(source))
+    return fastcopy(dict(source))
 
 
 def _flag(peak,name):
@@ -95,7 +95,7 @@ def _binary_search(references,scan):
 
 
 def _attempt(candidate,reference,state,settings):
-    before=deepcopy(state);_full_set(state,False)
+    before=fastcopy(state);_full_set(state,False)
     height=reference['height']
     # The original divides before its positive-reference guard. A zero
     # reference produces an unused IEEE nonfinite ratio; finite JSON uses null.
@@ -109,7 +109,7 @@ def _attempt(candidate,reference,state,settings):
         if distance>settings['max_scan_distance'] else 'ratio_not_below_threshold' if not matched else 'matched')
     return {'reference_id':reference['_pullup_id'],'distance_scan':distance,
         'attempt_ratio':ratio if finite else None,'ratio_available':finite,
-        'matched':matched,'reason':reason,'before':before,'after':deepcopy(state)}
+        'matched':matched,'reason':reason,'before':before,'after':fastcopy(state)}
 
 
 def apply_pullup_detection(channels,definition,*,selected_group,reference_channel):
@@ -144,14 +144,14 @@ def apply_pullup_detection(channels,definition,*,selected_group,reference_channe
             if 'pullup_classification' in peak:raise ValueError('Fresh FSA analysis required for pull-up detection')
             _number(peak.get('scan'),'scan',0,1e8);_number(peak.get('height'),'height',-1e12,1e12)
             _bool(peak.get('offscaled',False),'offscaled');_flag(peak,'spike');_state(peak)
-            prepared.append({**deepcopy(peak),'_pullup_id':f'{tag}:{index}'})
+            prepared.append({**fastcopy(peak),'_pullup_id':f'{tag}:{index}'})
         chosen[tag]=prepared
     for route in settings['channel_pairs']:
         a,b=route['candidate_channel'],route['reference_channel']
         if a==reference_channel:raise ValueError('Size-standard channel cannot be a pull-up candidate')
         if a not in chosen or b not in chosen:raise ValueError('Pull-up routes must use channels in the selected DATA group')
     states={p['_pullup_id']:_state(p) for peaks in chosen.values() for p in peaks}
-    histories={key:{'status':'not_targeted','initial_state':deepcopy(state),'events':[],
+    histories={key:{'status':'not_targeted','initial_state':fastcopy(state),'events':[],
         'skips':[],'matched_reference_id':None,'original_automatic_route_confirmed':False}
         for key,state in states.items()}
     passes=[];attempt_count=0
@@ -189,7 +189,7 @@ def apply_pullup_detection(channels,definition,*,selected_group,reference_channe
         output[tag]=[]
         for peak in peaks:
             identifier=peak.pop('_pullup_id');state=states[identifier];history=histories[identifier]
-            history.update(state=deepcopy(state),scope='explicit_cross_channel_body_reconstruction',
+            history.update(state=fastcopy(state),scope='explicit_cross_channel_body_reconstruction',
                 ratio_provenance='measured_pair' if history['matched_reference_id'] is not None else 'supplied_or_fresh_state')
             peak.update(pullup=state['pullup'],pullup_classification=history)
             output[tag].append(peak)

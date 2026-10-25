@@ -4,7 +4,7 @@ Schemas1/2 retain their prepared-signal contract. Schema3 measures companion
 jag/ideal fit with overlap exclusion. Schema4 adds explicit fresh restoration.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 import math
 from .quality_control import _number,_bool
@@ -65,7 +65,7 @@ def load_spike_definition(source):
         _number(source[key],key,0,1e12)
     _number(source['near_base_fraction'],'near_base_fraction',1e-12,1)
     _number(source['max_base_height'],'max_base_height',-1,1e12)
-    return deepcopy(dict(source))
+    return fastcopy(dict(source))
 
 
 def _width_out(signal,lo,hi,center,ratio,cap):

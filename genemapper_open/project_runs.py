@@ -6,7 +6,7 @@ analysis. Original dependency invalidation informs this design; the original
 GUI/state scheduler is not reproduced or invoked.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 from uuid import uuid4
 from .kit_definition import load_kit_definition
@@ -74,7 +74,7 @@ def prepare_run_inputs(source):
             from .marker_quality_workflow import _definition
             marker_quality=_definition(marker_quality)
         normalized['samples'].append({'sample_key':key,'analysis':compact_analysis(entry['analysis']),
-            'marker_quality_definition':deepcopy(marker_quality),'control_definition':deepcopy(control)})
+            'marker_quality_definition':fastcopy(marker_quality),'control_definition':fastcopy(control)})
     _canonical(normalized,MAX_RUN_INPUT_BYTES)
     return normalized
 
@@ -143,7 +143,7 @@ def change_run_ladder(store,run_id,parent_revision_id,ladder_id,*,analysis=None,
     if type(remove) is not bool:raise ValueError('Explicit remove boolean required')
     parent=store.get_run_revision(parent_revision_id)
     if parent['run_id']!=run_id:raise ValueError('Run revision belongs to another run')
-    inputs=deepcopy(parent['inputs']);_text(ladder_id,'ladder_id',256)
+    inputs=fastcopy(parent['inputs']);_text(ladder_id,'ladder_id',256)
     matches=[i for i,r in enumerate(inputs['ladders']) if r['ladder_id'].lower()==ladder_id.lower()]
     if len(matches)!=1:raise ValueError('Select one existing run ladder')
     if remove:

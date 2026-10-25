@@ -100,7 +100,7 @@ def _invalid_constant(value):
     raise ValueError(f'Nonfinite JSON constant: {value}')
 
 
-def load_kit_definition(source):
+def _load_kit_definition(source):
     """Validate JSON text/bytes or a mapping; return a new normalized plain dict.
 
     Raises ValueError on malformed, nonfinite, unknown or excessive inputs.
@@ -225,6 +225,35 @@ def load_kit_definition(source):
                 marker[flag] = row[flag]
         markers.append(marker)
     return {'schema_version': 1, 'name': name, 'markers': markers, 'diagnostics': diagnostics}
+
+
+# validate_kit_definition alias is defined after load_kit_definition below
+
+
+_KIT_CACHE = {}
+_KIT_CACHE_MAX = 32
+
+
+def load_kit_definition(source):
+    """Memoized ``_load_kit_definition``: identical input returns an equal, independent copy.
+
+    The validated result is plain data and callers may mutate what they get, so the cache keeps a
+    private copy and hands out copies. Invalid input is never cached and raises as before.
+    """
+    from .fastcopy import fastcopy
+    try:
+        key = source if isinstance(source, (str, bytes)) else json.dumps(source, ensure_ascii=False, allow_nan=False)
+        hash(key)
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        return _load_kit_definition(source)
+    cached = _KIT_CACHE.get(key)
+    if cached is not None:
+        return fastcopy(cached)
+    result = _load_kit_definition(source)
+    if len(_KIT_CACHE) >= _KIT_CACHE_MAX:
+        _KIT_CACHE.pop(next(iter(_KIT_CACHE)))
+    _KIT_CACHE[key] = fastcopy(result)
+    return result
 
 
 validate_kit_definition = load_kit_definition

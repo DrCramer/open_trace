@@ -729,6 +729,7 @@ function normalizationWarning(samples){
  dialog(T('nwTitle'),b=>{b.classList.add('nwdlg');b.append(el('p',{text:T(all?'nwAll':'nwSome')}),el('p',{text:T('nwNotApplied').replace('{0}',bad.length)}),
    el('label',{class:'chk'},el('input',{type:'checkbox',id:'nwHide'}),document.createTextNode(' '+T('nwHide'))))},
   [[T('ok'),body=>{if(body.querySelector('#nwHide').checked)try{sessionStorage.setItem('opentrace.hideNormWarning','1')}catch(e){}return true},true]])}
+const ANALYZE_CONCURRENCY=4;
 async function analyze(scope){
  let targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;if(!Sec.need('UPDATE_PROJECT'))return;
@@ -742,10 +743,9 @@ async function analyze(scope){
   for(const s of edited)for(const e of s.edits)if(!e.undone){e.undone=true;e.undoneAt=new Date().toISOString();e.undoneBy='reanalysis'}}
  state.busy=true;state.stop=false;state.lastMessage=null;state.noLadder=null;state.binSetNote=null;state.genotypeErrors=[];render();
  const order=[...targets].sort((a,b)=>(a.type==='ladder'?0:1)-(b.type==='ladder'?0:1)); // ladders first
- let i=0,finished=false;
- try{
-  for(const s of order){
-   if(state.stop)break;
+ let i=0,finished=false,next=0,failure=null;
+ // Samples are independent: several requests in flight let the server's worker processes use more than one core.
+ const analyzeOne=async s=>{
    progress(i,order.length,`${T('analyzing')}: ${s.file}`);
    if(s.blob){const p=new URLSearchParams({...(await analyzeSettings(s.method,s.sizeStd)),filename:s.file});
     if(s.sqOverride)p.set('sizing_override',JSON.stringify(s.sqOverride));
@@ -753,7 +753,11 @@ async function analyze(scope){
     let r;try{r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob})}
     catch(e){throw Error(`${s.file}: `+T('serverUnreachable').replace('{0}','/api/analyze')+' ('+e.message+')')}
     let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=slimAnalysis(j);s.compact=null;s.rev=(s.rev||0)+1}
-   s.status='analyzed';i++;progress(i,order.length)}
+   s.status='analyzed';i++;progress(i,order.length)};
+ const lane=async()=>{while(!state.stop&&!failure){const s=order[next++];if(!s)return;try{await analyzeOne(s)}catch(e){failure=failure||e;return}}};
+ try{
+  await Promise.all(Array.from({length:Math.min(ANALYZE_CONCURRENCY,order.length)},lane));
+  if(failure)throw failure;
   normalizationWarning(order);
   finished=await genotype();
   const any=state.project.samples.some(s=>s.panelKey);
@@ -831,14 +835,14 @@ async function genotype(){
    if(!g.ladders.length)state.noLadder=g.rf;continue}
   const methods=[...new Set(g.group.filter(s=>s.type!=='ladder').map(s=>s.method))];
   const kits={};for(const mname of methods)kits[mname]=await kitFor(g.key,mname);
-  for(const s of g.group.filter(x=>x.type!=='ladder')){
-   if(state.stop)return false;
+  const todo=g.group.filter(x=>x.type!=='ladder');let at=0;
+  const one=async s=>{
    const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
    const policy=g.pass?k.policy:'reference_bins';
    let rep;
    try{rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.offLadders||g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy})}
-   catch(e){s.report=null;s.genotypeError=e.message;state.genotypeErrors=(state.genotypeErrors||[]).concat([`${s.file}: ${e.message}`]);s.rev=(s.rev||0)+1;continue}
+   catch(e){s.report=null;s.genotypeError=e.message;state.genotypeErrors=(state.genotypeErrors||[]).concat([`${s.file}: ${e.message}`]);s.rev=(s.rev||0)+1;return}
    s.genotypeError=null;
    // A sample that failed sizing (or another sample check) has no allele calls: keep the report with its reasons, skip GQ/control scoring.
    if(rep.allele_calling&&k.mq){let def=k.mq;const accW=Number(Methods.get(s.method)?.sq_gq?.weights?.acc||0);
@@ -846,7 +850,10 @@ async function genotype(){
     if(s.type==='sample'&&k.mq.amel_marker&&accW>0)def={...k.mq,schema_version:2,sample_type:'Sample',control_mode:'none',amel_cross_check:{weight:accW}};
     rep=await jsonPost('/api/marker-quality',{report:rep,definition:def})}
    if(rep.allele_calling&&(s.type==='positive'||s.type==='negative')){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
-   s.report=slimReport(rep);s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
+   s.report=slimReport(rep);s.referenceBins=!g.pass;s.rev=(s.rev||0)+1};
+  // independent samples: several requests in flight keep the server's worker processes busy
+  await Promise.all(Array.from({length:Math.min(ANALYZE_CONCURRENCY,todo.length)},async()=>{while(!state.stop){const s=todo[at++];if(!s)return;await one(s)}}));
+  if(state.stop)return false}
  return true}
 
 async function loadExample(){

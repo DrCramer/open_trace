@@ -8,6 +8,7 @@ from numbers import Real
 from pathlib import Path
 import re
 import secrets
+import threading
 import urllib.parse
 import webbrowser
 
@@ -502,6 +503,102 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
     return output
 
 
+_POOL = None
+_POOL_LOCK = threading.Lock()
+
+
+def worker_count():
+    """Analysis worker processes: OPENTRACE_WORKERS, default min(4, usable CPUs); 1 = analyse in-process."""
+    env = os.environ.get('OPENTRACE_WORKERS', '').strip()
+    try:
+        if env:
+            n = int(env)
+        else:
+            cpus = len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else (os.cpu_count() or 1)
+            n = min(4, cpus)
+    except ValueError:
+        n = 1
+    return max(1, min(n, 16))
+
+
+def _analysis_pool():
+    global _POOL
+    if worker_count() <= 1:
+        return None
+    with _POOL_LOCK:
+        if _POOL is None:
+            from concurrent.futures import ProcessPoolExecutor
+            import multiprocessing
+            # spawn: safe with the threaded server and identical on Linux and Windows
+            _POOL = ProcessPoolExecutor(max_workers=worker_count(), mp_context=multiprocessing.get_context('spawn'))
+        return _POOL
+
+
+def shutdown_pool():
+    global _POOL
+    with _POOL_LOCK:
+        pool, _POOL = _POOL, None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _analyze_task(raw, filename, args, kwargs):
+    return json.dumps(analyze(raw, filename, *args, **kwargs), ensure_ascii=False, allow_nan=False).encode('utf-8')
+
+
+def _json_task(kind, raw):
+    """Body of the heavy JSON endpoints. Runs in a worker process (or in-process with one worker); the JSON is
+    parsed and the answer encoded here, so the serving process only moves bytes."""
+    request = json.loads(raw)
+    if kind == 'str-run':
+        from .run_workflow import run_str_run_workflow
+        if not isinstance(request, dict):
+            raise ValueError('Run STR request must be an object')
+        result = run_str_run_workflow(request.get('sample'), request.get('ladders'),
+            request.get('kit'), ladder_quality_definition=request.get('ladder_quality_definition'),
+            missing_offset_policy=request.get('missing_offset_policy', 'reject'))
+    elif kind == 'marker-quality':
+        from .marker_quality_workflow import attach_marker_quality
+        if not isinstance(request, dict):
+            raise ValueError('Marker quality request must be an object')
+        result = attach_marker_quality(request.get('report'), request.get('definition'))
+    elif kind == 'controls':
+        from .control_workflow import attach_control_result
+        if not isinstance(request, dict):
+            raise ValueError('Control request must be a JSON object')
+        result = attach_control_result(request.get('report'), request.get('definition'))
+    else:
+        raise ValueError('Unknown task ' + kind)
+    return json.dumps(result, ensure_ascii=False, allow_nan=False).encode('utf-8')
+
+
+def json_dispatch(kind, raw):
+    """Response body (bytes) of a heavy JSON endpoint, computed in a worker process when several are configured."""
+    pool = _analysis_pool()
+    if pool is None:
+        return _json_task(kind, raw)
+    from concurrent.futures.process import BrokenProcessPool
+    try:
+        return pool.submit(_json_task, kind, raw).result()
+    except BrokenProcessPool:
+        shutdown_pool()
+        return _json_task(kind, raw)
+
+
+def analyze_dispatch(raw, filename, *args, **kwargs):
+    """Run ``analyze`` in a worker process so concurrent requests use several CPU cores (the GIL keeps
+    threads of one process on a single core). The result is the same as a direct call."""
+    pool = _analysis_pool()
+    if pool is None:
+        return analyze(raw, filename, *args, **kwargs)
+    from concurrent.futures.process import BrokenProcessPool
+    try:
+        return pool.submit(_analyze_task, raw, filename, args, kwargs).result()
+    except BrokenProcessPool:
+        shutdown_pool()  # a worker died (e.g. out of memory); recover with a fresh pool on the next request
+        return analyze(raw, filename, *args, **kwargs)
+
+
 def default_security_dir():
     env = os.environ.get('OPENTRACE_SECURITY')
     return Path(env) if env else Path.home() / 'OpenTrace' / 'security'
@@ -617,15 +714,9 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None, h
                     from .project_api import project_action
                     return self.respond(200,project_action(json.loads(raw)))
                 if parsed.path == '/api/controls':
-                    from .control_workflow import attach_control_result
-                    request=json.loads(raw)
-                    if not isinstance(request,dict):raise ValueError('Control request must be a JSON object')
-                    return self.respond(200,attach_control_result(request.get('report'),request.get('definition')))
+                    return self.respond(200,json_dispatch('controls',raw))
                 if parsed.path == '/api/marker-quality':
-                    from .marker_quality_workflow import attach_marker_quality
-                    request=json.loads(raw)
-                    if not isinstance(request,dict):raise ValueError('Marker quality request must be an object')
-                    return self.respond(200,attach_marker_quality(request.get('report'),request.get('definition')))
+                    return self.respond(200,json_dispatch('marker-quality',raw))
                 ticket = self.headers.get("X-User-Ticket", "")
                 if parsed.path == '/api/sample-info':
                     from .sample_info import sample_info
@@ -680,12 +771,7 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None, h
                         request.get('kit'),missing_offset_policy=request.get('missing_offset_policy','reject'),
                         ladder_quality_definition=request.get('ladder_quality_definition')))
                 if parsed.path == '/api/str-run':
-                    from .run_workflow import run_str_run_workflow
-                    request=json.loads(raw)
-                    if not isinstance(request,dict):raise ValueError('Run STR request must be an object')
-                    return self.respond(200,run_str_run_workflow(request.get('sample'),request.get('ladders'),
-                        request.get('kit'),ladder_quality_definition=request.get('ladder_quality_definition'),
-                        missing_offset_policy=request.get('missing_offset_policy','reject')))
+                    return self.respond(200,json_dispatch('str-run',raw))
                 if parsed.path == '/api/demo-str-run':
                     from .str_demo import make_run_demo
                     from .str_workflow import compact_analysis
@@ -750,7 +836,7 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None, h
                 demo = {'/api/demo': demo_bytes, '/api/demo-sizing': sizing_demo_bytes,
                         '/api/demo-pipeline': pipeline_demo_bytes}.get(parsed.path)
                 data = demo() if demo else raw
-                result = analyze(data,
+                result = analyze_dispatch(data,
                                  params.get("filename", ["synthetic.fsa"])[0],
                                  float(params.get("threshold", ["100"])[0]),
                                  int(params.get("distance", ["8"])[0]),
@@ -807,3 +893,4 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None, h
         pass
     finally:
         server.server_close()
+        shutdown_pool()

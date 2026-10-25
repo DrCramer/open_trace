@@ -4,7 +4,7 @@ This is not a full original GQ/PQV processor or an authenticated control
 definition store. Missing expected profiles remain visible as skipped checks.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 from .quality_control import (positive_control,negative_control,zero_peak_metric,
                               composite_control_category)
@@ -71,7 +71,7 @@ def evaluate_controls(report,definition):
 
 def attach_control_result(report,definition):
     """Return a new immutable-machine candidate, preserving preliminary status."""
-    result=deepcopy(report)
+    result=fastcopy(report)
     quality=evaluate_controls(report,definition)
     prior_controls=(result.get('quality') or {}).get('controls')
     result.setdefault('quality',{})['controls']=quality
@@ -82,6 +82,6 @@ def attach_control_result(report,definition):
             marker_quality.get('control_mode') in ('positive_attached','negative_attached') or route_changed):
         marker_quality.update(status='stale',stale_reason='control_observations_changed',
             sample_category=None,complete_for_requested_subset=False,all_markers_evaluated=False)
-    result['settings']=deepcopy(result.get('settings',{}))
+    result['settings']=fastcopy(result.get('settings',{}))
     result['settings']['control_definition_sha256']=quality['definition_sha256']
     return result

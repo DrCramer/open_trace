@@ -72,3 +72,37 @@ class CoreParityTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@unittest.skipUnless(_core.available() and hasattr(_core.CORE, 'best_paths'), 'opentrace_core.best_paths not available')
+class RatioSizingParityTests(unittest.TestCase):
+    """ratio_sizing._best_paths: Rust and Python must agree on scores (bit for bit), paths and transition counts."""
+
+    def check(self, scans, heights, bp, weight):
+        from genemapper_open import ratio_sizing
+        py = ratio_sizing._best_paths_py(scans, heights, bp, weight)
+        rs = ratio_sizing._best_paths(scans, heights, bp, weight)
+        self.assertEqual(py[1], rs[1], 'transitions')
+        self.assertEqual(len(py[0]), len(rs[0]))
+        for (ps, pp), (rsc, rp) in zip(py[0], rs[0]):
+            self.assertEqual(pp, rp)
+            self.assertEqual(ps.hex(), rsc.hex())
+
+    def test_random_inputs(self):
+        rng = random.Random(7)
+        for _ in range(60):
+            n = rng.randint(3, 26)
+            count = n + rng.randint(0, 14)
+            bp = sorted(rng.sample(range(20, 600), n))
+            scans = sorted(rng.sample(range(500, 9000), count))
+            heights = [rng.choice([rng.uniform(100, 9000), 1000.0]) for _ in range(count)]
+            self.check(scans, heights, bp, rng.choice([0.0, 0.3, 0.8, 0.95, 1.0]))
+
+    def test_ties_and_even_spacing(self):
+        for count, n in ((10, 5), (14, 8), (20, 20)):
+            scans = [1000.0 + 37.0 * i for i in range(count)]
+            self.check(scans, [500.0] * count, [60.0 + 20.0 * i for i in range(n)], 0.8)
+            self.check(scans, [500.0] * count, [60.0 + 20.0 * i for i in range(n)], 1.0)
+
+    def test_two_peaks_more_than_markers(self):
+        self.check([100.0, 150.0, 210.0, 300.0], [10.0, 20.0, 15.0, 30.0], [50.0, 90.0, 140.0], 0.5)

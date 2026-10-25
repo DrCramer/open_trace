@@ -6,7 +6,7 @@ been committed. All window peaks remain linked for artifact QC. No sample
 cutoff, minus-A, stutter or sample bin reassignment occurs here.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 from .allele_calling import _prepare_peaks,MAX_MARKER_PEAKS
 from .kit_definition import load_kit_definition
 from .quality_control import _number
@@ -76,7 +76,7 @@ def ladder_call_observations(peaks,kit,matching):
             cutoff=diagnostics.get('cutoff_height');cap=diagnostics.get('top_2n_height')
             reviews=[];calls=[];events=[]
             for peak in linked:
-                i=peak['peak_index'];review={**deepcopy(peak),'state':'unmatched_ladder_candidate','reasons':[]}
+                i=peak['peak_index'];review={**fastcopy(peak),'state':'unmatched_ladder_candidate','reasons':[]}
                 artifact=[f for f in ('spike','pullup') if f in peak['flags']]
                 if artifact:review.update(state='excluded_artifact',reasons=artifact)
                 elif i in selected:
@@ -84,7 +84,7 @@ def ladder_call_observations(peaks,kit,matching):
                     if cleared:review.update(state='clear_range',reasons=['clear_range'])
                     else:
                         review['state']='selected'
-                        calls.append({**deepcopy(peak),'label':match['label'],'bin_hits':[match['label']],
+                        calls.append({**fastcopy(peak),'label':match['label'],'bin_hits':[match['label']],
                             'off_ladder':False,'kind':'ladder_matched','confidence':confidence,
                             'confidence_source':'ladder_ratio_and_unmatched_height_penalty',
                             'expected_bin_center_bp':match['center_bp'],'source_peak_id':peaks[i].get('id'),

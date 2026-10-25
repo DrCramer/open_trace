@@ -1,5 +1,5 @@
 //! Python extension `opentrace_core` (PyO3): fast paths for `genemapper_open.preprocessing` and `sg_peaks`.
-use otcore::{preprocessing as pp, sg};
+use otcore::{preprocessing as pp, ratio, sg};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyFloat, PyInt, PyList, PyTuple};
 
@@ -38,6 +38,14 @@ fn all_finite(values: &Bound<'_, PyAny>) -> bool {
     } else {
         false
     }
+}
+
+
+/// `ratio_sizing._best_paths` fast path: ([(score, path)], transitions). The caller checks the size limits
+/// (`ratio_max_count` / `ratio_max_len`) and otherwise uses the Python reference.
+#[pyfunction]
+fn best_paths(scans: Vec<f64>, heights: Vec<f64>, bp: Vec<f64>, weight: f64) -> (Vec<(f64, Vec<usize>)>, u64) {
+    ratio::best_paths(&scans, &heights, &bp, weight)
 }
 
 #[pyfunction]
@@ -123,6 +131,7 @@ fn opentrace_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(is_int32_trace, m)?)?;
     m.add_function(wrap_pyfunction!(all_finite, m)?)?;
+    m.add_function(wrap_pyfunction!(best_paths, m)?)?;
     m.add_function(wrap_pyfunction!(extrema, m)?)?;
     m.add_function(wrap_pyfunction!(average, m)?)?;
     m.add_function(wrap_pyfunction!(baseline_correct, m)?)?;

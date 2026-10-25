@@ -5,7 +5,7 @@ calling. It never infers a ratio from signal, changes GQ/confidence, or admits
 ladder offsets. Original automatic detector reachability is a separate issue.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import hashlib
 import json
 from .pullup import load_pullup_definition,_flag
@@ -72,7 +72,7 @@ def evaluate_pullup_quality(report,definition):
 
 
 def attach_pullup_quality(report,definition):
-    result=deepcopy(report)
+    result=fastcopy(report)
     quality=evaluate_pullup_quality(report,definition)
     result.setdefault('quality',{})['pullup']=quality
     result.setdefault('settings',{})['pullup_quality_definition_sha256']=quality['definition_sha256']

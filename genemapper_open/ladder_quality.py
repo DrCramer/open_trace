@@ -4,7 +4,7 @@ Explicit effective settings only; no commercial defaults or runtime. Null
 tolerance denotes the original disabled comparison, not an infinite JSON value.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 from .quality_control import _number, _bool
 
 
@@ -54,7 +54,7 @@ def validate_ladder_recipe(recipe):
     excluded=spacing['excluded_alleles']
     if not isinstance(excluded,(list,tuple)) or len(excluded)>128:raise ValueError('At most128 explicitly excluded alleles required')
     for name in excluded:_name(name)
-    return deepcopy(dict(recipe))
+    return fastcopy(dict(recipe))
 
 
 def _tolerance(distance,first,second,spacing):
@@ -108,7 +108,7 @@ def score_ladder_marker(calls,expected_bins,recipe):
         if call['bin'] is not None:
             _object(call['bin'],('name','center_bp'),'bin')
             _name(call['bin']['name']);_number(call['bin']['center_bp'],'bin center',0,1e6)
-        prepared.append(deepcopy(call))
+        prepared.append(fastcopy(call))
     prepared.sort(key=lambda c:c['size_bp'])
     result={'status':'evaluated_subset','gq':1.0,'ladder_metric':0,'allele_number_metric':-2,
         'recipe':recipe,'events':[],'spacing_checks':[],'sorted_call_names':[c['name'] for c in prepared],

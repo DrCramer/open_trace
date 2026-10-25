@@ -232,11 +232,11 @@ def restore_peak(peak,classification,*,calibration,signal_length):
     unrounded standard-map API. Added finite/bounds checks are explicit adapter
     limits; the original picker did not prevalidate both endpoint indices.
     """
-    from copy import deepcopy
+    from .fastcopy import fastcopy
     if not isinstance(peak,dict) or not isinstance(classification,dict):raise ValueError('Peak and classification required')
     if 'true_peak_restoration' in peak:raise ValueError('Fresh peak required; recalculate from the source FSA')
     if type(signal_length) is not int or not 1<=signal_length<=1_000_000:raise ValueError('Bounded signal length required')
-    result=deepcopy(peak)
+    result=fastcopy(peak)
     fields=('height','scan','size_bp','area','area_bp')
     history={'status':'not_applicable','reason':'public_restore_branch_not_selected',
         'scope':'fresh_non_reference_offset0','prior_state':'fresh_false',

@@ -5,7 +5,11 @@ as its numerical admission code; unavailable quality never becomes original
 NA/override codes. This is not a complete original Run/PQV lifecycle.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
+import hashlib
+import pickle
+import threading
+from collections import OrderedDict
 from . import __version__
 from .kit_definition import load_kit_definition
 from .str_workflow import _analysis,_ladder_stages,_sample_stage,_pullup_provenance,digest
@@ -41,7 +45,7 @@ def _base_run_report(sample_analysis,sample,definition,quality_definition,missin
         'ladder_identity':{'scope':'explicit_run','ladders':[]},
         'settings':{'analysis':sample['signature'],'missing_offset_policy':missing_offset_policy,
             'ladder_quality_definition_sha256':digest(quality_definition)},
-        'sizing':{key:deepcopy(sample_analysis['sizing'].get(key)) for key in
+        'sizing':{key:fastcopy(sample_analysis['sizing'].get(key)) for key in
             ('status','mode','anchors','calibration_model','reference_channel','base_quality','post_quality','expected_bp')},
         'quality':{'run_ladders':[]},
         'provenance':{'scope':'fresh_explicit_run','input_reports_are_caller_supplied':True,
@@ -103,6 +107,33 @@ def _ladder_cohort(sample,ladders,definition,quality_definition,missing_offset_p
     return result
 
 
+_COHORTS=OrderedDict();_COHORT_LOCK=threading.Lock();_COHORT_MAX=8
+
+
+def _cached_cohort(sample,ladders,kit,ladder_quality_definition,missing_offset_policy,definition,quality_definition,adjustments):
+    """Ladder processing does not depend on which sample of the run is called, so a run's samples share it.
+
+    The cohort is read-only (``_finish_run`` copies every part it uses). The key covers everything the
+    cohort is computed from; ladders are compared by content, not by name."""
+    try:
+        # pickle, not JSON: several times faster for the large ladder reports; a different key order only
+        # costs a cache miss
+        key=hashlib.sha256(pickle.dumps((sample['signature'],sample['analysis_version'],ladders,kit,
+            ladder_quality_definition,missing_offset_policy),protocol=pickle.HIGHEST_PROTOCOL)).digest()
+    except (TypeError,ValueError,pickle.PicklingError,AttributeError,RecursionError):
+        key=None
+    if key is not None:
+        with _COHORT_LOCK:
+            hit=_COHORTS.get(key)
+            if hit is not None:_COHORTS.move_to_end(key);return hit
+    cohort=_ladder_cohort(sample,ladders,definition,quality_definition,_ladder_policy(missing_offset_policy),adjustments)
+    if key is not None:
+        with _COHORT_LOCK:
+            _COHORTS[key]=cohort
+            while len(_COHORTS)>_COHORT_MAX:_COHORTS.popitem(last=False)
+    return cohort
+
+
 def _finish_run(result,sample,definition,cohort,adjustments,spike_definition):
     if spike_definition is not None and spike_definition.get('schema_version',0)>=3:
         result['provenance'].update(morphology_scope='companion_jag_and_ideal_gaussian_fit_only',
@@ -110,9 +141,9 @@ def _finish_run(result,sample,definition,cohort,adjustments,spike_definition):
         if spike_definition['schema_version']==4:
             result['provenance'].update(morphology_scope='side_collection_true_peak_and_fresh_restoration',
                 true_peak_restoration_applied=any(bool(p.get('true_peak_restoration',{}).get('writes')) for p in sample['peaks']))
-    result['ladder_identity']=deepcopy(cohort['ladder_identity'])
-    result['quality']['run_ladders']=deepcopy(cohort['quality']['run_ladders'])
-    offsets=result['ladder']=deepcopy(cohort['ladder'])
+    result['ladder_identity']=fastcopy(cohort['ladder_identity'])
+    result['quality']['run_ladders']=fastcopy(cohort['quality']['run_ladders'])
+    offsets=result['ladder']=fastcopy(cohort['ladder'])
     result['provenance'].update(artifact_detectors_applied=spike_definition is not None,automatic_pullup_applied=False,
         downstream_spike_adjustments_applied=adjustments is not None)
     result['provenance'].update(_pullup_provenance(sample))
@@ -138,7 +169,7 @@ def run_str_run_workflow(sample_analysis,ladders,kit,*,ladder_quality_definition
     result['reasons']=_sample_failures(sample)
     if result['reasons']:return result
     spike_definition,adjustments=_artifact_options(sample)
-    cohort=_ladder_cohort(sample,ladders,definition,quality_definition,_ladder_policy(missing_offset_policy),adjustments)
+    cohort=_cached_cohort(sample,ladders,kit,ladder_quality_definition,missing_offset_policy,definition,quality_definition,adjustments)
     return _finish_run(result,sample,definition,cohort,adjustments,spike_definition)
 
 
@@ -171,9 +202,9 @@ def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missi
         if sample['analysis_version']!=reference['analysis_version']:result['reasons'].append('Sample analysis version differs from run context')
         if not result['reasons']:_finish_run(result,sample,definition,cohort,adjustments,spike_definition)
         else:
-            result['ladder_identity']=deepcopy(cohort['ladder_identity'])
-            result['quality']['run_ladders']=deepcopy(cohort['quality']['run_ladders'])
-            result['ladder']=deepcopy(cohort['ladder'])
+            result['ladder_identity']=fastcopy(cohort['ladder_identity'])
+            result['quality']['run_ladders']=fastcopy(cohort['quality']['run_ladders'])
+            result['ladder']=fastcopy(cohort['ladder'])
             result['allele_calling']={'status':'rejected','reasons':list(result['reasons']),
                 'markers':[{'name':m['name'],'channel':m['channel'],'status':'rejected',
                     'reasons':['Sample prerequisites unavailable'],'calls':[],'stutter_calls':[],'peak_review':[]}

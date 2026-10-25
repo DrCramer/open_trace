@@ -7,7 +7,7 @@ observed nine-decimal Math.round storage rule and means use sequential double
 addition. This does not establish complete original runtime equivalence.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import math
 
 from .kit_definition import load_kit_definition
@@ -78,7 +78,7 @@ def _state(state):
             or type(state['schema_version']) is not int or state['schema_version'] != 1
             or not isinstance(state['contributions'], list) or not isinstance(state['events'], list)):
         raise ValueError('Explicit versioned run offset state required')
-    result = deepcopy(dict(state))
+    result = fastcopy(dict(state))
     seen = set()
     for row in result['contributions']:
         if not isinstance(row, Mapping) or set(row) != {
@@ -130,7 +130,7 @@ def ladder_window_offset(state, marker, local_offset_bp=None):
     """
     marker = _name(marker, 'marker', 128)
     state = _state(state)
-    contributors = [deepcopy(r) for r in state['contributions']
+    contributors = [fastcopy(r) for r in state['contributions']
                     if r['marker'] == marker and r['key_kind'] == 'virtual_max'
                     and r['quality_code'] in ALLOWED_CODES]
     values = [r['offset_bp'] for r in contributors]
@@ -240,8 +240,8 @@ def aggregate_run_offsets(entries, kit):
 
     def mean_for(marker, kind, label=None):
         rows = pools.get((marker, kind, label), [])
-        admitted = [deepcopy(r) for r in rows if r['quality_code'] in ALLOWED_CODES]
-        excluded = [{**deepcopy(r), 'reason': 'quality_code_missing' if r['quality_code'] is None
+        admitted = [fastcopy(r) for r in rows if r['quality_code'] in ALLOWED_CODES]
+        excluded = [{**fastcopy(r), 'reason': 'quality_code_missing' if r['quality_code'] is None
                      else 'quality_code_not_admitted'} for r in rows if r['quality_code'] not in ALLOWED_CODES]
         mean = _mean([r['offset_bp'] for r in admitted]) if admitted else None
         return {'offset_bp': mean, 'contributors': admitted, 'excluded': excluded}

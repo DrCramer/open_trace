@@ -6,7 +6,7 @@ runtime is loaded. All kit/filter constants and all ladder offsets are inputs.
 This module emits reviewable hypotheses, never a validated genotype.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 import math
 from numbers import Real
@@ -144,7 +144,7 @@ def _label(peak, bins, offsets, *, stutter=False):
         if bin_['center_bp'] - bin_['left_bp'] <= corrected <= bin_['center_bp'] + bin_['right_bp']:
             hits.append(bin_)
     unique = len(hits) == 1
-    call = {key: deepcopy(peak[key]) for key in
+    call = {key: fastcopy(peak[key]) for key in
             ('peak_index', 'scan', 'size_bp', 'height', 'flags')}
     call.update(label=hits[0]['label'] if unique else 'OL',
                 bin_hits=[b['label'] for b in hits], review_required=True,
@@ -169,7 +169,7 @@ def _pick_marker(marker, candidates, offset_record, window, offset_metadata):
     reviews = {}
     active = []
     for peak in candidates:
-        review = {**deepcopy(peak), 'state': 'candidate', 'reasons': []}
+        review = {**fastcopy(peak), 'state': 'candidate', 'reasons': []}
         reviews[peak['peak_index']] = review
         result['peak_review'].append(review)
         artifacts = [f for f in ('spike', 'pullup') if f in peak['flags']]
@@ -345,7 +345,7 @@ def call_sample(peaks, kit, ladder_offsets, *, sizing_accepted, source_metadata=
     except (TypeError, ValueError, OverflowError, RecursionError) as error:
         result['reasons'].append(str(error))
         return result
-    result['source_metadata'] = deepcopy(dict(source_metadata)) if source_metadata is not None else None
+    result['source_metadata'] = fastcopy(dict(source_metadata)) if source_metadata is not None else None
     result['kit_name'] = definition['name']
     pair_range_checks = 0
     assigned = set()

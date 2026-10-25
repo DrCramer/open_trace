@@ -5,7 +5,7 @@ widths and explicit laboratory settings. It is never substituted for full PQV.
 """
 from collections.abc import Mapping
 from .spike_adjustment import marker_has_spike
-from copy import deepcopy
+from .fastcopy import fastcopy
 import json
 from .marker_quality import score_ordinary_marker,score_y_marker,score_negative_marker
 from .amel_cross_check import evaluate_amel_cross_check
@@ -75,7 +75,7 @@ def _definition(source):
         arguments=([],recipe['thresholds'],recipe['weights'],recipe['flags'])
         if recipe['kind']=='y':score_y_marker(*arguments,sample_sq=1,amel_calls=None,control_mismatch=False)
         else:score_ordinary_marker(*arguments,sample_sq=1,marker_kind=recipe['kind'],control_mismatch=False)
-    return deepcopy(dict(source))
+    return fastcopy(dict(source))
 
 
 def evaluate_marker_quality(report,definition):
@@ -151,7 +151,7 @@ def evaluate_marker_quality(report,definition):
             reason='negative_zero_peak_observation_missing'
         if reason is not None:
             row['reason']=reason;result['markers'].append(row);continue
-        effective_flags=deepcopy(recipe.get('flags',{}))
+        effective_flags=fastcopy(recipe.get('flags',{}))
         observed_flags={'binning':any(call.get('off_ladder') is True for call in selected),
                         'overlap':any('cross_marker_overlap' in call.get('flags',[]) for call in selected),
                         'spike':marker_has_spike(marker)}
@@ -210,7 +210,7 @@ def evaluate_marker_quality(report,definition):
 
 
 def attach_marker_quality(report,definition):
-    result=deepcopy(report)
+    result=fastcopy(report)
     quality=evaluate_marker_quality(report,definition)
     result.setdefault('quality',{})['marker_gq']=quality
     result.setdefault('settings',{})['marker_quality_definition_sha256']=quality['definition_sha256']

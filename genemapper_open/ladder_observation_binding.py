@@ -5,7 +5,7 @@ Only the declared downstream spike transition may change a bound observation.
 Validation can replay that transition, never ladder matching or allele calling.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import hashlib
 import json
 import re
@@ -32,7 +32,7 @@ def _digest(value):
 def _without_binding(observations):
     if not isinstance(observations, Mapping):
         raise ValueError('Ladder observations must be an object')
-    result = deepcopy(dict(observations))
+    result = fastcopy(dict(observations))
     result.pop(_KEY, None)
     markers = result.get('markers')
     if not isinstance(markers, list) or any(not isinstance(m, Mapping) for m in markers):
@@ -133,7 +133,7 @@ def _validate_adjusted(peaks, observations, binding):
     # Restore only initial spike flags. All other source observations must have
     # passed their original digest above, and all call/window data is immutable.
     normalized = {p['peak_index']: p for p in _prepare_peaks(peaks)}
-    restored = deepcopy(peaks)
+    restored = fastcopy(peaks)
     for index, peak in enumerate(restored):
         peak['flags'] = [f for f in normalized[index]['flags'] if f != 'spike']
         peak['spike'] = initial[index]
@@ -176,5 +176,5 @@ def validate(peaks, kit, matching, observations):
                 or any('spike_adjustment' in p for p in peaks)):
             raise ValueError('Spike phase metadata requires a checked adjustment summary')
         _check_digest(sources, binding['source_sha256'], 'source inputs')
-    result[_KEY] = deepcopy(dict(binding))
+    result[_KEY] = fastcopy(dict(binding))
     return result

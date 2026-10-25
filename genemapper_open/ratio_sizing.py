@@ -10,6 +10,7 @@ from collections.abc import Mapping
 import math
 from numbers import Real
 
+from . import _core
 from .analysis import Calibration
 
 MAX_INPUT_PEAKS = 4096
@@ -28,6 +29,17 @@ def _number(value):
 
 
 def _best_paths(scans, heights, bp, weight):
+    """Rust fast path when available and within its size limits; the Python reference otherwise."""
+    core = _core.CORE
+    if core is not None and hasattr(core, 'best_paths') and len(scans) <= 255 and 3 <= len(bp) <= 32 \
+            and len(scans) >= len(bp) and len(scans) == len(heights):
+        paths, transitions = core.best_paths([float(v) for v in scans], [float(v) for v in heights],
+                                             [float(v) for v in bp], float(weight))
+        return [(score, tuple(path)) for score, path in paths], transitions
+    return _best_paths_py(scans, heights, bp, weight)
+
+
+def _best_paths_py(scans, heights, bp, weight):
     """Two best paths per last-two state; future cost depends only on that pair."""
     count, length = len(scans), len(bp)
     scale = max(heights)

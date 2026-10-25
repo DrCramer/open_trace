@@ -5,7 +5,7 @@ not an external attestation. analyze_str_files binds newly computed reports
 to exact input bytes. No manufacturer data or original runtime is loaded.
 """
 from collections.abc import Mapping
-from copy import deepcopy
+from .fastcopy import fastcopy
 import hashlib
 import json
 import math
@@ -25,9 +25,9 @@ def digest(value):
 
 def compact_analysis(report):
     """Remove raw arrays/directory before sending a public report to this API."""
-    return {**{key:deepcopy(report[key]) for key in ('source_sha256','analysis_version',
+    return {**{key:fastcopy(report[key]) for key in ('source_sha256','analysis_version',
             'peak_settings','sizing','standard_definition_context','pullup_detection') if key in report},
-        'channels':[{key:deepcopy(channel[key]) for key in ('tag','group','peaks') if key in channel}
+        'channels':[{key:fastcopy(channel[key]) for key in ('tag','group','peaks') if key in channel}
                     for channel in report.get('channels',[])]}
 
 
@@ -42,7 +42,7 @@ def _analysis(report, name, channels):
     if not isinstance(sizing,Mapping) or not isinstance(settings,Mapping):
         raise ValueError(name+': sizing and peak_settings required')
     signature = {'peak_settings':dict(settings),
-        'sizing':{key:deepcopy(sizing.get(key)) for key in ('mode','reference_channel','expected_bp',
+        'sizing':{key:fastcopy(sizing.get(key)) for key in ('mode','reference_channel','expected_bp',
             'analysis_engine','calibration_model','max_residual_bp','settings')}}
     accepted = (sizing.get('status') == 'accepted' and sizing.get('mode') == 'auto'
         and sizing.get('calibration_applied') is True and len(sizing.get('anchors',[])) >= 3
@@ -94,10 +94,10 @@ def _analysis(report, name, channels):
                 raise ValueError(name+': peak outside supported bounds')
             if 'pullup' in peak and type(peak['pullup']) is not bool:
                 raise ValueError(name+': boolean pull-up flag required')
-            record = {key:deepcopy(peak[key]) for key in ('scan','size_bp','height','flags','spike','pullup') if key in peak}
+            record = {key:fastcopy(peak[key]) for key in ('scan','size_bp','height','flags','spike','pullup') if key in peak}
             for key in ('begin','end','fwhm_scan','area','area_bp','offscaled','spike_features','spike_classification','true_peak_restoration',
                         'pullup_classification','pullup_ratio','pullup_ratio_threshold'):
-                if key in peak:record[key]=deepcopy(peak[key])
+                if key in peak:record[key]=fastcopy(peak[key])
             if settings.get('spike_definition') is not None and (peak.get('spike_classification') or {}).get('status')!='evaluated_subset':
                 spike_unavailable.append(f'{tag}:{index}')
             if pullup_definition is not None and pullup_definition['detector'] is not None:
@@ -121,7 +121,7 @@ def _analysis(report, name, channels):
             'unsized_peaks':skipped,'source_sha256':report['source_sha256'],'spike_unavailable':spike_unavailable,
             'pullup_unavailable':pullup_unavailable,
             'analysis_version':report['analysis_version'],'sizing_status':sizing.get('status'),
-            'standard_definition_context':deepcopy(report.get('standard_definition_context'))}
+            'standard_definition_context':fastcopy(report.get('standard_definition_context'))}
 
 
 def _ladder_stages(ladder_analysis,ladder,definition,quality_definition,missing_offset_policy,adjustments,*,run_offset_state=None):
@@ -177,7 +177,7 @@ def _sample_stage(result,sample,definition,offsets,adjustments):
         for call in marker['calls']:
             source=sample['peaks'][call['peak_index']]
             identifier=hashlib.sha256((marker['name']+'\0'+source['id']).encode()).hexdigest()[:24]
-            result['calls'].append({**deepcopy(call),'id':identifier,'marker':marker['name'],
+            result['calls'].append({**fastcopy(call),'id':identifier,'marker':marker['name'],
                                     'channel':marker['channel'],'source_peak_id':source['id']})
     pullup_definition=sample['signature']['peak_settings'].get('pullup_definition')
     if pullup_definition is not None:
@@ -210,7 +210,7 @@ def run_str_workflow(sample_analysis, ladder_analysis, kit, *, missing_offset_po
     result = {'schema_version':1,'source_sha256':sample['source_sha256'],
         'analysis_version':'OpenTrace/'+__version__,'status':'rejected','reasons':[],
         'settings':settings,'kit_identity':{'name':definition['name'],'sha256':digest(definition)},
-        'sizing':{key:deepcopy(sample_analysis['sizing'].get(key)) for key in
+        'sizing':{key:fastcopy(sample_analysis['sizing'].get(key)) for key in
                   ('status','mode','anchors','calibration_model','reference_channel','base_quality','post_quality','expected_bp')},
         'sample_identity':{key:sample[key] for key in ('source_sha256','analysis_version','sizing_status','standard_definition_context')},
         'ladder_identity':{key:ladder[key] for key in ('source_sha256','analysis_version','sizing_status','standard_definition_context')},
