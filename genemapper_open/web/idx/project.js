@@ -1240,6 +1240,7 @@ Methods.registerKind(()=>({id:'projects',first:true,multi:true,label:T('mgrProje
 buildChrome();render();
 window.addEventListener('opentrace-security',()=>{buildChrome();render()});
 Sec.init().then(ok=>{if(ok===false)return;buildChrome();render();
+ if(window.TableSettings&&TableSettings.ensureShipped)TableSettings.ensureShipped().then(()=>render());
  Methods.ensureDefault().then(()=>{render();
   let last=null;try{last=localStorage.getItem('opentrace.lastProject')}catch(e){}
   if(ProjectOptions.get().startup==='last'&&last&&Sec.can('READ_PROJECT'))return loadProject(last)}).catch(e=>message(e.message))});

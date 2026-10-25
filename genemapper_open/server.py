@@ -524,6 +524,12 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                   "project.js", "plot.js", "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js", "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js", "plotsettings.js", "matrices.js")}
     for page_name in ("project.html", "panels.html", "plot.html"):
         idx_files[page_name] = idx_files[page_name].replace(b"__SESSION_TOKEN__", token.encode("ascii"))
+    # ID-X Database Defaults / Table Settings, shipped verbatim and parsed by the
+    # browser's own TableSettingContainer reader so the seeded views match ID-X.
+    shipped_tables_dir = Path(__file__).parent / "data" / "shipped_table_settings"
+    shipped_table_settings = sorted(
+        ({"name": p.stem, "xml": p.read_text(encoding="utf-8")}
+         for p in shipped_tables_dir.glob("*.xml")), key=lambda s: s["name"])
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "OpenTrace/" + __version__
@@ -558,6 +564,8 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
                 return self.respond(204, b"", "image/x-icon")
             if self.path == "/api/health":
                 return self.respond(200, {"status": "ok", "analysis_version": ANALYSIS_VERSION, "research_only": True})
+            if self.path == "/api/shipped-table-settings":
+                return self.respond(200, {"settings": shipped_table_settings})
             return self.respond(404, {"error": "Not found"})
 
         def do_POST(self):

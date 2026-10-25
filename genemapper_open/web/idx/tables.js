@@ -88,6 +88,13 @@ function put(s,previous){validate(s);const db=load();const i=db.settings.findInd
  if(previous&&db.active===previous)db.active=s.name;if(!store(db))throw Error(T('storageFull'));window.dispatchEvent(new Event('opentrace-tables'))}
 function remove(name){const db=load();db.settings=db.settings.filter(r=>r.setting.name!==name);if(db.active===name)db.active=db.settings[0]?.setting.name;
  store(db);window.dispatchEvent(new Event('opentrace-tables'))}
+// Seed the ID-X Database Defaults table settings once per browser. Each XML is
+// parsed by fromXml below, so the result is exactly what OpenTrace can represent.
+const SHIPPED_KEY='opentrace.tables.shipped.v1';
+async function ensureShipped(){let done=false;try{done=localStorage.getItem(SHIPPED_KEY)==='1'}catch(e){}if(done)return;
+ try{const r=await fetch('/api/shipped-table-settings');if(!r.ok)return;const d=await r.json();
+  for(const s of (d.settings||[])){if(get(s.name))continue;try{put(fromXml(s.xml))}catch(e){}}
+  try{localStorage.setItem(SHIPPED_KEY,'1')}catch(e){}}catch(e){}}
 
 // ---------- GeneMapper TableSettingContainer XML ----------
 function fromXml(text){
@@ -164,6 +171,6 @@ if(window.Methods)Methods.registerKind(()=>({id:'tables',label:T('mgrTables'),
  importText:async text=>({obj:/^\s*[{]/.test(text)?validate(JSON.parse(text)):fromXml(text),note:''}),
  exportText:async obj=>toXml(obj),imported:T('tableImported'),confirmDelete:'confirmDeleteTable'}));
 
-window.TableSettings={KEY,CATALOG,DEFAULT,list,get,put,remove,active,setActive,validate,fromXml,toXml,openEditor,filterSpec,matches,activeFilters,
+window.TableSettings={KEY,CATALOG,DEFAULT,list,get,put,remove,active,setActive,validate,fromXml,toXml,openEditor,filterSpec,matches,activeFilters,ensureShipped,
  factory:()=>clone(DEFAULT)};
 })();
