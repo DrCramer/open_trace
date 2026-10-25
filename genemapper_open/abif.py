@@ -128,6 +128,8 @@ class AbifFile:
         Analyzed DATA9..12 + DATA205/206 are retained as a separate group.
         """
         channels = []
+        fragment2 = self.text("SVER", 4).strip().lower() == "fragment format 2.0"
+        edr = fragment2 and self.value("EDRF", 1) == 1
         for (name, number), tag in sorted(self.tags.items()):
             if name != "DATA" or tag.element_type not in NUMERIC:
                 continue
@@ -135,6 +137,22 @@ class AbifFile:
             values = value if isinstance(value, list) else [value]
             if not values:
                 continue
+            if fragment2:
+                # ID-X IfaAbifReader.getAllRawElectropherograms: in "Fragment Format 2.0" files values that do not
+                # fit a short are stored sparsely (OvrV/OvrI per DATA number; EDRV/EDRI when EDRF = 1)
+                values = list(values)
+                for vt, it in (("OvrV", "OvrI"), ("EDRV", "EDRI")) if edr else (("OvrV", "OvrI"),):
+                    ov, oi = self.value(vt, number), self.value(it, number)
+                    if ov is None and oi is None:
+                        continue
+                    ov = ov if isinstance(ov, list) else [ov]
+                    oi = oi if isinstance(oi, list) else [oi]
+                    if len(ov) != len(oi):
+                        raise AbifError(f"{tag.key}: {vt}/{it} have different sizes of values and indices")
+                    for v, i in zip(ov, oi):
+                        if not isinstance(i, int) or not 0 <= i < len(values):
+                            raise AbifError(f"{tag.key}: {it} contains invalid indices")
+                        values[i] = v
             dye_index = None
             group = "auxiliary"
             if number in (1, 2, 3, 4, 105, 106):
@@ -149,6 +167,14 @@ class AbifFile:
                              "wavelength_nm": self.value("DyeW", dye_index) if dye_index and
                              isinstance(self.value("DyeW", dye_index), int) else None,
                              "values": values})
+        # ID-X: dye traces of different lengths are all cut to the shortest one (no padding)
+        raw = [ch for ch in channels if ch["group"] == "raw"]
+        if raw:
+            n = min(len(ch["values"]) for ch in raw)
+            for ch in raw:
+                if len(ch["values"]) > n:
+                    ch["values"] = ch["values"][:n]
+                    ch["truncated_to"] = n
         return channels
 
     def summary(self):

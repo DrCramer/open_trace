@@ -1,3 +1,4 @@
+import json
 """HID analysis method: one object with the tabs of the original editor.
 
 The schema mirrors the parameters of the GeneMapper ID-X Analysis Method Editor
@@ -589,6 +590,11 @@ def method_request(request):
     action = request.get('action')
     if action == 'factory':
         return {'method': factory_method(request.get('name'))}
+    if action == 'shipped':
+        # analysis methods installed with ID-X (Database Defaults), validated like an import
+        from pathlib import Path
+        data = json.loads((Path(__file__).with_name('data') / 'shipped_methods.json').read_text(encoding='utf-8'))
+        return {'methods': [load_analysis_method(m) for m in data['methods']]}
     if action == 'validate':
         method = load_analysis_method(request.get('method'))
         return {'method': method, 'unsupported': unsupported(method)}

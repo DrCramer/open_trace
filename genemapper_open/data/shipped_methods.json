@@ -1,0 +1,169 @@
+{
+ "source": "GeneMapper ID-X 1.6 Database Defaults/Analysis Methods (values only)",
+ "methods": [
+  {
+   "schema_version": 1,
+   "name": "MiniFiler_GS500_HID_v1",
+   "description": "",
+   "instrument": "",
+   "allele": {
+    "bin_set": "AmpFLSTR_Bins_v1X",
+    "use_marker_specific_stutter": true,
+    "repeats": {
+     "3": {
+      "cutoff": 0.0,
+      "minus_a_ratio": 0.0,
+      "minus_a_from": 0.0,
+      "minus_a_to": 0.0,
+      "minus_stutter_ratio": 0.0,
+      "minus_stutter_from": 0.0,
+      "minus_stutter_to": 0.0,
+      "plus_stutter_ratio": 0.0,
+      "plus_stutter_from": 0.0,
+      "plus_stutter_to": 0.0
+     },
+     "4": {
+      "cutoff": 0.0,
+      "minus_a_ratio": 0.0,
+      "minus_a_from": 0.0,
+      "minus_a_to": 0.0,
+      "minus_stutter_ratio": 0.0,
+      "minus_stutter_from": 3.25,
+      "minus_stutter_to": 4.75,
+      "plus_stutter_ratio": 0.0,
+      "plus_stutter_from": 0.0,
+      "plus_stutter_to": 0.0
+     },
+     "5": {
+      "cutoff": 0.0,
+      "minus_a_ratio": 0.0,
+      "minus_a_from": 0.0,
+      "minus_a_to": 0.0,
+      "minus_stutter_ratio": 0.0,
+      "minus_stutter_from": 0.0,
+      "minus_stutter_to": 0.0,
+      "plus_stutter_ratio": 0.0,
+      "plus_stutter_from": 0.0,
+      "plus_stutter_to": 0.0
+     },
+     "6": {
+      "cutoff": 0.0,
+      "minus_a_ratio": 0.0,
+      "minus_a_from": 0.0,
+      "minus_a_to": 0.0,
+      "minus_stutter_ratio": 0.0,
+      "minus_stutter_from": 0.0,
+      "minus_stutter_to": 0.0,
+      "plus_stutter_ratio": 0.0,
+      "plus_stutter_from": 0.0,
+      "plus_stutter_to": 0.0
+     }
+    },
+    "amelogenin_cutoff": 0.0,
+    "range_filter": {
+     "blue": {
+      "from": 0.0,
+      "to": 0.0
+     },
+     "green": {
+      "from": 0.0,
+      "to": 0.0
+     },
+     "yellow": {
+      "from": 0.0,
+      "to": 0.0
+     },
+     "red": {
+      "from": 0.0,
+      "to": 0.0
+     },
+     "purple": {
+      "from": 0.0,
+      "to": 0.0
+     },
+     "orange": {
+      "from": 0.0,
+      "to": 0.0
+     }
+    }
+   },
+   "peak_detector": {
+    "analysis_range": {
+     "full": false,
+     "start": 2500,
+     "stop": 10000
+    },
+    "sizing_range": {
+     "all": false,
+     "start_bp": 65.0,
+     "stop_bp": 400.0
+    },
+    "smoothing": "light",
+    "baseline_window": 51,
+    "size_calling": "lsq3",
+    "thresholds": {
+     "blue": 50,
+     "green": 50,
+     "yellow": 50,
+     "red": 50,
+     "purple": 50,
+     "orange": 50
+    },
+    "min_half_width": 2,
+    "polynomial_degree": 3,
+    "peak_window": 15,
+    "slope_start": 0.0,
+    "slope_end": 0.0,
+    "normalization": false
+   },
+   "peak_quality": {
+    "lph_homozygous": 200.0,
+    "lph_heterozygous": 100.0,
+    "mph": 5000.0,
+    "phr": 0.7,
+    "bd_bp": 1.5,
+    "max_alleles": 2,
+    "max_alleles_y": 1,
+    "ladder_spike": {
+     "enabled": true,
+     "cutoff": 0.2
+    },
+    "sample_spike": true
+   },
+   "sq_gq": {
+    "weights": {
+     "bd": 0.8,
+     "bin": 0.8,
+     "ovl": 0.8,
+     "spk": 0.3,
+     "acc": 0.0,
+     "cc": 1.0,
+     "an": 1.0,
+     "lph": 0.3,
+     "mph": 0.3,
+     "os": 0.8,
+     "phr": 0.3
+    },
+    "sq_weight": 0.5,
+    "ladder_spike": 1,
+    "ladder_offscale": 1,
+    "sq": {
+     "pass": 0.75,
+     "low": 0.25
+    },
+    "gq": {
+     "pass": 0.75,
+     "low": 0.25
+    }
+   },
+   "fixed": {
+    "str_peak_window": 9,
+    "ladder_cutoff": 0.03,
+    "bleedthrough_height_ratio": 0.05,
+    "bleedthrough_scan_distance": 2,
+    "profile_pullup_threshold": 0.5,
+    "spike_max_width_bp": 0.4
+   }
+  }
+ ]
+}

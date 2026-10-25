@@ -11,11 +11,18 @@ const DEFAULTS=[
  {name:'CE_G5_HID_GS500',dye:'orange',sizes:[75,100,139,150,160,200,300,340,350,400,450],description:''},
  {name:'CE_F_HID_GS500 (75-450)',dye:'red',sizes:[75,100,139,150,160,200,300,340,350,400,450],description:''},
  {name:'CE_F_HID_GS500 (75-400)',dye:'red',sizes:[75,100,139,150,160,200,300,340,350,400],description:''},
+ // ID-X 1.6 Database Defaults: size standards for 3500 normalization
+ {name:'GS600_LIZ+Normalization_(60-460)',dye:'orange',sizes:GS600,description:''},
+ {name:'GS600_LIZ+Normalization_(80-400)',dye:'orange',sizes:GS600.filter(x=>x>=80&&x<=400),description:''},
 ];
 const clone=x=>JSON.parse(JSON.stringify(x));
 const fmt=(key,...a)=>T(key).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
-function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'null');if(v&&Array.isArray(v.standards)&&v.standards.length)return v}catch(e){}
- const now=new Date().toISOString();return {schema:1,standards:DEFAULTS.map(s=>({standard:clone(s),saved:now}))}}
+function load(){try{const v=JSON.parse(localStorage.getItem(KEY)||'null');if(v&&Array.isArray(v.standards)&&v.standards.length){
+  // add shipped standards that appeared in later versions (once)
+  if((v.schema||1)<2){const now=new Date().toISOString();for(const s of DEFAULTS)if(!v.standards.some(r=>r.standard.name===s.name))v.standards.push({standard:clone(s),saved:now});
+   v.schema=2;try{localStorage.setItem(KEY,JSON.stringify(v))}catch(e){}}
+  return v}}catch(e){}
+ const now=new Date().toISOString();return {schema:2,standards:DEFAULTS.map(s=>({standard:clone(s),saved:now}))}}
 function store(db){try{localStorage.setItem(KEY,JSON.stringify(db));return true}catch(e){return false}}
 function list(){return load().standards}
 function names(){return list().map(r=>r.standard.name)}

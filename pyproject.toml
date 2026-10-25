@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opentrace-research"
-version = "0.53.0"
+version = "0.54.0"
 description = "Independent research ABIF/FSA electropherogram viewer and analysis prototype"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -14,7 +14,7 @@ authors = [{name = "OpenTrace contributors"}]
 opentrace = "genemapper_open.__main__:main"
 
 [tool.setuptools.package-data]
-genemapper_open = ["web/*.html", "web/idx/*.html", "web/idx/*.css", "web/idx/*.js"]
+genemapper_open = ["data/*.json", "web/*.html", "web/idx/*.html", "web/idx/*.css", "web/idx/*.js"]
 
 [tool.setuptools.packages.find]
 include = ["genemapper_open*"]

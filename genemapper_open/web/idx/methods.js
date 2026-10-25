@@ -18,7 +18,11 @@ function put(method,previousName){const db=load();const now=new Date().toISOStri
  const row={method:clone(method),saved:now};if(i>=0)db.methods[i]=row;else db.methods.push(row);
  if(!store(db))throw Error(T('storageFull'));window.dispatchEvent(new Event('opentrace-methods'))}
 function remove(name){const db=load();db.methods=db.methods.filter(m=>m.method.name!==name);store(db);window.dispatchEvent(new Event('opentrace-methods'))}
-async function ensureDefault(){if(list().length)return;const r=await post('/api/analysis-method',{action:'factory'});put(r.method)}
+// factory HID method, plus the analysis methods installed with ID-X (added once; user edits are kept)
+const SHIPPED_KEY='opentrace.methods.shipped.v1';
+async function ensureDefault(){if(!list().length){const r=await post('/api/analysis-method',{action:'factory'});put(r.method)}
+ let done=false;try{done=localStorage.getItem(SHIPPED_KEY)==='1'}catch(e){}if(done)return;
+ try{const r=await post('/api/analysis-method',{action:'shipped'});for(const m of r.methods)if(!get(m.name))put(m);localStorage.setItem(SHIPPED_KEY,'1')}catch(e){}}
 async function factory(){return (await post('/api/analysis-method',{action:'factory'})).method}
 
 // ---------- editor ----------
