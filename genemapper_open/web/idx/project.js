@@ -164,7 +164,14 @@ const PQV_NUM={pass:0,check:1,low:2,na:-2,override:0.5};
 // MNF (Matrix Not Found): only 310 Genetic Analyzer data need a matrix; a matrix stored in the sample file is used when
 // the Matrix column is empty. Newer instruments save dye-separated data (N/A).
 function mnfFlag(s){const i=s.inst;if(!i||!i.is310)return 'na';if(s.matrix)return Matrices.get(s.matrix)?'pass':'low';return i.embedded?'pass':'low'}
-async function sniffSamples(list){let any=false;for(const s of list)if(s.blob&&!s.inst){s.inst=await Matrices.sniff(s.blob)||{is310:false,embedded:false,model:''};any=true}if(any)render()}
+// Sample Name (ID-X): the name stored in the sample file (SpNm/SMPL), not the file name; samples named after their file by
+// earlier versions are renamed once (a name the user typed is kept).
+const defaultName=f=>String(f).replace(/\.(fsa|ab1|hid)$/i,'');
+async function sniffSamples(list){let any=false,renamed=false;
+ for(const s of list){if(!s.blob||(s.inst&&s.inst.sampleName!==undefined))continue;
+  const i=await Matrices.sniff(s.blob)||{is310:false,embedded:false,model:'',sampleName:''};s.inst={...(s.inst||{}),...i};any=true;
+  if(i.sampleName&&s.name===defaultName(s.file)&&s.name!==i.sampleName){s.name=i.sampleName;renamed=true}}
+ if(renamed)state.project.dirty=true;if(any)render()}
 function arnmCodes(s){const r=[];
  if(!s.blob&&s.method!==EXAMPLE_METHOD)r.push('arsSfnf');
  if(mnfFlag(s)==='low')r.push('arsMnf'); // ID-X SFNF: the .fsa is not available (re-associate with Edit > Define New Sample File Path)
@@ -1013,7 +1020,7 @@ const reportApi={
   return out},
  plot:files=>{const set=new Set(files);state.selected=new Set(state.project.samples.filter(s=>set.has(s.file)).map(s=>s.id));render();displayPlots()},
  hasProject:()=>!!state.project.samples.length};
-window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;
+window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.sniffSamples=sniffSamples;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;
 
 // ---------- printing: page setup and print preview ----------
 const PAGE_KEY='opentrace.pageSetup.v1';
