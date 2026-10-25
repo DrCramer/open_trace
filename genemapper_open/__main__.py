@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -229,6 +230,10 @@ def main(argv=None):
     ui = commands.add_parser("serve", help="Start loopback-only browser UI")
     ui.add_argument("--port", type=int, default=8765)
     ui.add_argument("--open", action="store_true", help="Open browser")
+    ui.add_argument("--host", default=os.environ.get("OPENTRACE_HOST", "127.0.0.1"),
+                    help="Listen address (default 127.0.0.1; 0.0.0.0 inside a container, OPENTRACE_HOST)")
+    ui.add_argument("--allowed-host", action="append", default=None, metavar="NAME",
+                    help="Extra Host header name accepted, repeatable (OPENTRACE_ALLOWED_HOSTS, comma-separated)")
     ui.add_argument("--projects-dir", type=Path, help="Folder for /idx/ projects (default ~/OpenTrace/projects or OPENTRACE_PROJECTS)")
     ui.add_argument("--security-dir", type=Path, help="Folder for users, rights and the audit trail (default ~/OpenTrace/security or OPENTRACE_SECURITY)")
     demo = commands.add_parser("demo", help="Write original synthetic six-channel FSA")
@@ -410,7 +415,9 @@ def main(argv=None):
         elif args.command == "project":
             print(json.dumps(_project_command(args), ensure_ascii=False, indent=2, allow_nan=False))
         elif args.command == "serve":
-            serve(args.port, args.open, args.projects_dir, args.security_dir)
+            serve(args.port, args.open, args.projects_dir, args.security_dir, host=args.host,
+                  allowed_hosts=args.allowed_host if args.allowed_host is not None
+                  else os.environ.get("OPENTRACE_ALLOWED_HOSTS", "").split(","))
         elif args.command == "demo":
             args.output.write_bytes(pipeline_demo_bytes() if args.pipeline else sizing_demo_bytes() if args.sizing else demo_bytes())
             print(args.output.resolve())

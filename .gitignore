@@ -1,1 +1,8 @@
+.env
+runtime/
+__pycache__/
+*.pyc
 core/target/
+build/
+*.egg-info/
+dist/

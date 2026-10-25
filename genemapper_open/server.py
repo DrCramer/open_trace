@@ -507,9 +507,10 @@ def default_security_dir():
     return Path(env) if env else Path.home() / 'OpenTrace' / 'security'
 
 
-def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
+def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None, host='127.0.0.1', allowed_hosts=()):
     from .idx_projects import ProjectLibrary
     from .security import SecurityStore, security_request, AccessDenied
+    allowed = {h.strip().lower() for h in allowed_hosts if h and h.strip()}
     library = ProjectLibrary(projects_dir)
     security = SecurityStore(security_dir or default_security_dir())
     token = secrets.token_urlsafe(24)
@@ -548,7 +549,14 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
             self.wfile.write(body)
 
         def valid_host(self):
-            return self.headers.get("Host") == f"127.0.0.1:{self.server.server_port}"
+            header = self.headers.get("Host") or ""
+            if header == f"127.0.0.1:{self.server.server_port}":
+                return True
+            # Container/server deployments: the published port and the name differ from the
+            # listening socket, so a Host is accepted only when its host name is whitelisted
+            # (DNS-rebinding protection stays on).
+            name = header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+            return bool(allowed) and name.lower() in allowed
 
         def do_GET(self):
             if not self.valid_host():
@@ -572,7 +580,8 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
             if not self.valid_host() or self.headers.get("X-Session-Token") != token:
                 return self.respond(403, {"error": "Invalid local session"})
             origin = self.headers.get("Origin")
-            if origin and origin != f"http://127.0.0.1:{self.server.server_port}":
+            hdr = self.headers.get("Host")
+            if origin and origin not in (f"http://{hdr}", f"https://{hdr}"):
                 return self.respond(403, {"error": "Invalid origin"})
             parsed = urllib.parse.urlsplit(self.path)
             if parsed.path not in ("/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline",
@@ -783,9 +792,9 @@ def serve(port=8765, open_browser=False, projects_dir=None, security_dir=None):
         # Avoid Windows allowing two process instances to share one port.
         allow_reuse_address = False
 
-    server = LocalServer(("127.0.0.1", port), Handler)
+    server = LocalServer((host, port), Handler)
     server.daemon_threads = True
-    url = f"http://127.0.0.1:{server.server_port}/"
+    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{server.server_port}/"
     print(f"OpenTrace research UI: {url}\nDesktop-style workspace: {url}idx/\n"
           f"Projects saved from the workspace go to: {library.root}\n"
           f"Users and audit trail: {security.root}\n"
