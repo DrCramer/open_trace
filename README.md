@@ -15,8 +15,8 @@
 ## Быстрая установка
 
 ```bash
-git clone https://github.com/DrCramer/opentrace.git
-cd opentrace
+git clone https://github.com/DrCramer/open_trace.git
+cd open_trace
 ./scripts/install.sh
 ```
 
@@ -34,7 +34,7 @@ docker compose logs --tail=50 opentrace
 
 В логе сборки и запуска ищите строку `Rust core: True`. Если там `False`, ядро не собралось, а приложение работает на Python (медленнее, результат тот же).
 
-> Если репозиторий приватный, на сервере понадобится доступ к GitHub: deploy key (`ssh-keygen`, затем *Settings → Deploy keys* репозитория, клонирование по `git@github.com:DrCramer/opentrace.git`) либо personal access token. Для публичного репозитория ничего не нужно.
+> Если репозиторий приватный, на сервере понадобится доступ к GitHub: deploy key (`ssh-keygen`, затем *Settings → Deploy keys* репозитория, клонирование по `git@github.com:DrCramer/open_trace.git`) либо personal access token. Для публичного репозитория ничего не нужно.
 
 ## Доступ из локальной сети
 
@@ -87,7 +87,7 @@ docker compose down
 Обновление выполняется из каталога проекта. Сначала проверьте локальные изменения:
 
 ```bash
-cd ~/opentrace
+cd ~/open_trace
 git status --short
 git branch --show-current
 ```
@@ -133,7 +133,7 @@ docker compose up -d --build
 Скрипт кладёт `projects` и `security` в `runtime/backups/opentrace_<дата>.tar.gz`. Копируйте архив с сервера защищённым способом. Восстановление на новом сервере:
 
 ```bash
-git clone https://github.com/DrCramer/opentrace.git && cd opentrace
+git clone https://github.com/DrCramer/open_trace.git && cd open_trace
 mkdir -p runtime && tar -xzf /путь/к/opentrace_<дата>.tar.gz -C runtime
 ./scripts/install.sh
 ```
