@@ -121,7 +121,10 @@ def _apply_analysis_range(channel, analysis_range):
     start, stop = analysis_range
     values = channel['values']
     if start >= len(values):
-        raise ValueError('Analysis range starts after the end of the trace')
+        # A trace shorter than the method's start point (e.g. a short run with the MiniFiler default 2500-10000)
+        # is analysed on the whole trace, as ID-X does, instead of failing the sample.
+        start = 0
+        channel['analysis_range_clamped'] = True
     stop = min(stop, len(values) - 1)
     channel['raw_values'] = list(values)
     channel['values'] = [values[start]] * start + values[start:stop + 1] + [values[stop]] * (len(values) - stop - 1)
