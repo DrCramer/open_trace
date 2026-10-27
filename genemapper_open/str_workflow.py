@@ -161,7 +161,7 @@ def _ladder_stages(ladder_analysis,ladder,definition,quality_definition,missing_
     return matching,effective,quality,provenance
 
 
-def _sample_stage(result,sample,definition,offsets,adjustments):
+def _sample_stage(result,sample,definition,offsets,adjustments,min_call_height=None):
     called=call_sample(sample['peaks'],definition,offsets,sizing_accepted=True,
         missing_offset_policy=result['settings']['missing_offset_policy'],
         source_metadata={'sha256':sample['source_sha256']},spike_adjustments=adjustments)
@@ -175,6 +175,8 @@ def _sample_stage(result,sample,definition,offsets,adjustments):
     result['peaks']=sample['peaks']
     for marker in called['markers']:
         for call in marker['calls']:
+            # Sample-call threshold only: ladder peaks and offsets are never filtered here.
+            if min_call_height is not None and call['height']<min_call_height:continue
             source=sample['peaks'][call['peak_index']]
             identifier=hashlib.sha256((marker['name']+'\0'+source['id']).encode()).hexdigest()[:24]
             result['calls'].append({**fastcopy(call),'id':identifier,'marker':marker['name'],

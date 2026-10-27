@@ -52,6 +52,19 @@ class RunOffsetTests(unittest.TestCase):
         self.assertEqual(marker['min_offset_bp'], 1e-9)
         self.assertEqual(marker['max_offset_bp'], 0.)
 
+    def test_per_marker_quality_mapping_admits_only_passing_markers(self):
+        source = result({'A': 1.}, 2., 3.)
+        state = upsert_run_offsets(None, 'own.fsa', {'ExampleM': 0}, source)
+        self.assertEqual({r['quality_code'] for r in state['contributions']}, {0})
+        blocked = upsert_run_offsets(None, 'own.fsa', {'ExampleM': 2}, source)
+        self.assertEqual({r['quality_code'] for r in blocked['contributions']}, {2})
+        missing = upsert_run_offsets(None, 'own.fsa', {}, source)
+        self.assertEqual({r['quality_code'] for r in missing['contributions']}, {None})
+        marker = aggregate_run_offsets([{'ladder_id': 'own.fsa', 'quality_code': {'ExampleM': 0},
+                                         'result': source}], kit())['markers']['ExampleM']
+        self.assertEqual(marker['bin_offsets'], {'A': 1.})
+        self.assertEqual(marker['min_offset_bp'], 2.)
+
     def test_mean_uses_sequential_double_addition_in_supplied_order(self):
         values = [1_000_000., 1e-9, -1_000_000.]
         entries = [entry(str(i)+'.fsa', result({'A': value}, value, value))

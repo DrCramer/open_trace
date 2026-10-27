@@ -151,7 +151,15 @@ def upsert_run_offsets(state, ladder_id, quality_code, result):
     None quality_code records remain visible but cannot enter numeric means.
     """
     ladder_id = _name(ladder_id, 'ladder_id', ascii_only=True)
-    quality_code = _code(quality_code)
+    # quality_code may be one code for the whole ladder, or a {marker: code} mapping
+    # (per-marker admission); a marker missing from the mapping is not admitted.
+    if isinstance(quality_code, Mapping):
+        marker_codes = {_name(m, 'marker', 128): _code(c) for m, c in quality_code.items()}
+        event_code = dict(marker_codes)
+    else:
+        marker_codes = None
+        quality_code = _code(quality_code)
+        event_code = quality_code
     if (not isinstance(result, Mapping) or result.get('status') not in ('accepted', 'partial', 'rejected')
             or not isinstance(result.get('markers'), Mapping)):
         raise ValueError('Explicit ladder matching result and markers required')
@@ -167,16 +175,17 @@ def upsert_run_offsets(state, ladder_id, quality_code, result):
             offsets = record.get('bin_offsets')
             if not isinstance(offsets, Mapping):
                 raise ValueError('Explicit per-bin offset mapping required')
+            row_code = marker_codes.get(marker) if marker_codes is not None else quality_code
             for label, value in offsets.items():
                 _name(label, 'bin label', 128)
                 incoming.append({'marker': marker, 'key_kind': 'bin', 'bin_label': label,
                                  'ladder_id': ladder_id, 'offset_bp': store_offset_bp(value),
-                                 'quality_code': quality_code})
+                                 'quality_code': row_code})
             for field, kind in (('min_offset_bp', 'virtual_min'), ('max_offset_bp', 'virtual_max')):
                 if record.get(field) is not None:
                     incoming.append({'marker': marker, 'key_kind': kind, 'bin_label': None,
                                      'ladder_id': ladder_id, 'offset_bp': store_offset_bp(record[field]),
-                                     'quality_code': quality_code})
+                                     'quality_code': row_code})
     index = {_identity(row): i for i, row in enumerate(output['contributions'])}
     replaced = []
     for row in incoming:
@@ -189,7 +198,7 @@ def upsert_run_offsets(state, ladder_id, quality_code, result):
             index[identity] = len(output['contributions'])
             output['contributions'].append(row)
     output['events'].append({'action': 'upsert_keys', 'ladder_id': ladder_id,
-                             'quality_code': quality_code, 'matching_status': result['status'],
+                             'quality_code': event_code, 'matching_status': result['status'],
                              'supplied_keys': len(incoming), 'replaced_keys': len(replaced),
                              'replaced_ladder_ids': list(dict.fromkeys(replaced)),
                              'absent_keys_preserved': True,

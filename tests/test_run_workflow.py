@@ -33,6 +33,24 @@ class RunWorkflowTests(unittest.TestCase):
             self.assertEqual([c['ladder_id'] for c in key['contributors']],['Own-A.fsa','Own-B.fsa'])
             self.assertEqual([c['ladder_id'] for c in key['excluded']],['Own-Failed.fsa'])
 
+    def test_min_call_height_filters_sample_calls_only(self):
+        base=self.run_case()
+        heights=[c['height'] for c in base['calls']]
+        self.assertTrue(heights)
+        threshold=min(heights)+1
+        filtered=run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
+            ladder_quality_definition=self.fixture['ladder_quality_definition'],min_call_height=threshold)
+        self.assertEqual(filtered['settings']['min_call_height'],threshold)
+        self.assertTrue(all(c['height']>=threshold for c in filtered['calls']))
+        self.assertEqual(filtered['ladder'],base['ladder'])
+        default=run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
+            ladder_quality_definition=self.fixture['ladder_quality_definition'])
+        self.assertEqual(default['settings']['min_call_height'],250.0)
+        for bad in (-1,float('nan'),True,'250'):
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
+                    ladder_quality_definition=self.fixture['ladder_quality_definition'],min_call_height=bad)
+
     def test_reanalysis_replaces_same_filename_case_insensitively(self):
         rows=deepcopy(self.ladders[:2]);rows[1]['ladder_id']='oWN-a.FSA'
         r=self.run_case(rows)
