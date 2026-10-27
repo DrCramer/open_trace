@@ -47,21 +47,23 @@ fn main() {
                     }
                     (0..n).map(|k| 0.2 * sc[k] + 60.0 + 0.37 * k as f64).collect()
                 };
-                for hm in ["explicit", "basic_standard_auto"] {
+                for (hm, deg) in [("explicit", 3usize), ("basic_standard_auto", 3), ("explicit", 5), ("basic_standard_auto", 5)] {
                     for cm in ["ap_fractional", "standard_wrapper"] {
                         let mut p = SizeParams::new(25, 0.75);
                         p.height_mode = if hm == "explicit" { HeightMode::Explicit } else { HeightMode::BasicStandardAuto };
+                        p.sg_degree = deg;
                         p.coordinate_mode = if cm == "ap_fractional" { CoordinateMode::ApFractional } else { CoordinateMode::StandardWrapper };
                         let r = analyze_size_standard(sig, &bp, &p);
                         let anchors: Vec<String> = r.anchors.iter().map(|(s, b)| format!("{},{}", hb(*s), hb(*b))).collect();
                         let anchors = if anchors.is_empty() { "-".to_string() } else { anchors.join(";") };
                         let score = r.base_score.map(hb).unwrap_or("None".into());
                         println!(
-                            "PIPE {} {} {} {} {} {} {} {} {} {} {} {}",
+                            "PIPE {} {} {} {} {} {} {} {} {} {} {} {} {}",
                             si,
                             n,
                             bpkind,
                             hm,
+                            deg,
                             cm,
                             if r.accepted { "accepted" } else { "rejected" },
                             r.stage,

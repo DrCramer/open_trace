@@ -1,10 +1,10 @@
 //! Port of the `detect_sg_peaks` wrapper in `genemapper_open/sg_peaks.py`: argument validation, the cubic
 //! Savitzky-Golay derivative, then `sg::detect`.
 //!
-//! Only the closed-form cubic derivative (`degree == 3`) is ported. The general-degree weights in the Python
-//! reference are exact rational solutions; until they are ported, other degrees are rejected explicitly
-//! instead of silently falling back.
+//! Degree 3 uses the closed-form cubic derivative; other degrees use the exact general weights
+//! (`sg_weights::sg_derivative_weights`), as in the Python reference.
 use crate::sg::{cubic_weights, derivative, detect, Diagnostics, Peak};
+use crate::sg_weights::sg_derivative_weights;
 
 pub const MAX_POINTS: usize = 1_000_000;
 
@@ -49,10 +49,14 @@ pub fn detect_sg_peaks(
     if !(5..=101).contains(&window) || window % 2 != 1 || values.len() < window {
         return Err("Cubic SG window must be odd, 5..101, and <= signal length".into());
     }
-    if degree != 3 {
-        return Err(format!("SG polynomial degree {} is not ported yet (only degree 3)", degree));
-    }
-    let weights = cubic_weights(window / 2);
+    let weights = if degree == 3 {
+        cubic_weights(window / 2)
+    } else {
+        if !(1..window).contains(&degree) {
+            return Err("SG polynomial degree must be an integer below the window size".into());
+        }
+        sg_derivative_weights(window, degree)?
+    };
     let d = derivative(values, &weights);
     Ok(detect(values, &d, threshold, min_width, tau_begin, tau_end, offscale))
 }

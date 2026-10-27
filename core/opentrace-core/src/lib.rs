@@ -15,4 +15,5 @@ pub mod wrapper;
 pub mod ratio;
 pub mod sg;
 pub mod sg_detect;
+pub mod sg_weights;
 pub mod sizing_pipeline;
