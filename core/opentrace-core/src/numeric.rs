@@ -79,3 +79,26 @@ pub fn py_sum<I: IntoIterator<Item = f64>>(values: I) -> f64 {
     }
     f
 }
+
+/// Python `statistics.median` for floats: middle element, or the mean of the two middle elements `(a + b) / 2`.
+pub fn py_median(values: &[f64]) -> f64 {
+    let mut data = values.to_vec();
+    data.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let n = data.len();
+    assert!(n > 0, "no median for empty data");
+    if n % 2 == 1 {
+        data[n / 2]
+    } else {
+        (data[n / 2 - 1] + data[n / 2]) / 2.0
+    }
+}
+
+extern "C" {
+    #[link_name = "lgamma"]
+    fn libm_lgamma(x: f64) -> f64;
+}
+
+/// `math.lgamma` via the platform libm (CPython delegates to its own table; agreement is to a few ulp).
+pub fn lgamma(x: f64) -> f64 {
+    unsafe { libm_lgamma(x) }
+}

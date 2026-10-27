@@ -5,6 +5,8 @@
 //! floor division and int/int true division), so results are bit-identical; the Python test suite checks it.
 pub mod abif;
 pub mod analysis;
+pub mod sizing_quality;
+pub mod autoheight;
 pub mod fsum;
 pub mod numeric;
 pub mod preprocessing;
