@@ -157,6 +157,18 @@ class EngineSettingsTests(unittest.TestCase):
         self.run_analysis = lambda **kw: analyze(pipeline_demo_bytes(), 'p.fsa', analysis_engine='morphology_ratio',
             sizing_mode='auto', standard_channel='DATA106', standard_bp=list(SYNTHETIC_PIPELINE_STANDARD_BP), **kw)
 
+    def test_range_past_short_trace_is_not_fatal(self):
+        base = self.run_analysis()
+        length = len(base['channels'][0]['values'])
+        # A method range that starts past the end of the traces must not fail the sample.
+        result = self.run_analysis(analysis_range=(length + 100, length + 200))
+        for channel in result['channels']:
+            if channel.get('group') == 'auxiliary':
+                self.assertNotIn('analysis_range', channel)
+                self.assertFalse(channel.get('analysis_range_clamped', False))
+            else:
+                self.assertTrue(channel.get('analysis_range_clamped'))
+
     def test_channel_thresholds_detector_and_range(self):
         base = self.run_analysis()
         first = base['channels'][0]

@@ -304,7 +304,9 @@ def analyze(raw, filename, threshold=100.0, distance=8, anchors="", *,
     for ch in channels:
         if not (_core.CORE.all_finite(ch["values"]) if _core.CORE is not None else all(math.isfinite(value) for value in ch["values"])):
             raise AbifError(f"{ch['tag']}: non-finite numeric values")
-        if analysis_range is not None:
+        # The analysis range limits dye traces only. Auxiliary DATA channels (e.g. DATA5-8, 651 scans on
+        # GlobalFiler runs) are not dye signals; trimming them to a method range that starts after their end failed the sample.
+        if analysis_range is not None and ch.get('group') != 'auxiliary':
             _apply_analysis_range(ch, analysis_range)
         if analysis_engine == 'residual':
             ch["peaks"] = find_peaks(ch["values"], threshold, distance)
