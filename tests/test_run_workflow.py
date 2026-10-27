@@ -33,23 +33,25 @@ class RunWorkflowTests(unittest.TestCase):
             self.assertEqual([c['ladder_id'] for c in key['contributors']],['Own-A.fsa','Own-B.fsa'])
             self.assertEqual([c['ladder_id'] for c in key['excluded']],['Own-Failed.fsa'])
 
-    def test_min_call_height_filters_sample_calls_only(self):
-        base=self.run_case()
-        heights=[c['height'] for c in base['calls']]
-        self.assertTrue(heights)
-        threshold=min(heights)+1
-        filtered=run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
-            ladder_quality_definition=self.fixture['ladder_quality_definition'],min_call_height=threshold)
-        self.assertEqual(filtered['settings']['min_call_height'],threshold)
-        self.assertTrue(all(c['height']>=threshold for c in filtered['calls']))
-        self.assertEqual(filtered['ladder'],base['ladder'])
-        default=run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
-            ladder_quality_definition=self.fixture['ladder_quality_definition'])
-        self.assertEqual(default['settings']['min_call_height'],250.0)
-        for bad in (-1,float('nan'),True,'250'):
+    def test_call_thresholds_follow_id_x_zygosity_floors(self):
+        def run(**floors):
+            return run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
+                ladder_quality_definition=self.fixture['ladder_quality_definition'],**floors)
+        unfiltered=run(homozygous_min_height=0,heterozygous_min_height=0)
+        self.assertTrue(unfiltered['calls'])
+        # Demo sample is heterozygous (two called alleles), so only the heterozygous floor applies to it.
+        het_blocked=run(homozygous_min_height=0,heterozygous_min_height=1e9)
+        self.assertEqual(het_blocked['calls'],[])
+        hom_blocked=run(homozygous_min_height=1e9,heterozygous_min_height=0)
+        self.assertEqual([c['label'] for c in hom_blocked['calls']],[c['label'] for c in unfiltered['calls']])
+        self.assertEqual(het_blocked['ladder'],unfiltered['ladder'])
+        default=run()
+        self.assertEqual(default['settings']['call_thresholds'],{'homozygous':200.0,'heterozygous':100.0})
+        for bad in (-1,float('nan'),True,'200'):
             with self.subTest(bad=bad),self.assertRaises(ValueError):
-                run_str_run_workflow(self.sample,self.ladders,self.fixture['kit'],
-                    ladder_quality_definition=self.fixture['ladder_quality_definition'],min_call_height=bad)
+                run(homozygous_min_height=bad)
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                run(heterozygous_min_height=bad)
 
     def test_reanalysis_replaces_same_filename_case_insensitively(self):
         rows=deepcopy(self.ladders[:2]);rows[1]['ladder_id']='oWN-a.FSA'

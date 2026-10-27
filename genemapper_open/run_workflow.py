@@ -153,7 +153,7 @@ def _cached_cohort(sample,ladders,kit,ladder_quality_definition,missing_offset_p
     return cohort
 
 
-def _finish_run(result,sample,definition,cohort,adjustments,spike_definition,min_call_height=None):
+def _finish_run(result,sample,definition,cohort,adjustments,spike_definition,call_thresholds=None):
     if spike_definition is not None and spike_definition.get('schema_version',0)>=3:
         result['provenance'].update(morphology_scope='companion_jag_and_ideal_gaussian_fit_only',
             true_peak_restoration_applied=False)
@@ -169,21 +169,23 @@ def _finish_run(result,sample,definition,cohort,adjustments,spike_definition,min
     result['provenance']['artifact_detectors_applied']|=result['provenance'].get('experimental_pullup_routing_applied',False)
     result['provenance']['run_inputs_sha256']=digest({'sample':sample['source_sha256'],
         'ladders':result['ladder_identity']['ladders'],'stages':result['quality']['run_ladders']})
-    _sample_stage(result,sample,definition,offsets,adjustments,min_call_height=min_call_height)
+    _sample_stage(result,sample,definition,offsets,adjustments,call_thresholds=call_thresholds)
     result['provenance']['machine_observations_sha256']=digest({'ladder':offsets,
         'allele_calling':result['allele_calling'],'run_ladders':result['quality']['run_ladders']})
     return result
 
 
-def _min_call_height(value):
-    """Sample-call RFU threshold; None disables it. Applies to sample calls only, never to ladders."""
-    if value is None:return None
-    if not isinstance(value,(int,float)) or isinstance(value,bool) or not math.isfinite(value) or value<0:
-        raise ValueError('min_call_height must be a finite RFU value >= 0 or None')
-    return float(value)
+def _call_thresholds(homozygous,heterozygous):
+    """ID-X sample-call RFU floors (LPH): homozygous and heterozygous. Sample calls only, never ladders."""
+    values={}
+    for name,value in (('homozygous',homozygous),('heterozygous',heterozygous)):
+        if not isinstance(value,(int,float)) or isinstance(value,bool) or not math.isfinite(value) or value<0:
+            raise ValueError(name+'_min_height must be a finite RFU value >= 0')
+        values[name]=float(value)
+    return values
 
 
-def run_str_run_workflow(sample_analysis,ladders,kit,*,ladder_quality_definition,missing_offset_policy='reject',marker_gate=False,min_call_height=250.0):
+def run_str_run_workflow(sample_analysis,ladders,kit,*,ladder_quality_definition,missing_offset_policy='reject',marker_gate=False,homozygous_min_height=200.0,heterozygous_min_height=100.0):
     """Use an ordered explicit run cohort; duplicate filename means reanalysis."""
     definition=load_kit_definition(kit)
     quality_definition=load_ladder_quality_definition(ladder_quality_definition)
@@ -192,18 +194,18 @@ def run_str_run_workflow(sample_analysis,ladders,kit,*,ladder_quality_definition
     if ladders or missing_offset_policy!='reference_bins':_ladder_entries(ladders,'analysis')
     elif not isinstance(ladders,(list,tuple)):raise ValueError('Explicit run ladder list required')
     sample=_analysis(sample_analysis,'sample',{m['channel'] for m in definition['markers']})
-    min_call_height=_min_call_height(min_call_height)
+    call_thresholds=_call_thresholds(homozygous_min_height,heterozygous_min_height)
     result=_base_run_report(sample_analysis,sample,definition,quality_definition,missing_offset_policy)
-    result['settings']['min_call_height']=min_call_height
+    result['settings']['call_thresholds']=call_thresholds
     result['reasons']=_sample_failures(sample)
     if result['reasons']:return result
     spike_definition,adjustments=_artifact_options(sample)
     cohort=_cached_cohort(sample,ladders,kit,ladder_quality_definition,missing_offset_policy,definition,quality_definition,adjustments,
         marker_gate=marker_gate)
-    return _finish_run(result,sample,definition,cohort,adjustments,spike_definition,min_call_height=min_call_height)
+    return _finish_run(result,sample,definition,cohort,adjustments,spike_definition,call_thresholds=call_thresholds)
 
 
-def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missing_offset_policy='reject',marker_gate=False,min_call_height=250.0):
+def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missing_offset_policy='reject',marker_gate=False,homozygous_min_height=200.0,heterozygous_min_height=100.0):
     """Process an explicit sized cohort once, then every dependent sample once.
 
     The first sample supplies the common analysis-settings context. Its sizing
@@ -223,7 +225,7 @@ def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missi
         if not isinstance(key,str) or not key.strip() or len(key)>256 or key in keys:raise ValueError('Bounded unique sample_key required')
         keys.add(key);prepared.append(_analysis(entry['analysis'],'sample '+key,channels))
     reference=prepared[0];spike_definition,adjustments=_artifact_options(reference)
-    min_call_height=_min_call_height(min_call_height)
+    call_thresholds=_call_thresholds(homozygous_min_height,heterozygous_min_height)
     cohort=_ladder_cohort(reference,ladders,definition,quality_definition,_ladder_policy(missing_offset_policy),adjustments,
         marker_gate=marker_gate)
     outputs=[]
@@ -232,8 +234,8 @@ def run_str_batch_workflow(samples,ladders,kit,*,ladder_quality_definition,missi
         result['reasons']=_sample_failures(sample)
         if sample['signature']!=reference['signature']:result['reasons'].append('Sample analysis/standard settings differ from run context')
         if sample['analysis_version']!=reference['analysis_version']:result['reasons'].append('Sample analysis version differs from run context')
-        result['settings']['min_call_height']=min_call_height
-        if not result['reasons']:_finish_run(result,sample,definition,cohort,adjustments,spike_definition,min_call_height=min_call_height)
+        result['settings']['call_thresholds']=call_thresholds
+        if not result['reasons']:_finish_run(result,sample,definition,cohort,adjustments,spike_definition,call_thresholds=call_thresholds)
         else:
             result['ladder_identity']=fastcopy(cohort['ladder_identity'])
             result['quality']['run_ladders']=fastcopy(cohort['quality']['run_ladders'])
