@@ -213,8 +213,17 @@ def match_size_standard(peaks, expected_bp, *, max_residual_bp=5.0,
                             "alternative_match": [dict(candidates[index], expected_bp=bp[k])
                                                   for k, index in enumerate(second_path)]})
         if gap <= ambiguity_margin_bp + 1e-12:
-            return reject("Ambiguous ordered assignments: alternative RMS is within "
-                          f"{ambiguity_margin_bp:g} bp of the best; calibration withheld")
+            # Near-equal fits: prefer the assignment whose weakest marker is stronger (ID-X uses the
+            # strong LIZ peaks; a weak evenly spaced alternative is not a real ladder). Otherwise reject.
+            def _min_height(indices):
+                heights = [candidates[i]["height"] for i in indices]
+                return min(heights) if all(h is not None for h in heights) else None
+            best_min, alt_min = _min_height(path), _min_height(second_path)
+            if best_min is None or alt_min is None or not best_min > alt_min:
+                return reject("Ambiguous ordered assignments: alternative RMS is within "
+                              f"{ambiguity_margin_bp:g} bp of the best; calibration withheld")
+            diagnostics["ambiguity_resolved_by_height"] = {"best_min_height": best_min,
+                                                           "alternative_min_height": alt_min}
     anchors = [[scans[index], bp[k]] for k, index in enumerate(path)]
     result["anchors"] = anchors
     result["calibration"] = Calibration(anchors)

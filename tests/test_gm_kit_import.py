@@ -33,6 +33,15 @@ STUTTER = '\n'.join([
 
 
 class ParseTests(unittest.TestCase):
+    def test_quoted_ladder_column_keeps_first_and_last_alleles(self):
+        # Observed PanGlobal layout: the ladder column is double-quoted with a trailing comma.
+        panels = PANELS.replace('\t10,11,12,13,14,15,\r\n', '\t"10, 11, 12, 13, 14, 15, "\r\n')
+        self.assertIn('"10, 11', panels)
+        kit = import_kit(panels, BINS, STUTTER)
+        m1 = {m['name']: m for m in kit['markers']}['M1']
+        self.assertEqual(m1['ladder_labels'], ['10', '11', '12', '13', '14', '15'])
+        self.assertFalse([d for d in kit['diagnostics'] if d.get('marker') == 'M1' and d['code'] == 'ladder_alleles_without_bins'])
+
     def test_panels_variants_and_flags(self):
         doc = parse_panels(PANELS)
         self.assertEqual(doc['version'], 'GMID-X v 1.4')

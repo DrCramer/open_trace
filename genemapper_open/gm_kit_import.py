@@ -74,9 +74,12 @@ def _float(value, where):
 
 
 def _labels(value):
+    # Ladder/control columns may be wrapped in double quotes with a trailing comma
+    # ("24, 24.2, …, 38, "); the quotes must not stick to the first and last label.
+    value = value.strip().strip('"').strip()
     if value.lower() in ('', 'none', 'null'):
         return []
-    return [part.strip() for part in value.split(',') if part.strip()]
+    return [part.strip().strip('"').strip() for part in value.split(',') if part.strip().strip('"').strip()]
 
 
 def parse_panels(text):
