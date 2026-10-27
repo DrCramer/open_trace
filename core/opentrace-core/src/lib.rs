@@ -14,3 +14,5 @@ pub mod prefilters;
 pub mod wrapper;
 pub mod ratio;
 pub mod sg;
+pub mod sg_detect;
+pub mod sizing_pipeline;
