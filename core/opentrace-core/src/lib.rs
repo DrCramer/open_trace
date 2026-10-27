@@ -7,5 +7,6 @@ pub mod abif;
 pub mod fsum;
 pub mod numeric;
 pub mod preprocessing;
+pub mod prefilters;
 pub mod ratio;
 pub mod sg;

@@ -60,3 +60,22 @@ mod tests {
         assert_eq!(int_true_div((1 << 53) + 3, 1), 9007199254740996.0);
     }
 }
+
+/// CPython 3.12+ built-in `sum()` over floats: Neumaier compensated summation, exactly as `floatsum`.
+pub fn py_sum<I: IntoIterator<Item = f64>>(values: I) -> f64 {
+    let mut f = 0.0f64;
+    let mut c = 0.0f64;
+    for x in values {
+        let t = f + x;
+        if f.abs() >= x.abs() {
+            c += (f - t) + x;
+        } else {
+            c += (x - t) + f;
+        }
+        f = t;
+    }
+    if c != 0.0 && c.is_finite() {
+        f += c;
+    }
+    f
+}
