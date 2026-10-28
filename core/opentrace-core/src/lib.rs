@@ -20,3 +20,4 @@ pub mod sizing_pipeline;
 pub mod analysis_method;
 pub mod calibration;
 pub mod peak_morphology;
+pub mod small_svd;
