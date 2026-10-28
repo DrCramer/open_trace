@@ -216,66 +216,64 @@ fn valid_ymd(y: u32, m: u32, d: u32) -> bool {
     (1..=9999).contains(&y) && (1..=12).contains(&m) && d >= 1 && d <= days_in_month(y as i64, m)
 }
 
-/// Date part of CPython's `parse_isoformat_date`; returns false on failure/invalid date.
-fn parse_date(b: &[u8], len: usize) -> bool {
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let mp = (m as i64 + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Date part of CPython's `parse_isoformat_date`: `(year, month, day)` or `None` on failure/invalid date.
+fn parse_date(b: &[u8], len: usize) -> Option<(i64, u32, u32)> {
     let at = |i: usize| -> u8 { b.get(i).copied().unwrap_or(0) };
-    let (year, mut p) = match digits(b, 0, 4) {
-        Some(x) => x,
-        None => return false,
-    };
+    let (year, mut p) = digits(b, 0, 4)?;
     let uses_sep = at(p) == b'-';
     if uses_sep {
         p += 1;
     }
     if at(p) == b'W' {
         p += 1;
-        let (week, np) = match digits(b, p, 2) {
-            Some(x) => x,
-            None => return false,
-        };
+        let (week, np) = digits(b, p, 2)?;
         p = np;
         let mut day = 1u32;
         if p < len {
             if uses_sep {
                 if at(p) != b'-' {
-                    return false;
+                    return None;
                 }
                 p += 1;
             }
-            match digits(b, p, 1) {
-                Some((d, _)) => day = d,
-                None => return false,
-            }
+            day = digits(b, p, 1)?.0;
         }
         if !(1..=9999).contains(&year) || week < 1 || week as i64 > iso_weeks(year as i64) || !(1..=7).contains(&day) {
-            return false;
+            return None;
         }
-        // iso_to_ymd result must be within datetime range
-        let jan4 = (weekday_jan4(year as i64)) as i64;
-        let days = (week as i64 - 1) * 7 + day as i64 - 1 - jan4;
-        // ordinal of Jan 4 plus days
-        let a = year as i64 - 1;
-        let ord = a * 365 + a / 4 - a / 100 + a / 400 + 4 + days;
-        return ord >= 1 && ord <= 3652059;
+        // Monday of ISO week 1 is the Monday on or before January 4th
+        let jan4 = days_from_civil(year as i64, 1, 4);
+        let wd = weekday_jan4(year as i64);
+        let days = jan4 - wd + (week as i64 - 1) * 7 + day as i64 - 1;
+        let (y, m, d) = civil(days);
+        return if (1..=9999).contains(&y) { Some((y, m, d)) } else { None };
     }
-    let (month, np) = match digits(b, p, 2) {
-        Some(x) => x,
-        None => return false,
-    };
+    let (month, np) = digits(b, p, 2)?;
     p = np;
     let c = at(p);
     p += 1;
     if uses_sep && c != b'-' {
-        return false;
+        return None;
     }
     if !uses_sep {
         p -= 1;
     }
-    let (day, _) = match digits(b, p, 2) {
-        Some(x) => x,
-        None => return false,
-    };
-    valid_ymd(year, month, day)
+    let (day, _) = digits(b, p, 2)?;
+    if valid_ymd(year, month, day) {
+        Some((year as i64, month, day))
+    } else {
+        None
+    }
 }
 
 /// `parse_hh_mm_ss_ff`: returns (rc, hour, minute, second, usec) where rc<0 is an error, 1 means trailing data.
@@ -338,6 +336,11 @@ fn parse_hhmmssff(b: &[u8], start: usize, end: usize) -> (i32, [u32; 3], u32) {
 
 /// Mirror of `datetime.fromisoformat(value)`: `Err(())` when Python raises ValueError, `Ok(has_tz)` otherwise.
 pub fn iso_has_tz(value: &str) -> Result<bool, ()> {
+    iso_parse(value).map(|o| o.is_some())
+}
+
+/// `datetime.fromisoformat(value)`: `Ok(Some(utc_microseconds_since_epoch))` when timezone-aware, `Ok(None)` when naive.
+pub fn iso_parse(value: &str) -> Result<Option<i128>, ()> {
     let b = value.as_bytes();
     let len = b.len();
     if len < 7 {
@@ -385,11 +388,10 @@ pub fn iso_has_tz(value: &str) -> Result<bool, ()> {
     }
     let mut date_b = b[..sep.min(len)].to_vec();
     date_b.push(0);
-    if !parse_date(&date_b, sep) {
-        return Err(());
-    }
+    let Some((yy, mo, dd)) = parse_date(&date_b, sep) else { return Err(()) };
+    let day_micros = days_from_civil(yy, mo, dd) as i128 * 86_400_000_000;
     if len <= sep {
-        return Ok(false);
+        return Ok(None);
     }
     let mut p = sep;
     if b[p] & 0x80 == 0 {
@@ -419,12 +421,14 @@ pub fn iso_has_tz(value: &str) -> Result<bool, ()> {
     if hms[0] > 23 || hms[1] > 59 || hms[2] > 59 {
         return Err(());
     }
+    let local = day_micros + (hms[0] as i128 * 3600 + hms[1] as i128 * 60 + hms[2] as i128) * 1_000_000 + _us as i128;
     if tz_pos == tl {
-        return if rv == 1 { Err(()) } else { Ok(false) };
+        return if rv == 1 { Err(()) } else { Ok(None) };
     }
     if tb[tz_pos] == b'Z' {
-        return if tb.get(tz_pos + 1).copied().unwrap_or(0) != 0 { Err(()) } else { Ok(true) };
+        return if tb.get(tz_pos + 1).copied().unwrap_or(0) != 0 { Err(()) } else { Ok(Some(local)) };
     }
+    let neg = tb[tz_pos] == b'-';
     if tz_pos > 0 && matches!(tb[tz_pos - 1], b'.' | b',') {
         return Err(());
     }
@@ -437,7 +441,8 @@ pub fn iso_has_tz(value: &str) -> Result<bool, ()> {
     if total * 1_000_000 + tzus as i64 >= 86_400_000_000 {
         return Err(());
     }
-    Ok(true)
+    let offset = (total * 1_000_000 + tzus as i64) as i128 * if neg { -1 } else { 1 };
+    Ok(Some(local - offset))
 }
 
 /// `_timestamp(value)`: `Null` means "now".
