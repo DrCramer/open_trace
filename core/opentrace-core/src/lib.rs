@@ -47,3 +47,4 @@ pub mod ladder;
 pub mod str_workflow;
 pub mod run_workflow;
 pub mod gm_kit_import;
+pub mod matrix;
