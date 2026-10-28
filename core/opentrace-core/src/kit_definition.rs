@@ -49,7 +49,7 @@ pub fn py_float_repr(x: f64) -> String {
     format!("{}{}", sign, body)
 }
 
-fn py_json_string(s: &str, out: &mut String) {
+fn py_json_string(s: &str, ensure_ascii: bool, out: &mut String) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -61,6 +61,12 @@ fn py_json_string(s: &str, out: &mut String) {
             '\u{08}' => out.push_str("\\b"),
             '\u{0c}' => out.push_str("\\f"),
             c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if ensure_ascii && (c as u32) > 0x7e => {
+                let mut units = [0u16; 2];
+                for unit in c.encode_utf16(&mut units) {
+                    out.push_str(&format!("\\u{:04x}", unit));
+                }
+            }
             c => out.push(c),
         }
     }
@@ -70,24 +76,31 @@ fn py_json_string(s: &str, out: &mut String) {
 /// Python `json.dumps(value, ensure_ascii=False, allow_nan=False)` text for JSON-compatible data.
 pub fn py_json_dumps(v: &Value) -> String {
     let mut out = String::new();
-    write_py_json(v, &mut out);
+    write_py_json(v, false, &mut out);
     out
 }
 
-fn write_py_json(v: &Value, out: &mut String) {
+/// Python `json.dumps(value, allow_nan=False)` with the default `ensure_ascii=True`.
+pub fn py_json_dumps_ascii(v: &Value) -> String {
+    let mut out = String::new();
+    write_py_json(v, true, &mut out);
+    out
+}
+
+fn write_py_json(v: &Value, ensure_ascii: bool, out: &mut String) {
     match v {
         Value::Null => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Number(n) if n.is_f64() => out.push_str(&py_float_repr(n.as_f64().unwrap())),
         Value::Number(n) => out.push_str(&n.to_string()),
-        Value::String(s) => py_json_string(s, out),
+        Value::String(s) => py_json_string(s, ensure_ascii, out),
         Value::Array(a) => {
             out.push('[');
             for (i, x) in a.iter().enumerate() {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                write_py_json(x, out);
+                write_py_json(x, ensure_ascii, out);
             }
             out.push(']');
         }
@@ -97,9 +110,9 @@ fn write_py_json(v: &Value, out: &mut String) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                py_json_string(k, out);
+                py_json_string(k, ensure_ascii, out);
                 out.push_str(": ");
-                write_py_json(x, out);
+                write_py_json(x, ensure_ascii, out);
             }
             out.push('}');
         }

@@ -1,6 +1,6 @@
 //! Port of `genemapper_open/allele_calling.py`, built up one function at a time.
 //! Done so far: `prepare_peaks` (Python `_prepare_peaks`, input validation and normalization).
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 pub type Res<T> = Result<T, String>;
 
@@ -648,4 +648,217 @@ pub fn pick_marker(
         picker.clear_or_label(i, true)?;
     }
     Ok(build(&mut picker, Some(threshold)))
+}
+
+// ---------------------------------------------------------------------------
+// call_sample (Python `call_sample`): sample-level orchestration over the per-marker stages above.
+// ---------------------------------------------------------------------------
+
+use crate::kit_definition::{load_kit_definition, py_json_dumps_ascii};
+use crate::spike_adjustment::SpikeState;
+
+const MAX_SOURCE_METADATA_BYTES: usize = 1_048_576;
+
+/// Validation and preparation inside Python's first `try` block; any error becomes a rejection reason.
+fn prepare_call(
+    peaks: &Value,
+    kit: &Value,
+    sizing_accepted: &Value,
+    source_metadata: Option<&Value>,
+    missing_offset_policy: &Value,
+    spike_adjustments: Option<&Value>,
+) -> Res<(Value, Vec<Value>, Option<SpikeState>)> {
+    let definition = load_kit_definition(kit)?;
+    match missing_offset_policy.as_str() {
+        Some("reject") | Some("forward_fill") | Some("reference_bins") => {}
+        _ => return Err("missing_offset_policy must be reject, forward_fill or reference_bins".into()),
+    }
+    if sizing_accepted != &json!(true) {
+        return Err("sizing must be explicitly accepted before sample calling".into());
+    }
+    if let Some(meta) = source_metadata {
+        if !meta.is_object() {
+            return Err("source_metadata must be an object or None".into());
+        }
+        if py_json_dumps_ascii(meta).len() > MAX_SOURCE_METADATA_BYTES {
+            return Err(format!("source_metadata exceeds {} bytes", MAX_SOURCE_METADATA_BYTES));
+        }
+    }
+    let prepared = prepare_peaks(peaks)?;
+    let spike = match spike_adjustments {
+        Some(policy) => Some(SpikeState::new(prepared.clone(), policy)?),
+        None => None,
+    };
+    Ok((definition, prepared, spike))
+}
+
+/// One marker of the sample loop. Returns the marker result and the assigned candidate peak indices.
+fn process_marker(
+    marker: &Value,
+    source: &[Value],
+    ladder: &Value,
+    policy: &str,
+    pair_checks: &mut u64,
+    spike: &mut Option<SpikeState>,
+) -> Res<(Value, Vec<i64>)> {
+    let (offset_record, window, offset_metadata) = marker_offsets(marker, ladder, policy)?;
+    let low = num_of(Some(&window[0])).unwrap_or(f64::NAN);
+    let high = num_of(Some(&window[1])).unwrap_or(f64::NAN);
+    let candidates: Vec<Value> = source
+        .iter()
+        .filter(|p| {
+            p["channel"] == marker["channel"] && {
+                let size = num_of(Some(&p["size_bp"])).unwrap_or(f64::NAN);
+                low <= size && size <= high
+            }
+        })
+        .cloned()
+        .collect();
+    if candidates.len() > MAX_MARKER_PEAKS {
+        return Err(format!("marker exceeds {} candidate peaks", MAX_MARKER_PEAKS));
+    }
+    let ranges = marker["parameters"]["backward_stutter_ranges"].as_array().map_or(0, |a| a.len())
+        + marker["parameters"]["forward_stutter_ranges"].as_array().map_or(0, |a| a.len());
+    let n = candidates.len() as u64;
+    let pairs = if n > 0 { n * (n - 1) / 2 } else { 0 };
+    *pair_checks += pairs * (1 + ranges as u64) + n * n;
+    if *pair_checks > MAX_PAIR_RANGE_CHECKS {
+        return Err("sample exceeds bounded pair/range work budget".into());
+    }
+    let mut marker_result = pick_marker(marker, &candidates, &offset_record, &window, &offset_metadata)?;
+    if let Some(state) = spike.as_mut() {
+        let map = marker_result.as_object_mut().ok_or("marker result must be an object")?;
+        state.after_sample_marker(map)?;
+    }
+    let assigned = candidates.iter().map(|p| p["peak_index"].as_i64().unwrap()).collect();
+    Ok((marker_result, assigned))
+}
+
+/// Python `call_sample` for a parsed kit and sized peaks. Validation failures return a rejected result.
+pub fn call_sample(
+    peaks: &Value,
+    kit: &Value,
+    ladder_offsets: &Value,
+    sizing_accepted: &Value,
+    source_metadata: Option<&Value>,
+    missing_offset_policy: &Value,
+    spike_adjustments: Option<&Value>,
+) -> Res<Value> {
+    let mut diagnostics = Map::new();
+    diagnostics.insert("method".into(), json!("explicit_kit_ordered_sample_filters"));
+    diagnostics.insert("input_order".into(), json!("stable_size_bp_then_input_index"));
+    diagnostics.insert("offset_missing_policy".into(), missing_offset_policy.clone());
+    diagnostics.insert("stutter_ranges".into(), json!("explicit_effective_ranges"));
+    let mut result = Map::new();
+    result.insert("status".into(), json!("rejected"));
+    result.insert("reasons".into(), json!([]));
+    result.insert("markers".into(), json!([]));
+    result.insert("research_only".into(), json!(true));
+    result.insert("external_validation".into(), json!(false));
+    result.insert("original_runtime_validated".into(), json!(false));
+    result.insert("source_metadata".into(), Value::Null);
+    result.insert("unassigned_peak_indices".into(), json!([]));
+    result.insert("diagnostics".into(), Value::Object(diagnostics));
+
+    let prepared_call = prepare_call(peaks, kit, sizing_accepted, source_metadata, missing_offset_policy, spike_adjustments);
+    let (definition, prepared, mut spike) = match prepared_call {
+        Ok(v) => v,
+        Err(e) => {
+            result["reasons"].as_array_mut().unwrap().push(json!(e));
+            return Ok(Value::Object(result));
+        }
+    };
+    result.insert(
+        "source_metadata".into(),
+        source_metadata.map(|m| m.clone()).unwrap_or(Value::Null),
+    );
+    result.insert("kit_name".into(), definition["name"].clone());
+
+    let policy = missing_offset_policy.as_str().unwrap_or("reject").to_string();
+    let mut pair_checks: u64 = 0;
+    let mut assigned: Vec<i64> = Vec::new();
+    let mut markers_out: Vec<Value> = Vec::new();
+    for marker in definition["markers"].as_array().cloned().unwrap_or_default() {
+        let source: Vec<Value> = match &spike {
+            Some(state) => state.peaks().to_vec(),
+            None => prepared.clone(),
+        };
+        match process_marker(&marker, &source, ladder_offsets, &policy, &mut pair_checks, &mut spike) {
+            Ok((marker_result, indices)) => {
+                assigned.extend(indices);
+                markers_out.push(marker_result);
+            }
+            Err(e) => {
+                let rejected = json!({
+                    "name": marker["name"], "channel": marker["channel"], "status": "rejected",
+                    "reasons": [e], "calls": [], "stutter_calls": [], "peak_review": [], "events": [],
+                });
+                markers_out.push(rejected);
+            }
+        }
+    }
+
+    // Original object-reference overlap becomes explicit input-index identity.
+    let mut by_peak: Vec<(i64, Vec<(usize, usize)>)> = Vec::new();
+    for (mi, marker) in markers_out.iter().enumerate() {
+        for (ci, call) in marker["calls"].as_array().map(|c| c.as_slice()).unwrap_or(&[]).iter().enumerate() {
+            let idx = call["peak_index"].as_i64().unwrap();
+            match by_peak.iter_mut().find(|(p, _)| *p == idx) {
+                Some((_, list)) => list.push((mi, ci)),
+                None => by_peak.push((idx, vec![(mi, ci)])),
+            }
+        }
+    }
+    for (peak_index, calls) in &by_peak {
+        if calls.len() > 1 {
+            let names: Vec<Value> = calls.iter().map(|(mi, _)| markers_out[*mi]["name"].clone()).collect();
+            for &(mi, ci) in calls {
+                let flags = markers_out[mi]["calls"][ci]["flags"].as_array_mut().unwrap();
+                if !flags.iter().any(|f| f == "cross_marker_overlap") {
+                    flags.push(json!("cross_marker_overlap"));
+                }
+                markers_out[mi]["events"].as_array_mut().unwrap().push(json!({
+                    "peak_index": peak_index,
+                    "reason": "cross_marker_overlap",
+                    "markers": names,
+                }));
+            }
+        }
+    }
+
+    let mut unassigned: Vec<i64> = prepared
+        .iter()
+        .map(|p| p["peak_index"].as_i64().unwrap())
+        .filter(|i| !assigned.contains(i))
+        .collect();
+    unassigned.sort();
+    result.insert("unassigned_peak_indices".into(), json!(unassigned));
+
+    let rejected_names: Vec<String> = markers_out
+        .iter()
+        .filter(|m| m["status"] == json!("rejected"))
+        .map(|m| m["name"].as_str().unwrap_or("").to_string())
+        .collect();
+    if !rejected_names.is_empty() {
+        result["reasons"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(format!("rejected markers: {}", rejected_names.join(", "))));
+    }
+    let total = markers_out.len();
+    if total > 0 && rejected_names.is_empty() {
+        result.insert("status".into(), json!("tentative"));
+    } else if rejected_names.len() < total {
+        result.insert("status".into(), json!("partial"));
+    }
+    result["diagnostics"]
+        .as_object_mut()
+        .unwrap()
+        .insert("pair_range_work_upper_bound".into(), json!(pair_checks));
+    result.insert("markers".into(), Value::Array(markers_out));
+    if let Some(state) = spike.as_mut() {
+        let summary = state.finish_sample(result["markers"].as_array().unwrap())?;
+        result.insert("spike_adjustments".into(), summary);
+    }
+    Ok(Value::Object(result))
 }
