@@ -30,3 +30,4 @@ pub mod quality_control;
 pub mod pullup;
 pub mod pullup_quality;
 pub mod post_sizing_quality;
+pub mod ladder_aggregation;
