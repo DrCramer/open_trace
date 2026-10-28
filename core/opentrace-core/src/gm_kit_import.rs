@@ -20,7 +20,7 @@ fn truthy(v: &Value) -> bool {
     crate::pullup_quality::truthy(v)
 }
 
-fn type_name(v: &Value) -> &'static str {
+pub(crate) fn type_name(v: &Value) -> &'static str {
     match v {
         Value::Null => "NoneType",
         Value::Bool(_) => "bool",
@@ -679,4 +679,8 @@ pub fn import_request(request: &Value) -> Res<Value> {
         out.insert("kit".into(), kit);
     }
     Ok(Value::Object(out))
+}
+
+pub(crate) fn splitlines_pub(text: &str) -> Vec<&str> {
+    splitlines(text)
 }

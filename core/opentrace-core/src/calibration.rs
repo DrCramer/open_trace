@@ -32,7 +32,8 @@ pub fn py_pow(x: f64, y: f64) -> f64 {
     if y == 0.0 {
         return 1.0;
     }
-    unsafe { libm_pow(x, y) }
+    // black_box: stop LLVM from rewriting pow(x, 2.0) into x * x (glibc pow is not always equal to x * x)
+    unsafe { libm_pow(x, std::hint::black_box(y)) }
 }
 
 pub fn py_exp(x: f64) -> f64 {

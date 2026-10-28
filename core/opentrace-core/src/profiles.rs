@@ -478,7 +478,7 @@ pub fn export_csv(rows: &Value) -> Res<String> {
 }
 
 /// `csv.reader(io.StringIO(text), delimiter=d)` with the default excel dialect.
-fn csv_rows(text: &str, delim: char) -> Res<Vec<Vec<String>>> {
+pub(crate) fn csv_rows(text: &str, delim: char) -> Res<Vec<Vec<String>>> {
     #[derive(PartialEq, Clone, Copy)]
     enum St {
         StartRecord,
