@@ -1,6 +1,7 @@
-//! Rust counterpart of scratchpad/pullup_check.py. Request kinds (field `fn`): load, apply.
+//! Rust counterpart of scratchpad/pullup_check.py. Request kinds (field `fn`): load, apply, eval, attach.
 //! Lines: `PU <i> OK <canonical json>` or `PU <i> ERR <message>`.
 use opentrace_core::pullup as pu;
+use opentrace_core::pullup_quality as pq;
 use serde_json::{json, Map, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -32,6 +33,8 @@ fn run(req: &Value) -> Result<Value, String> {
     match req["fn"].as_str().unwrap() {
         "load" => pu::load_pullup_definition(&g("definition")),
         "apply" => pu::apply_pullup_detection(&g("channels"), &g("definition"), &g("selected_group"), &g("reference_channel")),
+        "eval" => pq::evaluate_pullup_quality(&g("report"), &g("definition")),
+        "attach" => pq::attach_pullup_quality(&g("report"), &g("definition")),
         other => Err(format!("unknown kind {}", other)),
     }
 }

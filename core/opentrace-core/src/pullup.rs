@@ -114,7 +114,7 @@ pub fn load_pullup_definition(source: &Value) -> Res<Value> {
 }
 
 /// Python `_flag`: explicit boolean field, OR-ed with the flag list or map.
-fn flag(peak: &Map<String, Value>, name: &str) -> Res<bool> {
+pub fn flag(peak: &Map<String, Value>, name: &str) -> Res<bool> {
     let value = peak.get(name).cloned().unwrap_or(json!(false));
     let value = boolean(&value, name)?;
     let flags = peak.get("flags").cloned().unwrap_or(json!([]));
