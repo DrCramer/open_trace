@@ -41,3 +41,5 @@ pub mod marker_quality_workflow;
 pub mod control_workflow;
 pub mod sample_info;
 pub mod profiles;
+pub mod pystats;
+pub mod run_offsets;
