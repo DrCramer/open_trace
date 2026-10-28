@@ -31,3 +31,5 @@ pub mod pullup;
 pub mod pullup_quality;
 pub mod post_sizing_quality;
 pub mod ladder_aggregation;
+pub mod ladder_observation_binding;
+pub mod ladder_calling;

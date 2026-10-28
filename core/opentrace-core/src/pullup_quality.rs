@@ -144,7 +144,7 @@ fn float_value(v: &Value) -> f64 {
 }
 
 /// Python `==` on JSON-shaped values (True == 1, 1 == 1.0, dict equality order-free).
-fn py_eq(a: &Value, b: &Value) -> bool {
+pub(crate) fn py_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Null, Value::Null) => true,
         (Value::String(x), Value::String(y)) => x == y,
