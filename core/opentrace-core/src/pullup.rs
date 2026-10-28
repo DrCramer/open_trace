@@ -19,7 +19,7 @@ fn num(v: &Value) -> Option<f64> {
 }
 
 /// Python `a - b` for JSON numbers: int when both are ints, otherwise binary64.
-fn py_sub(a: &Value, b: &Value) -> Res<Value> {
+pub(crate) fn py_sub(a: &Value, b: &Value) -> Res<Value> {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) if x.is_i64() && y.is_i64() => x
             .as_i64()
@@ -31,7 +31,7 @@ fn py_sub(a: &Value, b: &Value) -> Res<Value> {
     }
 }
 
-fn py_abs(v: Value) -> Value {
+pub(crate) fn py_abs(v: Value) -> Value {
     match &v {
         Value::Number(n) if n.is_i64() => json!(n.as_i64().unwrap().abs()),
         _ => fv(num(&v).unwrap_or(f64::NAN).abs()),
