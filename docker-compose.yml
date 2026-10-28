@@ -4,8 +4,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        WITH_RUST_CORE: ${WITH_RUST_CORE:-1}
     container_name: opentrace
     # UID/GID владельца каталога runtime/ (install.sh записывает их в .env).
     user: "${OPENTRACE_UID:-1000}:${OPENTRACE_GID:-1000}"
@@ -13,8 +11,6 @@ services:
       TZ: ${TZ:-Europe/Moscow}
       # Имена, под которыми сайт открывают в браузере (без порта), через запятую.
       OPENTRACE_ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
-      # Процессы анализа: пусто — авто (до 4, по числу ядер), 1 — без пула.
-      OPENTRACE_WORKERS: ${WORKERS:-}
     ports:
       - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-8765}:8765"
     volumes:

@@ -140,7 +140,6 @@ pub fn resource_root(explicit: Option<&Path>) -> Result<PathBuf, String> {
     }
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     candidates.push(manifest.join("../../resources"));
-    candidates.push(manifest.join("../../genemapper_open"));
     candidates
         .into_iter()
         .find(|c| c.join("web").join("index.html").is_file())
