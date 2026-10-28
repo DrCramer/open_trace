@@ -15,7 +15,7 @@ pub type Res<T> = Result<T, String>;
 
 const POLICIES: [&str; 3] = ["reject", "forward_fill", "reference_bins"];
 
-fn ladder_entries<'a>(ladders: &'a Value, field: &str) -> Res<&'a Vec<Value>> {
+pub(crate) fn ladder_entries<'a>(ladders: &'a Value, field: &str) -> Res<&'a Vec<Value>> {
     let list = match ladders {
         Value::Array(l) if (1..=128).contains(&l.len()) => l,
         _ => return Err("Explicit1..128 run ladders required".into()),

@@ -13,9 +13,10 @@ fn show(r: Result<Value, pyjson::LoadErr>, doc: &str) -> String {
             Err(e) if e == "invalid JSON value" => "SURR".into(),
             Err(e) => format!("CANON {}", e),
         },
-        Err(pyjson::LoadErr::Dup) => "DUP".into(),
+        Err(pyjson::LoadErr::Dup(_)) => "DUP".into(),
         Err(pyjson::LoadErr::Decode(m)) => format!("ERR JSONDecodeError {}", m),
         Err(pyjson::LoadErr::Recursion(m)) => format!("ERR RecursionError {}", m),
+        Err(pyjson::LoadErr::Const(_)) => unreachable!(),
     }
 }
 fn deep(doc: &str) -> bool {

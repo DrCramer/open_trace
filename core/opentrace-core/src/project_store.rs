@@ -1863,7 +1863,7 @@ impl ProjectStore {
         };
         let payload = match pyjson::loads(doc, true) {
             Ok(v) => v,
-            Err(LoadErr::Dup) => return Err(se("duplicate JSON object key")),
+            Err(LoadErr::Dup(_)) => return Err(se("duplicate JSON object key")),
             Err(e) => return Err(other(e.message())),
         };
         object(&payload, "export")?;

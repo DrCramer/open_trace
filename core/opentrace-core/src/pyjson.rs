@@ -17,15 +17,18 @@ pub enum LoadErr {
     Decode(String),
     /// `RecursionError`.
     Recursion(String),
-    /// Duplicate key found with `reject_dups`.
-    Dup,
+    /// Duplicate key found with `reject_dups` (carries the key).
+    Dup(String),
+    /// `NaN`/`Infinity`/`-Infinity` met with `reject_const` (carries the literal).
+    Const(String),
 }
 
 impl LoadErr {
     pub fn message(&self) -> String {
         match self {
             LoadErr::Decode(m) | LoadErr::Recursion(m) => m.clone(),
-            LoadErr::Dup => "duplicate key".into(),
+            LoadErr::Dup(k) => format!("duplicate key: {}", k),
+            LoadErr::Const(c) => format!("Nonfinite JSON constant: {}", c),
         }
     }
 }
@@ -38,6 +41,7 @@ enum Stop {
 struct P<'a> {
     s: &'a [char],
     dups: bool,
+    consts: bool,
 }
 
 fn decode_err(s: &[char], msg: &str, pos: usize) -> LoadErr {
@@ -204,6 +208,13 @@ impl<'a> P<'a> {
         let w: Vec<char> = word.chars().collect();
         idx + w.len() <= self.s.len() && self.s[idx..idx + w.len()] == w[..]
     }
+    fn constant(&self, name: &str, next: usize) -> Result<(Value, usize), Stop> {
+        if self.consts {
+            Err(Stop::Err(LoadErr::Const(name.into())))
+        } else {
+            Ok((Value::String(NONFINITE.into()), next))
+        }
+    }
     fn scan(&self, idx: usize, depth: usize) -> Result<(Value, usize), Stop> {
         let s = self.s;
         if idx >= s.len() {
@@ -234,9 +245,9 @@ impl<'a> P<'a> {
             'n' if self.lit(idx, "null") => Ok((Value::Null, idx + 4)),
             't' if self.lit(idx, "true") => Ok((Value::Bool(true), idx + 4)),
             'f' if self.lit(idx, "false") => Ok((Value::Bool(false), idx + 5)),
-            'N' if self.lit(idx, "NaN") => Ok((Value::String(NONFINITE.into()), idx + 3)),
-            'I' if self.lit(idx, "Infinity") => Ok((Value::String(NONFINITE.into()), idx + 8)),
-            '-' if self.lit(idx, "-Infinity") => Ok((Value::String(NONFINITE.into()), idx + 9)),
+            'N' if self.lit(idx, "NaN") => self.constant("NaN", idx + 3),
+            'I' if self.lit(idx, "Infinity") => self.constant("Infinity", idx + 8),
+            '-' if self.lit(idx, "-Infinity") => self.constant("-Infinity", idx + 9),
             'n' | 't' | 'f' | 'N' | 'I' => Err(Stop::Value(idx)),
             _ => self.number(idx),
         }
@@ -276,7 +287,7 @@ impl<'a> P<'a> {
         let mut m = Map::new();
         for (k, v) in pairs {
             if self.dups && m.contains_key(&k) {
-                return Err(Stop::Err(LoadErr::Dup));
+                return Err(Stop::Err(LoadErr::Dup(k)));
             }
             m.insert(k, v);
         }
@@ -315,12 +326,12 @@ pub fn num_or_sentinel(f: f64) -> Value {
     }
 }
 
-fn run(text: &str, dups: bool) -> Result<Value, LoadErr> {
+fn run(text: &str, dups: bool, consts: bool) -> Result<Value, LoadErr> {
     let s: Vec<char> = text.chars().collect();
     if s.first() == Some(&'\u{feff}') {
         return Err(decode_err(&s, "Unexpected UTF-8 BOM (decode using utf-8-sig)", 0));
     }
-    let p = P { s: &s, dups };
+    let p = P { s: &s, dups, consts };
     let start = p.skip(0);
     let (v, end) = match p.scan(start, 0) {
         Ok(x) => x,
@@ -336,13 +347,18 @@ fn run(text: &str, dups: bool) -> Result<Value, LoadErr> {
 
 /// Python `json.loads(text)`; with `reject_dups` an `object_pairs_hook` rejecting repeated keys.
 pub fn loads(text: &str, reject_dups: bool) -> Result<Value, LoadErr> {
+    loads_opts(text, reject_dups, false)
+}
+
+/// `json.loads(text, object_pairs_hook=..., parse_constant=...)`: `reject_const` fails on NaN/Infinity literals.
+pub fn loads_opts(text: &str, reject_dups: bool, reject_const: bool) -> Result<Value, LoadErr> {
     if text.len() < 2000 {
-        return run(text, reject_dups);
+        return run(text, reject_dups, reject_const);
     }
     let owned = text.to_string();
     std::thread::Builder::new()
         .stack_size(512 * 1024 * 1024)
-        .spawn(move || run(&owned, reject_dups))
+        .spawn(move || run(&owned, reject_dups, reject_const))
         .expect("spawn")
         .join()
         .expect("json thread")

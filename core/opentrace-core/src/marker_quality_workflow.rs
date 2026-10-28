@@ -15,7 +15,26 @@ fn fv(x: f64) -> Value {
     serde_json::Number::from_f64(x).map(Value::Number).unwrap_or(Value::Null)
 }
 
+/// Python `_definition`: JSON text is parsed (duplicate keys and non-finite constants rejected), then validated.
 pub fn load_marker_quality_definition(source: &Value) -> Res<Value> {
+    if let Value::String(text) = source {
+        if text.len() > 1_048_576 {
+            return Err("Marker quality definition exceeds1MiB".into());
+        }
+        use crate::pyjson::{loads_opts, LoadErr};
+        let parsed = match loads_opts(text, true, true) {
+            Ok(v) => v,
+            Err(LoadErr::Dup(k)) => return Err(format!("Duplicate marker quality JSON field: {}", k)),
+            Err(LoadErr::Const(c)) => return Err(format!("Nonfinite JSON constant: {}", c)),
+            Err(LoadErr::Decode(m)) => return Err(m),
+            Err(LoadErr::Recursion(_)) => return Err("Bounded JSON marker quality definition required".into()),
+        };
+        return load_definition_value(&parsed);
+    }
+    load_definition_value(source)
+}
+
+fn load_definition_value(source: &Value) -> Res<Value> {
     if py_json_dumps_ascii(source).len() > 1_048_576 {
         return Err("Marker quality definition exceeds1MiB".into());
     }
