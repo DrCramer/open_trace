@@ -54,6 +54,7 @@ fn run(req: &Value) -> Result<Value, String> {
                 max_base_height: d["max_base_height"].as_f64().unwrap(),
                 schema_version: d["schema_version"].as_i64().unwrap(),
                 jag_threshold: d["morphology"]["jag_threshold"].as_f64().unwrap(),
+                max_denominator_scan2: d["true_peak"]["max_denominator_scan2"].as_f64().unwrap_or(0.0),
             };
             measure(
                 &nums(&get("signal")),

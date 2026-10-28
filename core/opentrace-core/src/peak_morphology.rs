@@ -275,6 +275,8 @@ pub struct Definition {
     pub max_base_height: f64,
     pub schema_version: i64,
     pub jag_threshold: f64,
+    /// Only used by schema 4 (true-peak delegation).
+    pub max_denominator_scan2: f64,
 }
 
 fn fv(x: f64) -> Value {
@@ -283,9 +285,6 @@ fn fv(x: f64) -> Value {
 
 /// Python `_measure`: called after the spike module validated signal, bounds and definition.
 pub fn measure(signal: &[f64], lo: i64, hi: i64, center: i64, width: f64, definition: &Definition) -> Res<Value> {
-    if definition.schema_version == 4 {
-        return Err("schema 4 true-peak delegation is not ported yet".into());
-    }
     let mut result = Map::new();
     result.insert("status".into(), json!("unavailable"));
     result.insert("reason".into(), json!("insufficient_integer_support"));
@@ -302,6 +301,15 @@ pub fn measure(signal: &[f64], lo: i64, hi: i64, center: i64, width: f64, defini
         return Ok(Value::Object(result));
     }
     let ex = extract(signal, lo, hi, center, definition.near_base_fraction, definition.max_base_height);
+    if definition.schema_version == 4 {
+        let tp = crate::true_peak::TruePeakDefinition {
+            max_denominator_scan2: definition.max_denominator_scan2,
+            near_base_fraction: definition.near_base_fraction,
+        };
+        let value = crate::true_peak::measure_true_peak(signal, lo, hi, &ex.selection, &ex.whole, &tp)?;
+        result.insert("true_peak".into(), value);
+        result.insert("true_peak_restoration".into(), json!("measured_separately_after_calibration"));
+    }
     if ex.whole.len() < 3 {
         result.insert("reason".into(), json!("extracted_support_shorter_than_three"));
         return Ok(Value::Object(result));
