@@ -38,3 +38,4 @@ pub mod ladder_quality_workflow;
 pub mod marker_quality;
 pub mod amel_cross_check;
 pub mod marker_quality_workflow;
+pub mod control_workflow;
