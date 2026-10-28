@@ -187,6 +187,8 @@ pub struct AbifFile {
     pub filename: String,
     pub version: u16,
     pub tags: BTreeMap<(String, i32), Tag>,
+    /// Directory order of the tags (Python dict insertion order).
+    pub order: Vec<(String, i32)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,6 +226,7 @@ impl AbifFile {
         }
         check_range(data.len(), directory, count as usize * ENTRY_SIZE, "directory")?;
         let mut tags = BTreeMap::new();
+        let mut order: Vec<(String, i32)> = Vec::new();
         for i in 0..count as usize {
             let pos = directory + i * ENTRY_SIZE;
             let raw_name = &data[pos..pos + 4];
@@ -251,9 +254,10 @@ impl AbifFile {
             if Tag::numeric_spec(kind).is_some() || matches!(kind, 2 | 10 | 11 | 18 | 19) {
                 tag.value()?;
             }
+            order.push(key.clone());
             tags.insert(key, tag);
         }
-        Ok(AbifFile { filename: filename.rsplit('/').next().unwrap_or(filename).to_string(), version, tags })
+        Ok(AbifFile { filename: filename.rsplit('/').next().unwrap_or(filename).to_string(), version, tags, order })
     }
 
     pub fn value(&self, name: &str, number: i32) -> Option<Value> {

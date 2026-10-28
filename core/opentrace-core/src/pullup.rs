@@ -51,6 +51,11 @@ pub fn load_pullup_definition(source: &Value) -> Res<Value> {
     if py_json_dumps_ascii(source).len() > 16384 {
         return Err("Pull-up definition exceeds16KiB".into());
     }
+    load_pullup_definition_unsized(source)
+}
+
+/// The validation after the size check (the JSON-text path checks the byte length of the text instead).
+pub fn load_pullup_definition_unsized(source: &Value) -> Res<Value> {
     let map = match source {
         Value::Object(m) => m,
         _ => return Err("Explicit pull-up detector/profile fields required".into()),

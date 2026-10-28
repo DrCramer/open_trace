@@ -15,6 +15,11 @@ pub fn load_sizing_quality_definition(source: &Value) -> Res<Value> {
     if py_json_dumps_ascii(source).len() > 16384 {
         return Err("Sizing quality definition exceeds16KiB".into());
     }
+    load_sizing_quality_definition_unsized(source)
+}
+
+/// The validation after the size check (the JSON-text path checks the byte length of the text instead).
+pub fn load_sizing_quality_definition_unsized(source: &Value) -> Res<Value> {
     let map = source.as_object();
     let mut keys: Vec<&str> = map.map(|m| m.keys().map(|k| k.as_str()).collect()).unwrap_or_default();
     keys.sort();

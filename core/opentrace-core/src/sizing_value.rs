@@ -728,6 +728,8 @@ pub struct SizeParams {
     pub height_mode: String,
     pub coordinate_mode: String,
     pub sg_degree: i64,
+    /// The trace holds Python floats: `prepare_trace` rejects it with the signed-32-bit-integer message.
+    pub float_trace: bool,
 }
 
 impl SizeParams {
@@ -753,6 +755,7 @@ impl SizeParams {
             height_mode: "explicit".into(),
             coordinate_mode: "ap_fractional".into(),
             sg_degree: 3,
+            float_trace: false,
         }
     }
 }
@@ -811,7 +814,11 @@ pub fn analyze_size_standard(values: &[i64], expected_bp: &Value, num_extra_peak
         return finish(res, &not_applied, None);
     }
     res.insert("stage".into(), json!("preparation"));
-    let prepared = match prepare_trace(values, p.baseline_window, p.spike_window, p.baseline_smoothing_window, p.smooth_passes) {
+    let prepared = match (if p.float_trace && !values.is_empty() && values.len() <= 1_000_000 {
+        Err("Trace values must be signed 32-bit integers".to_string())
+    } else {
+        prepare_trace(values, p.baseline_window, p.spike_window, p.baseline_smoothing_window, p.smooth_passes)
+    }) {
         Ok(x) => x,
         Err(e) => {
             add_reason(&mut res, &e);

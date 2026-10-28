@@ -47,6 +47,11 @@ pub fn load_spike_definition(source: &Value) -> Res<Value> {
     if approx_bytes > DEFINITION_LIMIT_BYTES {
         return Err("Spike definition exceeds16KiB".into());
     }
+    load_spike_definition_unsized(source)
+}
+
+/// The validation after the size check (the JSON-text path checks the byte length of the text instead).
+pub fn load_spike_definition_unsized(source: &Value) -> Res<Value> {
     let map = match source {
         Value::Object(m) => m,
         _ => return Err("Explicit spike definition required".into()),
@@ -397,7 +402,7 @@ pub fn classify_spike(features: &Value, height: &Value, offscaled: &Value, defin
     let j = bounded(&feats[&names[3]], &names[3], -1.0, 1e12)?;
     let mut detected = false;
     let mut overlap = false;
-    let mut threshold = def.near_base_width_threshold;
+    let mut threshold = validated["near_base_width_threshold"].clone();
     let mut reason = "widths_not_narrow";
     if b >= 0.0 && height > def.min_height {
         if b < def.near_base_width_threshold {
@@ -406,7 +411,7 @@ pub fn classify_spike(features: &Value, height: &Value, offscaled: &Value, defin
         } else if f >= 0.0 && f < def.exhalf_width_threshold {
             if r > def.area_ratio_threshold && !offscaled {
                 detected = true;
-                threshold = def.exhalf_width_threshold;
+                threshold = validated["exhalf_width_threshold"].clone();
                 reason = "narrow_exhalf_with_area_ratio";
             } else {
                 overlap = true;
@@ -421,14 +426,14 @@ pub fn classify_spike(features: &Value, height: &Value, offscaled: &Value, defin
     }
     let current = detected || (def.treat_overlap_as_spike && overlap);
     if overlap && !detected && def.treat_overlap_as_spike {
-        threshold = def.exhalf_width_threshold;
+        threshold = validated["exhalf_width_threshold"].clone();
     }
     result.insert("status".into(), json!("evaluated_subset"));
     result.insert("reason".into(), json!(reason));
     result.insert("spike_detected".into(), json!(detected));
     result.insert("overlap_spike".into(), json!(overlap));
     result.insert("current_spike".into(), json!(current));
-    result.insert("threshold_used".into(), fv(threshold));
+    result.insert("threshold_used".into(), threshold);
     if def.schema_version >= 3 {
         let broad = b >= 0.0
             && height > def.min_height
