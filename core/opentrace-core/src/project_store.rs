@@ -998,7 +998,7 @@ impl ProjectStore {
         mem.save_new(path)
     }
 
-    fn save_new(&self, path: &Path) -> R<Self> {
+    pub fn save_new(&self, path: &Path) -> R<Self> {
         let dest = std::path::absolute(path).map_err(|e| other(e.to_string()))?;
         if path.as_os_str() == ":memory:" {
             return Err(se("an explicit filesystem destination is required"));

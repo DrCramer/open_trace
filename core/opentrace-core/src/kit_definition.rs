@@ -255,6 +255,16 @@ fn casefold(s: &str) -> String {
 
 /// Python `_load_kit_definition` for a parsed mapping. Returns the normalized kit object.
 pub fn load_kit_definition(source: &Value) -> Res<Value> {
+    if let Value::String(text) = source {
+        if text.len() > MAX_JSON_BYTES {
+            return Err("Kit JSON exceeds 1048576 bytes".into());
+        }
+        let parsed = crate::pyjson::loads_opts(text, true, true).map_err(|e| match e {
+            crate::pyjson::LoadErr::Dup(k) => format!("Duplicate JSON field: {}", k),
+            other => other.message(),
+        })?;
+        return load_kit_definition(&parsed);
+    }
     if py_json_dumps(source).len() > MAX_JSON_BYTES {
         return Err("Kit JSON exceeds 1048576 bytes".into());
     }

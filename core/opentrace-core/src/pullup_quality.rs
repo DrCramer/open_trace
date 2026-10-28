@@ -180,7 +180,10 @@ fn or_empty(v: Option<&Value>) -> Value {
 }
 
 pub fn evaluate_pullup_quality(report: &Value, definition: &Value) -> Res<Value> {
-    let definition = load_pullup_definition(definition)?;
+    let definition = match definition {
+        Value::String(_) => crate::server_analyze::load_definition(definition, crate::server_analyze::DefKind::Pullup)?,
+        _ => load_pullup_definition(definition)?,
+    };
     let report = match report {
         Value::Object(m) => m,
         _ => return Err("STR observations required".into()),

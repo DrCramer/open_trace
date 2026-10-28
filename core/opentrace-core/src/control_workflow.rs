@@ -25,6 +25,16 @@ fn update(row: &mut Map<String, Value>, add: &Value) {
 }
 
 pub fn evaluate_controls(report: &Value, definition: &Value) -> Res<Value> {
+    if let Value::String(text) = definition {
+        if text.chars().count() > 1_048_576 {
+            return Err("Control definition exceeds1MiB".into());
+        }
+        let parsed = crate::pyjson::loads(text, true).map_err(|e| match e {
+            crate::pyjson::LoadErr::Dup(_) => "Duplicate control definition field".to_string(),
+            other => other.message(),
+        })?;
+        return evaluate_controls(report, &parsed);
+    }
     let d = match definition {
         Value::Object(m) if same_keys(m, &["schema_version", "sample_type", "markers"]) => m,
         _ => return Err("Explicit schema_version/sample_type/markers control definition required".into()),

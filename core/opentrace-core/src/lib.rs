@@ -63,3 +63,6 @@ pub mod sizing_value;
 pub mod sizing_residual;
 pub mod abif_view;
 pub mod server_analyze;
+pub mod demo;
+pub mod server;
+pub mod cli;

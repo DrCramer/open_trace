@@ -18,6 +18,16 @@ fn fv(x: f64) -> Value {
 }
 
 pub fn load_ladder_quality_definition(source: &Value) -> Res<Value> {
+    if let Value::String(text) = source {
+        if text.len() > 1_048_576 {
+            return Err("Ladder quality definition exceeds1MiB".into());
+        }
+        let parsed = crate::pyjson::loads_opts(text, true, true).map_err(|e| match e {
+            crate::pyjson::LoadErr::Dup(k) => format!("Duplicate ladder quality JSON field: {}", k),
+            other => other.message(),
+        })?;
+        return load_ladder_quality_definition(&parsed);
+    }
     if py_json_dumps_ascii(source).len() > 1_048_576 {
         return Err("Ladder quality definition exceeds1MiB".into());
     }
