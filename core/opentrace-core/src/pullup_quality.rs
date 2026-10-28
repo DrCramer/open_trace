@@ -160,7 +160,7 @@ pub(crate) fn py_eq(a: &Value, b: &Value) -> bool {
     }
 }
 
-fn truthy(v: &Value) -> bool {
+pub(crate) fn truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
         Value::Bool(b) => *b,

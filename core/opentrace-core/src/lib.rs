@@ -36,3 +36,5 @@ pub mod ladder_calling;
 pub mod ladder_quality;
 pub mod ladder_quality_workflow;
 pub mod marker_quality;
+pub mod amel_cross_check;
+pub mod marker_quality_workflow;
