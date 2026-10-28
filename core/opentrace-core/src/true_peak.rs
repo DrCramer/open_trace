@@ -1,5 +1,6 @@
 //! Port of `genemapper_open/true_peak.py`: fresh true-peak model from side crossovers and accepted pairs.
 //! Operation order follows the Python source; `math.log`/`math.exp` go through libm as in CPython.
+use crate::calibration::Calibration;
 use crate::peak_morphology::bounded;
 use crate::small_svd::{polynomial_fit, SOLVER_ID};
 use serde_json::{json, Map, Value};
@@ -569,5 +570,219 @@ pub fn measure_true_peak(
     result.insert("model".into(), model_value(&model));
     result.insert("width_measurement".into(), width);
     result.insert("area_measurement".into(), area);
+    Ok(Value::Object(result))
+}
+
+// ---------------------------------------------------------------------------
+// restore_peak (Python `true_peak.restore_peak`): copied fresh peak plus exact write history.
+// ---------------------------------------------------------------------------
+
+const RESTORE_FIELDS: [&str; 5] = ["height", "scan", "size_bp", "area", "area_bp"];
+
+fn truthy(v: Option<&Value>) -> bool {
+    match v {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_f64().map_or(true, |x| x != 0.0),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(Value::Array(a)) => !a.is_empty(),
+        Some(Value::Object(m)) => !m.is_empty(),
+    }
+}
+
+/// Python `int(x)` for a JSON number. Integer results outside i64 are reported as an error because the port cannot
+/// represent Python's unbounded integers; such indices are outside any full trace in both implementations.
+fn trunc_index(v: &Value) -> Res<i64> {
+    match v {
+        Value::Number(n) if n.is_i64() => Ok(n.as_i64().unwrap()),
+        Value::Number(n) => {
+            let x = n.as_f64().unwrap_or(f64::NAN);
+            if !(x.abs() < 9.0e18) {
+                return Err("restoration index outside the supported integer range".into());
+            }
+            Ok(x.trunc() as i64)
+        }
+        _ => Err("number required".into()),
+    }
+}
+
+fn num_f64(v: &Value) -> f64 {
+    match v {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        _ => f64::NAN,
+    }
+}
+
+fn history_base(peak: &Map<String, Value>) -> Map<String, Value> {
+    let mut before = Map::new();
+    for key in RESTORE_FIELDS {
+        before.insert(key.into(), peak.get(key).cloned().unwrap_or(Value::Null));
+    }
+    let mut h = Map::new();
+    h.insert("status".into(), json!("not_applicable"));
+    h.insert("reason".into(), json!("public_restore_branch_not_selected"));
+    h.insert("scope".into(), json!("fresh_non_reference_offset0"));
+    h.insert("prior_state".into(), json!("fresh_false"));
+    h.insert("before".into(), Value::Object(before));
+    h.insert("after".into(), Value::Null);
+    h.insert("writes".into(), json!([]));
+    h.insert("original_runtime_validated".into(), json!(false));
+    h.insert("reference_map_policy".into(), json!("unrounded_model_dependent_standard_map"));
+    h
+}
+
+fn set_status(h: &mut Map<String, Value>, status: &str, reason: Value) {
+    h.insert("status".into(), json!(status));
+    h.insert("reason".into(), reason);
+}
+
+fn push_write(h: &mut Map<String, Value>, field: &str) {
+    if let Some(Value::Array(a)) = h.get_mut("writes") {
+        a.push(json!(field));
+    }
+}
+
+/// Steps after the classification gate; `Ok(())` always leads to the common `finish` step in the caller.
+fn restore_steps(
+    result: &mut Map<String, Value>,
+    history: &mut Map<String, Value>,
+    peak: &Map<String, Value>,
+    class: &Map<String, Value>,
+    calibration: Option<&Calibration>,
+    signal_length: i64,
+) -> Res<()> {
+    let gate = class.get("status") == Some(&json!("evaluated_subset"))
+        && class.get("true_peak_restoration_requested") == Some(&Value::Bool(true))
+        && class.get("spike_detected") == Some(&Value::Bool(false))
+        && class.get("overlap_spike") == Some(&Value::Bool(true))
+        && class.get("current_spike") == Some(&Value::Bool(false));
+    if !gate {
+        return Ok(());
+    }
+    // Python: (peak.get('spike_features') or {}).get('morphology', {}).get('true_peak', {})
+    let empty = Value::Object(Map::new());
+    let spike = match peak.get("spike_features") {
+        Some(v) if truthy(Some(v)) => v,
+        _ => &empty,
+    };
+    let spike = spike.as_object().ok_or("spike_features must be a mapping")?;
+    let morphology = spike.get("morphology").unwrap_or(&empty);
+    let morphology = morphology.as_object().ok_or("morphology must be a mapping")?;
+    let model_v = morphology.get("true_peak").unwrap_or(&empty);
+    let model = model_v.as_object().ok_or("true_peak must be a mapping")?;
+
+    let height = model.get("height").cloned().unwrap_or(json!(-1));
+    let height_ok = matches!(&height, Value::Number(n) if n.as_f64().map_or(false, |x| x > 0.0));
+    if !height_ok {
+        set_status(history, "unavailable", json!("positive_true_peak_height_unavailable"));
+        return Ok(());
+    }
+    result.insert("height".into(), height.clone());
+    push_write(history, "height");
+    set_status(history, "height_only", json!("size_call_map_unavailable"));
+    let calibration = match calibration {
+        None => return Ok(()),
+        Some(c) => c,
+    };
+
+    let center = model.get("center");
+    let begin = peak.get("begin");
+    let end = peak.get("end");
+    let area = model.get("area").cloned().unwrap_or(json!(-1));
+    let geometry = [center, begin, end]
+        .iter()
+        .all(|v| matches!(v, Some(Value::Number(_))))
+        && matches!(&area, Value::Number(_));
+    if !geometry {
+        history.insert("reason".into(), json!("nonfinite_restoration_geometry"));
+        return Ok(());
+    }
+    let (center, begin, end) = (center.unwrap(), begin.unwrap(), end.unwrap());
+    let c = trunc_index(center)?;
+    let b = trunc_index(begin)?;
+    let e = trunc_index(end)?;
+    let center_f = num_f64(center);
+    if center_f.abs() <= 1e8 {
+        history.insert("rounded_center_index".into(), json!(round_scan(center_f)?));
+    }
+    history.insert("center_index".into(), json!(c));
+    history.insert("begin_index".into(), json!(b));
+    history.insert("end_index".into(), json!(e));
+    if !(0 <= c && c < signal_length && 0 <= b && b < signal_length && 0 <= e && e < signal_length) {
+        history.insert("reason".into(), json!("restoration_map_indices_outside_full_trace"));
+        return Ok(());
+    }
+    if e <= b {
+        history.insert("reason".into(), json!("nonpositive_integer_endpoint_span"));
+        return Ok(());
+    }
+    // Python evaluates b, e, c in this order; any ValueError ends the branch.
+    let sizes = (|| -> Option<(f64, f64, f64)> {
+        let left = calibration.standard_map_size(&json!(b)).ok()?;
+        let right = calibration.standard_map_size(&json!(e)).ok()?;
+        let position = calibration.standard_map_size(&json!(c)).ok()?;
+        Some((left, right, position))
+    })();
+    let (left, right, position) = match sizes {
+        Some(v) => v,
+        None => {
+            history.insert("reason".into(), json!("size_call_map_evaluation_unavailable"));
+            return Ok(());
+        }
+    };
+    if ![left, right, position].iter().all(|v| v.is_finite()) {
+        history.insert("reason".into(), json!("nonfinite_size_call_map"));
+        return Ok(());
+    }
+    let slope = (right - left) / ((e - b) as f64);
+    let area_f = num_f64(&area);
+    let area_bp = slope * area_f;
+    if !area_bp.is_finite() {
+        history.insert("reason".into(), json!("nonfinite_restored_area_bp"));
+        return Ok(());
+    }
+    result.insert("scan".into(), json!(c));
+    result.insert("size_bp".into(), fv(position));
+    result.insert("area".into(), area.clone());
+    result.insert("area_bp".into(), fv(area_bp));
+    for field in ["scan", "size_bp", "area", "area_bp"] {
+        push_write(history, field);
+    }
+    set_status(history, "restored", Value::Null);
+    history.insert("map_endpoints".into(), json!([fv(left), fv(right)]));
+    history.insert("bp_per_scan_span".into(), fv(slope));
+    history.insert("area_available".into(), json!(area_f >= 0.0));
+    history.insert("size_available".into(), json!(position > 0.0));
+    Ok(())
+}
+
+/// Python `restore_peak` (full-trace offset0 only). Returns a fresh copy of `peak` with
+/// `true_peak_restoration` history; the caller's peak is never modified.
+pub fn restore_peak(
+    peak: &Value,
+    classification: &Value,
+    calibration: Option<&Calibration>,
+    signal_length: &Value,
+) -> Res<Value> {
+    let (peak_map, class_map) = match (peak, classification) {
+        (Value::Object(p), Value::Object(c)) => (p, c),
+        _ => return Err("Peak and classification required".into()),
+    };
+    if peak_map.contains_key("true_peak_restoration") {
+        return Err("Fresh peak required; recalculate from the source FSA".into());
+    }
+    let sl = signal_length
+        .as_i64()
+        .filter(|v| (1..=1_000_000).contains(v))
+        .ok_or("Bounded signal length required")?;
+    let mut result = peak_map.clone();
+    let mut history = history_base(peak_map);
+    restore_steps(&mut result, &mut history, peak_map, class_map, calibration, sl)?;
+    let mut after = Map::new();
+    for key in RESTORE_FIELDS {
+        after.insert(key.into(), result.get(key).cloned().unwrap_or(Value::Null));
+    }
+    history.insert("after".into(), Value::Object(after));
+    result.insert("true_peak_restoration".into(), Value::Object(history));
     Ok(Value::Object(result))
 }
