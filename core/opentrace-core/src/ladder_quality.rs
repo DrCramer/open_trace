@@ -10,7 +10,7 @@ fn fv(x: f64) -> Value {
     serde_json::Number::from_f64(x).map(Value::Number).unwrap_or(Value::Null)
 }
 
-fn object<'a>(value: &'a Value, keys: &[&str], name: &str) -> Res<&'a Map<String, Value>> {
+pub(crate) fn object<'a>(value: &'a Value, keys: &[&str], name: &str) -> Res<&'a Map<String, Value>> {
     match value {
         Value::Object(m) if m.len() == keys.len() && keys.iter().all(|k| m.contains_key(*k)) => Ok(m),
         _ => Err(format!("{}: required fields {}", name, keys.join(", "))),
