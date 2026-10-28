@@ -121,7 +121,7 @@ fn write_canonical(v: &Value, out: &mut String) -> Res<()> {
     Ok(())
 }
 
-fn digest(value: &Value) -> Res<String> {
+pub(crate) fn digest(value: &Value) -> Res<String> {
     let mut s = String::new();
     write_canonical(value, &mut s)?;
     Ok(sha256_hex(s.as_bytes()))
