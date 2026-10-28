@@ -220,7 +220,7 @@ pub fn evaluate_sizing_quality(peaks: &[SqPeak], expected_bp: &[f64]) -> Result<
         .map(|w| {
             let (l, rt) = (w[0].1, w[1].1);
             let d = rate * (rt.scan - l.scan) - (rt.matched_bp.unwrap() - l.matched_bp.unwrap());
-            (d * d) / (rt.matched_bp.unwrap() - l.matched_bp.unwrap())
+            crate::numeric::py_pow(d, 2.0) / (rt.matched_bp.unwrap() - l.matched_bp.unwrap())
         })
         .collect();
     let statistic = fsum(terms.into_iter());
