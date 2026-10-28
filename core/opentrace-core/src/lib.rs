@@ -22,3 +22,4 @@ pub mod calibration;
 pub mod peak_morphology;
 pub mod small_svd;
 pub mod true_peak;
+pub mod spike;
