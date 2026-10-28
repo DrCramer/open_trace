@@ -35,3 +35,4 @@ pub mod ladder_observation_binding;
 pub mod ladder_calling;
 pub mod ladder_quality;
 pub mod ladder_quality_workflow;
+pub mod marker_quality;
