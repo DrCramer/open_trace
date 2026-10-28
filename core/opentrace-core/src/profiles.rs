@@ -19,6 +19,10 @@ fn fv(x: f64) -> Value {
     serde_json::Number::from_f64(x).map(Value::Number).unwrap_or(Value::Null)
 }
 
+pub fn py_isspace_pub(c: char) -> bool {
+    py_isspace(c)
+}
+
 fn py_isspace(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\x0b' | '\x0c' | '\r' | '\x1c' | '\x1d' | '\x1e' | '\x1f' | '\u{85}' | '\u{a0}' | '\u{1680}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}')
         || ('\u{2000}'..='\u{200a}').contains(&c)

@@ -43,6 +43,10 @@ fn offer(slot: &mut Vec<Item>, item: Item, len: usize) {
 pub fn best_paths(scans: &[f64], heights: &[f64], bp: &[f64], weight: f64) -> (Vec<(f64, Vec<usize>)>, u64) {
     let count = scans.len();
     let length = bp.len();
+    // The reference only takes the compiled fast path inside these limits; everything else is the plain DP.
+    if !(count <= MAX_COUNT && (3..=MAX_LEN).contains(&length) && count >= length && count == heights.len()) {
+        return best_paths_general(scans, heights, bp, weight);
+    }
     let scale = heights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let height_term: Vec<f64> = heights.iter().map(|h| (1.0 - weight) * (h / scale)).collect();
     let idx = |a: usize, b: usize| a * count + b;
@@ -105,6 +109,56 @@ pub fn best_paths(scans: &[f64], heights: &[f64], bp: &[f64], weight: f64) -> (V
         .map(|it| (it.score / denominator, it.path[..length].iter().map(|&v| v as usize).collect()))
         .collect();
     (out, transitions)
+}
+
+/// Unbounded transcription of `_best_paths_py` (used when the fast path's size limits do not hold).
+pub fn best_paths_general(scans: &[f64], heights: &[f64], bp: &[f64], weight: f64) -> (Vec<(f64, Vec<usize>)>, u64) {
+    use std::collections::BTreeMap;
+    let count = scans.len();
+    let length = bp.len();
+    let scale = heights.iter().cloned().fold(f64::NEG_INFINITY, |a, b| if b > a { b } else { a });
+    let height_term: Vec<f64> = heights.iter().map(|h| (1.0 - weight) * (h / scale)).collect();
+    let rank = |a: &(f64, Vec<usize>), b: &(f64, Vec<usize>)| (-a.0).partial_cmp(&(-b.0)).unwrap_or(Ordering::Equal).then_with(|| a.1.cmp(&b.1));
+    let mut states: BTreeMap<(usize, usize), Vec<(f64, Vec<usize>)>> = BTreeMap::new();
+    if count + 2 > length {
+        for b in 1..(count + 2 - length) {
+            for a in 0..b {
+                states.insert((a, b), vec![(height_term[a] + height_term[b], vec![a, b])]);
+            }
+        }
+    }
+    let mut transitions: u64 = 0;
+    for marker in 2..length {
+        let target_ratio = (bp[marker] - bp[marker - 1]) / (bp[marker - 1] - bp[marker - 2]);
+        let mut next: BTreeMap<(usize, usize), Vec<(f64, Vec<usize>)>> = BTreeMap::new();
+        for (&(a, b), paths) in &states {
+            let previous_gap = scans[b] - scans[a];
+            if count + marker + 1 <= b + 1 + length {
+                continue;
+            }
+            for c in (b + 1)..(count + marker + 1 - length) {
+                transitions += 1;
+                let scan_ratio = (scans[c] - scans[b]) / previous_gap;
+                let x = scan_ratio / target_ratio;
+                let y = target_ratio / scan_ratio;
+                let agreement = if y < x { y } else { x };
+                let options = next.entry((b, c)).or_default();
+                for (score, path) in paths {
+                    let mut p = path.clone();
+                    p.push(c);
+                    options.push(((score + weight * agreement) + height_term[c], p));
+                }
+                options.sort_by(rank);
+                options.truncate(2);
+            }
+        }
+        states = next;
+    }
+    let mut all: Vec<(f64, Vec<usize>)> = states.into_values().flatten().collect();
+    all.sort_by(rank);
+    all.truncate(2);
+    let denominator = length as f64 - 2.0 * weight;
+    (all.into_iter().map(|(s, p)| (s / denominator, p)).collect(), transitions)
 }
 
 #[cfg(test)]
