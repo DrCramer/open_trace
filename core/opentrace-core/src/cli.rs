@@ -604,6 +604,21 @@ fn cmd_demo(a: &Args) -> Res<i32> {
     Ok(0)
 }
 
+/// `opentrace health`: exit status 0 when the local server answers `/api/health` with 200 (container health check).
+fn cmd_health(a: &Args) -> Res<i32> {
+    use std::io::Read;
+    let port = a.num("port", json!(8765), false).as_i64().unwrap_or(8765);
+    let host = a.s("host").unwrap_or("127.0.0.1");
+    let mut stream = std::net::TcpStream::connect((host, port as u16)).map_err(|e| e.to_string())?;
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(4)));
+    let request = format!("GET /api/health HTTP/1.0\r\nHost: 127.0.0.1:{}\r\n\r\n", port);
+    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    let mut data = Vec::new();
+    let _ = stream.read_to_end(&mut data);
+    let ok = String::from_utf8_lossy(&data).lines().next().map_or(false, |l| l.split_whitespace().nth(1) == Some("200"));
+    Ok(if ok { 0 } else { 1 })
+}
+
 fn cmd_serve(a: &Args) -> Res<i32> {
     let port = a.num("port", json!(8765), false).as_i64().unwrap_or(8765);
     let host = a.s("host").map(|s| s.to_string()).or_else(|| std::env::var("OPENTRACE_HOST").ok()).unwrap_or_else(|| "127.0.0.1".into());
@@ -893,6 +908,7 @@ pub fn main_with(argv: Vec<String>) -> i32 {
             let opts = vec![o("port", K::Int), o("open", K::Flag), o("host", K::Str), o("allowed-host", K::Str).multi(), o("projects-dir", K::Str), o("security-dir", K::Str)];
             cmd_serve(&parse(command, rest, (0, 0), &opts))
         }
+        "health" => cmd_health(&parse(command, rest, (0, 0), &[o("port", K::Int), o("host", K::Str)])),
         "demo" => cmd_demo(&parse(command, rest, (1, 1), &[o("sizing", K::Flag), o("pipeline", K::Flag)])),
         "inspect" => cmd_inspect(&parse(command, rest, (1, 1), &[o("tags", K::Flag)])),
         "export" => {
