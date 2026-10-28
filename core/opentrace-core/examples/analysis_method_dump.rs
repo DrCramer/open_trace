@@ -23,7 +23,8 @@ fn canon(v: &Value) -> Value {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let requests = BufReader::new(std::fs::File::open(&args[1]).unwrap());
-    let shipped = Path::new("/home/claude/ot/genemapper_open/data/shipped_methods.json");
+    let shipped_buf = opentrace_core::server::resource_root(None).expect("resources").join("data").join("shipped_methods.json");
+    let shipped = shipped_buf.as_path();
     for (i, line) in requests.lines().enumerate() {
         let line = line.unwrap();
         let req: Value = serde_json::from_str(&line).unwrap();
