@@ -8,7 +8,7 @@ pub struct Calibration {
 impl Calibration {
     pub fn new(anchors: &[(f64, f64)]) -> Result<Calibration, String> {
         let mut sorted: Vec<(f64, f64)> = anchors.to_vec();
-        sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.partial_cmp(&b.1).unwrap()));
+        sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)));
         if sorted.len() < 2 || sorted.iter().any(|&(x, y)| !x.is_finite() || !y.is_finite()) {
             return Err("At least two finite scan/bp anchors required".into());
         }

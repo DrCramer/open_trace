@@ -60,3 +60,4 @@ pub mod idx_projects;
 pub mod pydump;
 pub mod security;
 pub mod sizing_value;
+pub mod sizing_residual;
