@@ -28,11 +28,11 @@ fn py_isspace(c: char) -> bool {
         || ('\u{2000}'..='\u{200a}').contains(&c)
 }
 
-fn strip(s: &str) -> &str {
+pub(crate) fn strip(s: &str) -> &str {
     s.trim_matches(py_isspace)
 }
 
-fn str_repr(s: &str) -> String {
+pub(crate) fn str_repr(s: &str) -> String {
     let q = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
     let mut out = String::new();
     out.push(q);
@@ -55,7 +55,7 @@ fn str_repr(s: &str) -> String {
 }
 
 /// Python `str(value)` of a JSON-decoded value.
-fn py_str(v: &Value) -> String {
+pub(crate) fn py_str(v: &Value) -> String {
     match v {
         Value::Null => "None".into(),
         Value::Bool(true) => "True".into(),
@@ -75,7 +75,7 @@ fn py_str(v: &Value) -> String {
     }
 }
 
-fn py_repr(v: &Value) -> String {
+pub(crate) fn py_repr(v: &Value) -> String {
     match v {
         Value::String(s) => str_repr(s),
         other => py_str(other),
@@ -83,7 +83,7 @@ fn py_repr(v: &Value) -> String {
 }
 
 /// Python `float(str)`.
-fn py_float_parse(s: &str) -> Option<f64> {
+pub(crate) fn py_float_parse(s: &str) -> Option<f64> {
     let t = strip(s);
     if t.is_empty() {
         return None;
