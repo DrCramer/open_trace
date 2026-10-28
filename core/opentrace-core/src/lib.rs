@@ -43,3 +43,4 @@ pub mod sample_info;
 pub mod profiles;
 pub mod pystats;
 pub mod run_offsets;
+pub mod ladder;
