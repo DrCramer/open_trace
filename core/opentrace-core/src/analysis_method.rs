@@ -751,7 +751,7 @@ pub fn analyze_settings(method: &Value, standard_bp: &[Value], dye_channels: Opt
     let detector = serde_json::json!({
         "baseline_window": p["baseline_window"],
         "smooth_passes": passes,
-        "window": f["str_peak_window"],
+        "window": p["peak_window"],
         "standard_window": p["peak_window"],
         "min_width": f64_of(&p["min_half_width"]),
         "tau_begin": p["slope_start"],
