@@ -622,6 +622,7 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
                 marker_gate: false,
                 homozygous_min_height: obj.get("homozygous_min_height").filter(|v| !v.is_null()).cloned().unwrap_or(json!(200.0)),
                 heterozygous_min_height: obj.get("heterozygous_min_height").filter(|v| !v.is_null()).cloned().unwrap_or(json!(100.0)),
+                pullup_excludes_calls: obj.get("pullup_excludes_calls").and_then(|v| v.as_bool()).unwrap_or(true),
             };
             Ok(crate::run_workflow::run_str_run_workflow(&jget(obj, "sample"), &jget(obj, "ladders"), &jget(obj, "kit"), &opts)?)
         }
@@ -657,6 +658,7 @@ fn demo_str_run() -> HR<Value> {
         marker_gate: false,
         homozygous_min_height: json!(200.0),
         heterozygous_min_height: json!(100.0),
+        pullup_excludes_calls: true,
     };
     let report = crate::run_workflow::run_str_run_workflow(&sample, &ladders, &fx.fixture.kit, &opts)?;
     Ok(json!({"sample": sample, "ladders": ladders, "kit": fx.fixture.kit, "report": report,

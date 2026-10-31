@@ -278,6 +278,7 @@ fn analyze_str_run_files(sample: &[u8], ladders: &[(Value, Vec<u8>)], kit: &Valu
         marker_gate: false,
         homozygous_min_height: json!(200.0),
         heterozygous_min_height: json!(100.0),
+        pullup_excludes_calls: true,
     };
     let mut result = crate::run_workflow::run_str_run_workflow(&s, &reports, kit, &opts)?;
     result["provenance"]["input_reports_are_caller_supplied"] = json!(false);

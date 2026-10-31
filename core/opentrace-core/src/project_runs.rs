@@ -135,6 +135,7 @@ fn calculate(inputs: &Value) -> R<Vec<Value>> {
         marker_gate: false,
         homozygous_min_height: json!(200.0),
         heterozygous_min_height: json!(100.0),
+        pullup_excludes_calls: true,
     };
     let outputs = run_str_batch_workflow(&Value::Array(samples), &inputs["ladders"], &inputs["kit"], &opts).map_err(ve)?;
     let mut outputs = outputs.as_array().cloned().unwrap_or_default();

@@ -280,6 +280,9 @@ pub struct RunOptions<'a> {
     pub marker_gate: bool,
     pub homozygous_min_height: Value,
     pub heterozygous_min_height: Value,
+    /// ID-X never flags pull-up automatically (its detector `ar` is not reachable), so every detected peak is called.
+    /// `true` (default) keeps the earlier behaviour: peaks classified as pull-up are excluded from calling.
+    pub pullup_excludes_calls: bool,
 }
 
 pub fn run_str_run_workflow(sample_analysis: &Value, ladders: &Value, kit: &Value, opts: &RunOptions) -> Res<Value> {
@@ -301,6 +304,10 @@ pub fn run_str_run_workflow(sample_analysis: &Value, ladders: &Value, kit: &Valu
     let thresholds = call_thresholds(&opts.homozygous_min_height, &opts.heterozygous_min_height)?;
     let mut result = base_run_report(sample_analysis, &sample, &definition, &quality_definition, policy)?;
     result.get_mut("settings").unwrap().as_object_mut().unwrap().insert("call_thresholds".into(), thresholds.clone());
+    if !opts.pullup_excludes_calls {
+        sample.insert("ignore_pullup_for_calls".into(), json!(true));
+        result.get_mut("settings").unwrap().as_object_mut().unwrap().insert("pullup_excludes_calls".into(), json!(false));
+    }
     let reasons = sample_failures(&sample);
     result.insert("reasons".into(), json!(reasons));
     if !reasons.is_empty() {

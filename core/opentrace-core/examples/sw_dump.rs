@@ -44,6 +44,7 @@ fn main() {
                     marker_gate: g("marker_gate") == json!(true),
                     homozygous_min_height: req.get("hom").cloned().unwrap_or(json!(200.0)),
                     heterozygous_min_height: req.get("het").cloned().unwrap_or(json!(100.0)),
+                    pullup_excludes_calls: true,
                 };
                 if fnname == "run" {
                     rw::run_str_run_workflow(&g("sample"), &g("ladders"), &g("kit"), &opts)

@@ -74,3 +74,44 @@ fn str_run_accepts_configurable_floors() {
     assert_eq!(code, 400);
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn pull_up_peaks_are_called_only_when_the_option_says_so() {
+    let tmp = std::env::temp_dir().join(format!("opentrace-pullup-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let port = 18104u16;
+    let cfg = Config { port, projects_dir: Some(tmp.join("p")), security_dir: Some(tmp.join("s")), ..Config::default() };
+    let app = App::new(&cfg).expect("app");
+    let (_, demo) = post(&app, port, "/api/demo-str-run", &json!({}));
+    let calls_of = |r: &Value| r["calls"].as_array().map_or(0, |c| c.len());
+    let base = demo["report"].clone();
+    let n = calls_of(&base);
+    assert!(n > 0);
+    // Flag the first called peak of the sample as pull-up in the compact analysis.
+    let first_peak = base["calls"][0]["source_peak_id"].clone();
+    let mut sample = demo["sample"].clone();
+    let mut flagged = false;
+    for ch in sample["channels"].as_array_mut().unwrap() {
+        let tag = ch["tag"].clone();
+        for p in ch["peaks"].as_array_mut().unwrap().iter_mut() {
+            if !flagged && base["peaks"].as_array().unwrap().iter().any(|q| q["id"] == first_peak && q["scan"] == p["scan"] && q["channel"] == tag) {
+                p["pullup"] = json!(true);
+                flagged = true;
+            }
+        }
+    }
+    assert!(flagged, "demo peak found");
+    let run = |excludes: bool| {
+        let body = json!({"sample": sample, "ladders": demo["ladders"], "kit": demo["kit"],
+            "ladder_quality_definition": demo["ladder_quality_definition"], "missing_offset_policy": "reject",
+            "pullup_excludes_calls": excludes});
+        post(&app, port, "/api/str-run", &body)
+    };
+    let (c1, r1) = run(true);
+    let (c2, r2) = run(false);
+    assert_eq!((c1, c2), (200, 200), "{r1} {r2}");
+    assert!(calls_of(&r1) < n, "pull-up peak excluded by default");
+    assert_eq!(calls_of(&r2), n, "pull-up peak called when the option is off");
+    assert_eq!(r2["settings"]["pullup_excludes_calls"], json!(false));
+    let _ = std::fs::remove_dir_all(&tmp);
+}

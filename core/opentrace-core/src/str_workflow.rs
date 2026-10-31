@@ -338,6 +338,24 @@ pub fn ladder_stages(
     Ok(LadderStages { matching, effective, quality, provenance })
 }
 
+/// ID-X calls pulled-up peaks too: drop the pull-up flag from a copy of the peaks (used only when the run asks for it).
+fn strip_pullup_flags(peaks: &Value) -> Value {
+    let mut peaks = peaks.clone();
+    if let Some(list) = peaks.as_array_mut() {
+        for p in list.iter_mut() {
+            if let Some(m) = p.as_object_mut() {
+                if m.get("pullup") == Some(&json!(true)) {
+                    m.insert("pullup".into(), json!(false));
+                }
+                if let Some(Value::Array(fl)) = m.get_mut("flags") {
+                    fl.retain(|f| f.as_str() != Some("pullup"));
+                }
+            }
+        }
+    }
+    peaks
+}
+
 /// Python `_sample_stage`.
 pub fn sample_stage(
     result: &mut Map<String, Value>,
@@ -349,7 +367,9 @@ pub fn sample_stage(
 ) -> Res<()> {
     let policy = result["settings"]["missing_offset_policy"].clone();
     let metadata = json!({"sha256": sample["source_sha256"]});
-    let called = call_sample(&sample["peaks"], definition, offsets, &json!(true), Some(&metadata), &policy, adjustments)?;
+    let ignore_pullup = sample.get("ignore_pullup_for_calls") == Some(&json!(true));
+    let calling_peaks = if ignore_pullup { strip_pullup_flags(&sample["peaks"]) } else { sample["peaks"].clone() };
+    let called = call_sample(&calling_peaks, definition, offsets, &json!(true), Some(&metadata), &policy, adjustments)?;
     if adjustments.is_some() {
         let summary = called.get("spike_adjustments").cloned();
         let value = match &summary {
@@ -369,7 +389,7 @@ pub fn sample_stage(
     result.insert("allele_calling".into(), called.clone());
     result.insert("status".into(), called["status"].clone());
     result.insert("reasons".into(), called["reasons"].clone());
-    result.insert("peaks".into(), sample["peaks"].clone());
+    result.insert("peaks".into(), if ignore_pullup { strip_pullup_flags(&sample["peaks"]) } else { sample["peaks"].clone() });
     let mut new_calls: Vec<Value> = Vec::new();
     for marker in called["markers"].as_array().ok_or("markers must be a list")? {
         for call in marker["calls"].as_array().ok_or("calls must be a list")? {
