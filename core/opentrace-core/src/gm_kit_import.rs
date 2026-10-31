@@ -462,7 +462,20 @@ pub fn build_kit(
         None => return Err(format!("Bins file has no bin set for panel {}", py_repr(&Value::String(chosen_name.clone())))),
     };
     let empty = json!({});
-    let stutter = stutter_doc.and_then(|d| d["panels"].get(&chosen_name)).unwrap_or(&empty);
+    // Vendor files differ in letter case ("PanGlobal Plus-1.1-HW" in the stutter file, "PanGlobal plus-1.1-HW" in the
+    // panels file); an exact match wins, otherwise a single case-insensitive match is used.
+    let stutter = stutter_doc
+        .and_then(|d| {
+            let panels = d["panels"].as_object()?;
+            panels.get(&chosen_name).or_else(|| {
+                let mut hits = panels.iter().filter(|(k, _)| k.to_lowercase() == chosen_name.to_lowercase());
+                match (hits.next(), hits.next()) {
+                    (Some((_, v)), None) => Some(v),
+                    _ => None,
+                }
+            })
+        })
+        .unwrap_or(&empty);
     let mut m = method_merge(method)?;
     let mut channels = default_channels();
     if let Some(dc) = dye_channels {
