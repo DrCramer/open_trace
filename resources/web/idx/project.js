@@ -387,11 +387,19 @@ function sortRows(rows,keys,cell){if(!keys.length)return rows;
 function currentSort(table){const ts=TableSettings.active();return state.sort?.[table]||ts[table].sort}
 function headerClick(table,col){const cur=currentSort(table);const desc=cur[0]?.col===col?!cur[0].desc:false;
  state.sort={...(state.sort||{}),[table]:[{col,desc},...cur.filter(k=>k.col!==col)].slice(0,3)};render()}
+const colKey=c=>c.base+(c.index!=null?':'+c.index:'');
+// Fit to Content (Ctrl+I): measure each column of the active table under auto layout and keep the widths until the next fit.
+function fitToContent(){const table=state.tab==='genotypes'?'genotypes':state.tab==='samples'?'samples':null;if(!table)return;
+ const t=$(table==='samples'?'samplesGrid':'genotypesGrid').querySelector('table.g');if(!t)return;
+ const prev={layout:t.style.tableLayout,w:t.style.width,mw:t.style.minWidth};t.style.tableLayout='auto';t.style.width='auto';t.style.minWidth='0';
+ const w={};for(const th of t.querySelectorAll('thead th[data-key]'))w[th.dataset.key]=Math.max(30,Math.ceil(th.getBoundingClientRect().width)+2);
+ t.style.tableLayout=prev.layout;t.style.width=prev.w;t.style.minWidth=prev.mw;
+ state.colW={...(state.colW||{}),[table]:w};render()}
 function tableHead(table,cols){
  const t=el('table',{class:'g'});const cg=el('colgroup');cg.append(el('col',{style:'width:28px'}));
- for(const c of cols)cg.append(el('col',{style:`width:${c.width}px`}));t.append(cg);
+ const cw=state.colW?.[table]||{};for(const c of cols)cg.append(el('col',{style:`width:${cw[colKey(c)]??c.width}px`}));t.append(cg);
  const hr=el('tr');hr.append(el('th',{text:''}));const srt=currentSort(table);
- for(const c of cols){const k=srt.findIndex(x=>x.col===c.base);const th=el('th',{text:c.head+(k===0?(srt[0].desc?' ▼':' ▲'):''),title:c.title||c.head,'data-col':c.base});
+ for(const c of cols){const k=srt.findIndex(x=>x.col===c.base);const th=el('th',{text:c.head+(k===0?(srt[0].desc?' ▼':' ▲'):''),title:c.title||c.head,'data-col':c.base,'data-key':colKey(c)});
   th.addEventListener('click',()=>headerClick(table,c.base));hr.append(th)}
  t.append(el('thead',{},hr));return t}
 function fillCell(td,v){if(v.cls)td.className=v.cls;if(v.title)td.title=v.title;if(v.node)td.append(v.node);else if(v.html!=null)td.innerHTML=v.html;else{td.textContent=v.value==null?'':String(v.value);td.title=td.textContent}
@@ -523,6 +531,19 @@ function progress(done,total,text){const pct=total?Math.round(100*done/total):0;
 
 // ---------- actions ----------
 const notYet=()=>message(T('notImplemented'));
+// Help (F1): hotkey reference of the project window (same bindings as the keydown handler below and the menu labels).
+const HELP_KEYS=[['Ctrl+N','Новый проект','New project'],['Ctrl+O','Открыть проект','Open project'],['Ctrl+S','Сохранить проект','Save project'],
+ ['Ctrl+K','Добавить образцы','Add samples'],['Ctrl+R','Анализ ожидающих образцов','Analyze pending samples'],['Ctrl+Shift+R','Анализ всех образцов','Analyze all samples'],
+ ['Ctrl+L','Показать графики','Display plots'],['Ctrl+E','Экспорт таблицы','Export table'],['Ctrl+Q','Менеджер отчётов','Report Manager'],['Ctrl+P','Печать','Print'],
+ ['Ctrl+J','Менеджер панелей','Panel Manager'],['Ctrl+T','Настройка таблицы','Table setting'],['Ctrl+F','Найти','Find'],['Ctrl+G','Сортировка','Sort'],
+ ['Ctrl+A','Выбрать все строки','Select all rows'],['Ctrl+C','Копировать строки','Copy rows'],['Ctrl+D','Заполнить столбец вниз (Fill Down)','Fill Down'],
+ ['Ctrl+I','Подогнать ширину столбцов','Fit to Content'],['Ctrl+B','Низкое качество наверх','Low quality to top'],['Ctrl+Shift+N','Навигатор','Navigator'],
+ ['Ctrl+Shift+1/2/3','Вкладки Образцы / Сводка / Генотипы','Samples / Summary / Genotypes tabs'],['Ctrl+F1/F2/F3','Информация / Необработанные данные / EPT','Info / Raw data / EPT'],['F1','Эта справка','This help']];
+function showHelp(){const ru=I18N.lang==='ru';
+ dialog(T('helpTopics'),b=>{b.append(el('div',{class:'field',text:ru?'Горячие клавиши окна проекта (Cmd вместо Ctrl на macOS). Полный перечень ID-X — в документации проекта.':'Project window hotkeys (Cmd instead of Ctrl on macOS). The full ID-X list is in the project documentation.'}));
+  const t=el('table',{class:'g'});for(const [k,a,e] of HELP_KEYS)t.append(el('tr',{},el('td',{text:k,style:'width:150px;font-family:monospace'}),el('td',{text:ru?a:e})));
+  const w=el('div',{style:'max-height:360px;overflow:auto'});w.append(t);b.append(w)});}
+
 // ---------- project library (server folder) ----------
 const sid=s=>'s'+s.id;
 function blobToB64(blob){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(blob)})}
@@ -1121,7 +1142,7 @@ function buildChrome(){
    {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch}]},
   {label:T('view'),items:[{label:T('samples'),sc:'Ctrl+Shift+1',checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),sc:'Ctrl+Shift+2',checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
    {label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',{label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
-   {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},{label:T('fitToContent'),run:notYet},'-',
+   {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},{label:T('fitToContent'),sc:'Ctrl+I',run:fitToContent},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},'-',{label:T('addProfile'),sub:[{label:T('pfLab'),run:()=>addProfile('Lab Reference')},{label:T('pfCustom'),run:()=>addProfile('Custom Control')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
@@ -1132,7 +1153,7 @@ function buildChrome(){
     {label:T('scShowCount'),run:()=>Sec.auditCount()},{label:T('scBackupMenu'),run:()=>Sec.auditBackup(),disabled:!Sec.can('AuditGUI/Audit Management/Backup Audit Records')},
     {label:T('scRestoreMenu'),run:()=>Sec.auditRestore(),disabled:!Sec.can('AuditGUI/Audit Management/Restore Audit Records')},{label:T('scDeleteMenu'),run:()=>Sec.auditDelete(),disabled:!Sec.can('AuditGUI/Audit Management/Delete Audit Records')}]},
    {label:T('esig'),run:()=>Sec.esigAdmin(),disabled:!Sec.can('ESig/ESig Administration Tool/May run application')},'-',{label:T('scRemoteShutdown'),disabled:true},{label:T('databaseManager'),disabled:true}]},
-  {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:notYet},{label:T('loadExample'),run:loadExample},'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
+  {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:showHelp},{label:T('loadExample'),run:loadExample},'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
  ]);
  const tb=$('toolbar');tb.replaceChildren(
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),openProject,{id:'tbOpen'}),tbutton('saveProject',T('saveProject'),saveProject,{id:'tbSave'}),tsep(),
@@ -1142,7 +1163,7 @@ function buildChrome(){
   tbutton('manager',T('manager'),()=>Methods.openManager(),{id:'tbManager'}),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
   tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));
  tb.append(tableSettingCombo(),tbutton('tableSettingEditor',T('tableSettingEditor'),editTableSetting,{id:'tbTableSetting'}),tsep(),tbutton('find',T('find'),findDialog,{id:'tbFind'}),tbutton('print',T('print'),printNow,{id:'tbPrint'}),
-  tbutton('printPreview',T('printPreview'),printPreview,{id:'tbPrintPreview'}),tbutton('help',T('helpTopics'),notYet));
+  tbutton('printPreview',T('printPreview'),printPreview,{id:'tbPrintPreview'}),tbutton('help',T('helpTopics'),showHelp));
  $('stopBtn').textContent=T('stop');
  renderTabs()}
 function projectOptions(){ProjectOptions.open({methodSelect,panelSelect,sizeStdNames:()=>Object.keys(SIZE_STANDARDS),types:Object.entries(TYPE_KEYS).map(([k,v])=>[k,T(v)])})}
@@ -1157,13 +1178,13 @@ document.addEventListener('keydown',e=>{
  // Ctrl+D (Fill Down) must never reach the browser (bookmark), also while a table cell editor has the focus
  if(k==='d'&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();if(!e.target.closest('.dlg,.back,textarea'))fillDown();return}
  if(e.target.closest('input,select,textarea'))return;
- if(e.key==='F1'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();notYet();return}
+ if(e.key==='F1'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();showHelp();return}
  if(!e.ctrlKey&&!e.metaKey)return;
  if(/^F[123]$/.test(e.key)&&!e.shiftKey&&!e.altKey){e.preventDefault();buildAfter(()=>showTab({F1:'info',F2:'raw',F3:'ept'}[e.key]));return}
  if(e.shiftKey){
   const sm={Digit1:()=>buildAfter(()=>showTab('samples')),Digit2:()=>buildAfter(()=>showTab('summary')),Digit3:()=>buildAfter(()=>showTab('genotypes')),KeyR:()=>analyze('all'),KeyN:toggleNavigator};
   if(sm[e.code]){e.preventDefault();sm[e.code]()}return}
- const map={u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
+ const map={i:fitToContent,u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
