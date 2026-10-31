@@ -170,7 +170,10 @@ const defaultName=f=>String(f).replace(/\.(fsa|ab1|hid)$/i,'');
 async function sniffSamples(list){let any=false,renamed=false;
  for(const s of list){if(!s.blob||(s.inst&&s.inst.sampleName!==undefined))continue;
   const i=await Matrices.sniff(s.blob)||{is310:false,embedded:false,model:'',sampleName:''};s.inst={...(s.inst||{}),...i};any=true;
-  if(i.sampleName&&s.name===defaultName(s.file)&&s.name!==i.sampleName){s.name=i.sampleName;renamed=true}}
+  if(i.sampleName&&s.name===defaultName(s.file)&&s.name!==i.sampleName){s.name=i.sampleName;renamed=true}
+  // Sample type is detected in layers: file name first (at add time), then the sample name stored in the file (SpNm/SMPL),
+  // then the file comment (CMNT). Only for samples whose type was chosen automatically and not changed by the user since.
+  if(s.typeAuto&&s.type==='sample'){const t=[i.sampleName,i.comment].map(x=>x?sampleTypeFromName(x):'sample').find(x=>x!=='sample');if(t){s.type=t;renamed=true}}}
  if(renamed)state.project.dirty=true;if(any)render()}
 function arnmCodes(s){const r=[];
  if(!s.blob&&s.method!==EXAMPLE_METHOD)r.push('arsSfnf');
@@ -235,7 +238,7 @@ function sampleCell(id,s,flags){
   case 'sampleID':return textEdit(s,'sampleId',s.sampleId||'');
   case 'comments':return textEdit(s,'comment',s.comment??info.comment??'');
   case 'sampleType':{const sel=el('select');for(const k of ['sample','ladder','positive','negative'])sel.append(new Option(T(TYPE_KEYS[k]),k));sel.value=s.type;
-   sel.addEventListener('change',()=>{s.type=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:T(TYPE_KEYS[s.type]),node:sel}}
+   sel.addEventListener('change',()=>{s.type=sel.value;s.typeAuto=false;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:T(TYPE_KEYS[s.type]),node:sel}}
   case 'analysisMethod':{const sel=methodSelect(s.method,v=>{s.method=v;try{localStorage.setItem('opentrace.lastMethod',v)}catch(e){}changed(s)});
    return {value:s.method,node:sel,dbl:()=>{if(s.method!==EXAMPLE_METHOD)editMethod(s.method)}}}
   case 'panel':{const sel=panelSelect(s.panelKey,v=>{s.panelKey=v;s.panel=v?v.split('\u0001')[1]:'';if(v)s.sizeStd=fitStandard(v,s.sizeStd);changed(s)});
@@ -683,7 +686,7 @@ function addSamples(){
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
     if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
     for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
-     state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),
+     state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),typeAuto:ProjectOptions.get().add.type==='auto',
       runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
     Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
     sniffSamples(state.project.samples);

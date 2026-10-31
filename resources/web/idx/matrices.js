@@ -34,13 +34,13 @@ async function sniff(blob){
   const count=d.getInt32(18),dir=d.getInt32(26);const tags={};
   for(let i=0;i<count&&dir+i*28+28<=buf.byteLength;i++){const p=dir+i*28;const name=String.fromCharCode(...new Uint8Array(buf,p,4));const num=d.getInt32(p+4);
    const type=d.getInt16(p+8),n=d.getInt32(p+12),size=d.getInt32(p+16);const off=size<=4?p+20:d.getInt32(p+20);
-   if(['MODL','MCHN','HCFG','MTRD','MTRX','SpNm','SMPL'].includes(name)&&off>=0&&off+size<=buf.byteLength)tags[name+num]={type,n,size,bytes:new Uint8Array(buf,off,size)}}
+   if(['MODL','MCHN','HCFG','MTRD','MTRX','SpNm','SMPL','CMNT'].includes(name)&&off>=0&&off+size<=buf.byteLength)tags[name+num]={type,n,size,bytes:new Uint8Array(buf,off,size)}}
   const txt=k=>{const t=tags[k];if(!t)return '';let b=t.bytes;if(t.type===18)b=b.subarray(1,1+b[0]);return String.fromCharCode(...b).replace(/\0+$/,'')};
   const all=['MODL1','MCHN1','HCFG1'].map(txt).join(' ');
   const is310=/310/.test(all)&&!/3100|3130/.test(all);
   const dim=tags.MTRD1?new DataView(tags.MTRD1.bytes.buffer,tags.MTRD1.bytes.byteOffset,2).getInt16(0):0;
   // Sample Name as ID-X shows it: SpNm (sample sheet name), SMPL in older files
-  return {sampleName:(txt('SpNm1')||txt('SMPL1')).trim(),model:txt('MODL1').trim(),is310,embedded:(dim===4||dim===5)&&!!tags.MTRX1&&tags.MTRX1.n===dim*dim}}
+  return {sampleName:(txt('SpNm1')||txt('SMPL1')).trim(),comment:txt('CMNT1').trim(),model:txt('MODL1').trim(),is310,embedded:(dim===4||dim===5)&&!!tags.MTRX1&&tags.MTRX1.n===dim*dim}}
  catch(e){return null}}
 
 function resultTable(m,onEdit){
