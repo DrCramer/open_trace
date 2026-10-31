@@ -414,7 +414,8 @@ pub fn sample_stage(
     result.get_mut("calls").and_then(|c| c.as_array_mut()).ok_or("calls must be a list")?.extend(new_calls);
     let pullup_definition = sample["signature"]["peak_settings"].get("pullup_definition").filter(|v| !v.is_null()).cloned();
     if let Some(pd) = pullup_definition {
-        let q = evaluate_pullup_quality(&Value::Object(result.clone()), &pd)?;
+        let probe = json!({"peaks": result["peaks"].clone(), "allele_calling": result["allele_calling"].clone()});
+        let q = evaluate_pullup_quality(&probe, &pd)?;
         let sha = q["definition_sha256"].clone();
         result.entry("quality").or_insert_with(|| json!({})).as_object_mut().ok_or("TypeError: quality")?.insert("pullup".into(), q);
         result.get_mut("settings").and_then(|s| s.as_object_mut()).ok_or("TypeError: settings")?.insert("pullup_quality_definition_sha256".into(), sha);

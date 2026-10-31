@@ -4,7 +4,7 @@
 //! cohort is a pure function of its inputs, so results are identical.
 use crate::kit_definition::load_kit_definition;
 use crate::ladder_quality_workflow::load_ladder_quality_definition;
-use crate::pullup_quality::truthy;
+use crate::pullup_quality::{canonical_string, sha256_hex, truthy};
 use crate::run_offsets::{aggregate_run_offsets, remove_run_ladder, upsert_run_offsets};
 use crate::spike::load_spike_definition;
 use crate::str_workflow::{analysis, digest, ladder_stages, pullup_provenance, sample_stage, VERSION};
@@ -215,11 +215,13 @@ fn finish_run(
     result: &mut Map<String, Value>,
     sample: &mut Map<String, Value>,
     definition: &Value,
-    cohort: &Map<String, Value>,
+    cohort_data: &CohortData,
     adjustments: Option<&Value>,
     spike_definition: Option<&Value>,
     call_thresholds: Option<&Value>,
+    slim: bool,
 ) -> Res<()> {
+    let cohort = &cohort_data.map;
     {
         let prov = result.get_mut("provenance").unwrap().as_object_mut().unwrap();
         if let Some(sd) = spike_definition {
@@ -237,7 +239,8 @@ fn finish_run(
         }
     }
     result.insert("ladder_identity".into(), cohort["ladder_identity"].clone());
-    result.get_mut("quality").unwrap().as_object_mut().unwrap().insert("run_ladders".into(), cohort["quality"]["run_ladders"].clone());
+    let report_ladders = if slim { cohort_data.slim_run_ladders.clone() } else { cohort["quality"]["run_ladders"].clone() };
+    result.get_mut("quality").unwrap().as_object_mut().unwrap().insert("run_ladders".into(), report_ladders);
     let offsets = cohort["ladder"].clone();
     result.insert("ladder".into(), offsets.clone());
     {
@@ -252,12 +255,11 @@ fn finish_run(
         let routing = prov.get("experimental_pullup_routing_applied") == Some(&json!(true));
         prov.insert("artifact_detectors_applied".into(), json!(prior || routing));
     }
-    let inputs = json!({"sample": sample["source_sha256"], "ladders": result["ladder_identity"]["ladders"], "stages": result["quality"]["run_ladders"]});
-    let d = digest(&inputs)?;
+    // digest of {"ladders", "sample", "stages"} (sorted keys) from the cached canonical text of the unchanging parts
+    let d = sha256_hex(format!("{{\"ladders\":{},\"sample\":{},\"stages\":{}}}", cohort_data.canon_identity_ladders, canonical_string(&sample["source_sha256"])?, cohort_data.canon_run_ladders).as_bytes());
     result.get_mut("provenance").unwrap().as_object_mut().unwrap().insert("run_inputs_sha256".into(), json!(d));
     sample_stage(result, sample, definition, &offsets, adjustments, call_thresholds)?;
-    let obs = json!({"ladder": offsets, "allele_calling": result["allele_calling"], "run_ladders": result["quality"]["run_ladders"]});
-    let d = digest(&obs)?;
+    let d = sha256_hex(format!("{{\"allele_calling\":{},\"ladder\":{},\"run_ladders\":{}}}", canonical_string(&result["allele_calling"])?, cohort_data.canon_ladder, cohort_data.canon_run_ladders).as_bytes());
     result.get_mut("provenance").unwrap().as_object_mut().unwrap().insert("machine_observations_sha256".into(), json!(d));
     Ok(())
 }
@@ -287,11 +289,42 @@ pub struct RunOptions<'a> {
 }
 
 pub fn run_str_run_workflow(sample_analysis: &Value, ladders: &Value, kit: &Value, opts: &RunOptions) -> Res<Value> {
-    run_str_run_workflow_cached(sample_analysis, ladders, kit, opts, None)
+    run_str_run_workflow_cached(sample_analysis, ladders, kit, opts, None, false)
 }
 
 /// Ladder sets registered by the client once per run folder (the same 1-8 MB of ladder analyses were re-sent and re-parsed for every sample).
-type Cohort = Arc<Map<String, Value>>;
+/// A run-ladder cohort plus the canonical JSON text of its large parts (hashed again for every sample) and a slim copy of the run ladders.
+pub struct CohortData {
+    map: Map<String, Value>,
+    canon_run_ladders: String,
+    canon_ladder: String,
+    canon_identity_ladders: String,
+    slim_run_ladders: Value,
+}
+type Cohort = Arc<CohortData>;
+
+const LADDER_KEEP: [&str; 7] = ["ladder_id", "identity", "status", "reasons", "quality_code", "quality_code_source", "provenance"];
+
+fn cohort_data(map: Map<String, Value>) -> Res<CohortData> {
+    let run_ladders = map["quality"]["run_ladders"].clone();
+    let slim = run_ladders
+        .as_array()
+        .map(|l| {
+            Value::Array(
+                l.iter()
+                    .map(|x| Value::Object(x.as_object().map(|m| m.iter().filter(|(k, _)| LADDER_KEEP.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()))
+                    .collect(),
+            )
+        })
+        .unwrap_or(Value::Null);
+    Ok(CohortData {
+        canon_run_ladders: canonical_string(&run_ladders)?,
+        canon_ladder: canonical_string(&map["ladder"])?,
+        canon_identity_ladders: canonical_string(&map["ladder_identity"]["ladders"])?,
+        slim_run_ladders: slim,
+        map,
+    })
+}
 type CohortSlot = Arc<Mutex<Option<Cohort>>>;
 const MAX_LADDER_SETS: usize = 8;
 const MAX_COHORTS: usize = 8;
@@ -337,7 +370,7 @@ fn cohort_slot(key: &str) -> CohortSlot {
 }
 
 /// `cache_id` names a registered ladder set: the run-ladder cohort (everything that does not depend on the sample itself) is then computed once.
-pub fn run_str_run_workflow_cached(sample_analysis: &Value, ladders: &Value, kit: &Value, opts: &RunOptions, cache_id: Option<&str>) -> Res<Value> {
+pub fn run_str_run_workflow_cached(sample_analysis: &Value, ladders: &Value, kit: &Value, opts: &RunOptions, cache_id: Option<&str>, slim: bool) -> Res<Value> {
     let definition = load_kit_definition(kit)?;
     let quality_definition = load_ladder_quality_definition(opts.ladder_quality_definition)?;
     let policy = opts.missing_offset_policy;
@@ -371,9 +404,9 @@ pub fn run_str_run_workflow_cached(sample_analysis: &Value, ladders: &Value, kit
         return Ok(Value::Object(result));
     }
     let (spike_definition, adjustments) = artifact_options(&sample)?;
-    let compute = || -> Res<Map<String, Value>> {
+    let compute = || -> Res<CohortData> {
         let list = ladder_list(ladders)?;
-        ladder_cohort(&sample, &list, &definition, &quality_definition, ladder_policy(policy), adjustments.as_ref(), opts.marker_gate)
+        cohort_data(ladder_cohort(&sample, &list, &definition, &quality_definition, ladder_policy(policy), adjustments.as_ref(), opts.marker_gate)?)
     };
     let cohort: Cohort = match cache_id {
         Some(id) => {
@@ -395,7 +428,7 @@ pub fn run_str_run_workflow_cached(sample_analysis: &Value, ladders: &Value, kit
         }
         None => Arc::new(compute()?),
     };
-    finish_run(&mut result, &mut sample, &definition, &cohort, adjustments.as_ref(), spike_definition.as_ref(), Some(&thresholds))?;
+    finish_run(&mut result, &mut sample, &definition, &cohort, adjustments.as_ref(), spike_definition.as_ref(), Some(&thresholds), slim)?;
     Ok(Value::Object(result))
 }
 
@@ -440,7 +473,7 @@ pub fn run_str_batch_workflow(samples: &Value, ladders: &Value, kit: &Value, opt
     let reference = prepared[0].clone();
     let (spike_definition, adjustments) = artifact_options(&reference)?;
     let thresholds = call_thresholds(&opts.homozygous_min_height, &opts.heterozygous_min_height)?;
-    let cohort = ladder_cohort(&reference, &ladder_list, &definition, &quality_definition, ladder_policy(policy), adjustments.as_ref(), opts.marker_gate)?;
+    let cohort = cohort_data(ladder_cohort(&reference, &ladder_list, &definition, &quality_definition, ladder_policy(policy), adjustments.as_ref(), opts.marker_gate)?)?;
     let mut outputs: Vec<Value> = Vec::new();
     for (entry, mut sample) in sample_list.iter().zip(prepared.into_iter()) {
         let mut result = base_run_report(&entry["analysis"], &sample, &definition, &quality_definition, policy)?;
@@ -454,11 +487,11 @@ pub fn run_str_batch_workflow(samples: &Value, ladders: &Value, kit: &Value, opt
         result.insert("reasons".into(), json!(reasons));
         result.get_mut("settings").unwrap().as_object_mut().unwrap().insert("call_thresholds".into(), thresholds.clone());
         if reasons.is_empty() {
-            finish_run(&mut result, &mut sample, &definition, &cohort, adjustments.as_ref(), spike_definition.as_ref(), Some(&thresholds))?;
+            finish_run(&mut result, &mut sample, &definition, &cohort, adjustments.as_ref(), spike_definition.as_ref(), Some(&thresholds), false)?;
         } else {
-            result.insert("ladder_identity".into(), cohort["ladder_identity"].clone());
-            result.get_mut("quality").unwrap().as_object_mut().unwrap().insert("run_ladders".into(), cohort["quality"]["run_ladders"].clone());
-            result.insert("ladder".into(), cohort["ladder"].clone());
+            result.insert("ladder_identity".into(), cohort.map["ladder_identity"].clone());
+            result.get_mut("quality").unwrap().as_object_mut().unwrap().insert("run_ladders".into(), cohort.map["quality"]["run_ladders"].clone());
+            result.insert("ladder".into(), cohort.map["ladder"].clone());
             let markers: Vec<Value> = definition["markers"]
                 .as_array()
                 .unwrap()

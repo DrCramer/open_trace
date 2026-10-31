@@ -121,6 +121,13 @@ fn write_canonical(v: &Value, out: &mut String) -> Res<()> {
     Ok(())
 }
 
+/// The canonical text `digest` hashes (callers cache the text of large, unchanging parts).
+pub(crate) fn canonical_string(value: &Value) -> Res<String> {
+    let mut s = String::new();
+    write_canonical(value, &mut s)?;
+    Ok(s)
+}
+
 pub(crate) fn digest(value: &Value) -> Res<String> {
     let mut s = String::new();
     write_canonical(value, &mut s)?;

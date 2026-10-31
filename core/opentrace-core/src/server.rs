@@ -665,7 +665,8 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
                     &inline
                 }
             };
-            let mut report = crate::run_workflow::run_str_run_workflow_cached(&jget(obj, "sample"), ladders, &jget(obj, "kit"), &opts, set_id.as_deref())?;
+            let slim = obj.get("slim").and_then(|v| v.as_bool()) == Some(true);
+            let mut report = crate::run_workflow::run_str_run_workflow_cached(&jget(obj, "sample"), ladders, &jget(obj, "kit"), &opts, set_id.as_deref(), slim)?;
             // Optional: marker quality and the slimmed report in the same round trip (no 10 MB report echoed back by the client).
             let mq = obj.get("marker_quality_definition").filter(|v| !v.is_null());
             if let Some(def) = mq {
@@ -673,7 +674,7 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
                     report = crate::marker_quality_workflow::attach_marker_quality(&report, def)?;
                 }
             }
-            if obj.get("slim").and_then(|v| v.as_bool()) == Some(true) {
+            if slim {
                 slim_report(&mut report);
             }
             Ok(report)
