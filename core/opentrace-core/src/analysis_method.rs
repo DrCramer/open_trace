@@ -774,7 +774,7 @@ pub fn spike_definition(method: &Value) -> Value {
     let ratio = if ladder["enabled"].as_bool().unwrap_or(false) { ladder["cutoff"].clone() } else { Value::from(1e12) };
     serde_json::json!({
         "schema_version": 2,
-        "measurement_source": "prepared_signal",
+        "measurement_source": "baseline_corrected_companion",
         "scope": "non_reference_selected_channels",
         "morphology_enabled": false,
         "units": "scan",

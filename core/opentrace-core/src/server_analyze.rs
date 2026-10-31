@@ -498,7 +498,7 @@ fn measure_morphology_channel(ch: &mut Obj, threshold: f64, spike: Option<&Value
     let (mut peaks, dg) = sg_peaks_value(&signal, threshold, det.window, det.degree, det.min_width, det.tau_begin, det.tau_end, &[])?;
     if let Some(def) = spike {
         use crate::spike::{measure_features, signal_checked, SpikeDefinition};
-        let measurement: Vec<i64> = if def["schema_version"].as_i64().unwrap_or(0) >= 3 { prepared.corrected.clone() } else { signal.clone() };
+        let measurement: Vec<i64> = if def["schema_version"].as_i64().unwrap_or(0) >= 3 || def["measurement_source"] == json!("baseline_corrected_companion") { prepared.corrected.clone() } else { signal.clone() };
         let mv = Value::Array(measurement.iter().map(|&v| json!(v)).collect());
         let samples = signal_checked(&mv)?;
         if peaks.len() > 4096 {

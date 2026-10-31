@@ -84,8 +84,11 @@ pub fn load_spike_definition_unsized(source: &Value) -> Res<Value> {
     if version >= 2 {
         validate_adjustments(&map["adjustments"])?;
     }
+    // ID-X measures spike widths on the raw baselined signal (ap.java uses the raw trace for the ex-half and
+    // near-base widths), so schema 2 may also name the baseline-corrected companion explicitly.
     let measurement = if version >= 3 { "baseline_corrected_companion" } else { "prepared_signal" };
-    if map["measurement_source"] != json!(measurement) || map["scope"] != json!("non_reference_selected_channels") {
+    let source_ok = map["measurement_source"] == json!(measurement) || (version == 2 && map["measurement_source"] == json!("baseline_corrected_companion"));
+    if !source_ok || map["scope"] != json!("non_reference_selected_channels") {
         return Err(format!(
             "Explicit {}/non_reference_selected_channels policy required",
             measurement
