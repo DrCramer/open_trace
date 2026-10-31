@@ -1113,15 +1113,15 @@ function buildChrome(){
    {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Y',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
+  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
    {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},{label:T('defineSamplePath'),run:defineSamplePath},'-',
-   {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),run:sortDialog}]},
-  {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),run:()=>analyze('all')},'-',
-   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:()=>{state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}},{label:T('nonConcordantTop'),disabled:true},'-',
+   {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog}]},
+  {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},'-',
+   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{label:T('nonConcordantTop'),disabled:true},'-',
    {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch}]},
-  {label:T('view'),items:[{label:T('samples'),checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
-   {label:T('genotypes'),checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',{label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
-   {label:T('showNavigator'),checked:state.showNavigator,run:()=>{state.showNavigator=!state.showNavigator;buildChrome();render()}},{label:T('fitToContent'),run:notYet},'-',
+  {label:T('view'),items:[{label:T('samples'),sc:'Ctrl+Shift+1',checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),sc:'Ctrl+Shift+2',checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
+   {label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',{label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
+   {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},{label:T('fitToContent'),run:notYet},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
    {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},'-',{label:T('addProfile'),sub:[{label:T('pfLab'),run:()=>addProfile('Lab Reference')},{label:T('pfCustom'),run:()=>addProfile('Custom Control')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
@@ -1149,12 +1149,19 @@ function projectOptions(){ProjectOptions.open({methodSelect,panelSelect,sizeStdN
 function buildAfter(fn){fn();buildChrome();render()}
 
 $('stopBtn').addEventListener('click',()=>{state.stop=true});
+function toggleNavigator(){state.showNavigator=!state.showNavigator;buildChrome();render()}
+function toggleLowQualityTop(){state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}
+// Hot keys follow ID-X (docs: IDX_UI_HOTKEYS.md). Shift variants are separate bindings, never fall through to the plain key.
 document.addEventListener('keydown',e=>{
  if(e.target.closest('input,select,textarea'))return;
  const k=e.key.toLowerCase();
- if(e.key==='F1'){e.preventDefault();notYet();return}
+ if(e.key==='F1'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();notYet();return}
  if(!e.ctrlKey&&!e.metaKey)return;
- const map={u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:()=>{state.lowQualityTop=!state.lowQualityTop;render()}};
+ if(/^F[123]$/.test(e.key)&&!e.shiftKey&&!e.altKey){e.preventDefault();buildAfter(()=>showTab({F1:'info',F2:'raw',F3:'ept'}[e.key]));return}
+ if(e.shiftKey){
+  const sm={Digit1:()=>buildAfter(()=>showTab('samples')),Digit2:()=>buildAfter(()=>showTab('summary')),Digit3:()=>buildAfter(()=>showTab('genotypes')),KeyR:()=>analyze('all'),KeyN:toggleNavigator};
+  if(sm[e.code]){e.preventDefault();sm[e.code]()}return}
+ const map={u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
