@@ -257,7 +257,9 @@ pub fn evaluate_marker_quality(report: &Value, definition: &Value) -> Res<Value>
             let expected: Vec<[Value; 3]> = marker["calls"].as_array().unwrap().iter().map(trip).collect();
             let actual: Vec<[Value; 3]> = selected.iter().map(|c| trip(c)).collect();
             if actual.len() != expected.len() || !actual.iter().zip(expected.iter()).all(|(a, b)| tuple_eq(a, b)) {
-                return Err(format!("{}: inconsistent root and marker calls", name));
+                // Same leading text as before; the detail names the diverging (peak_index, label, size_bp) triples.
+                let show = |v: &Vec<[Value; 3]>| Value::Array(v.iter().map(|t| Value::Array(t.to_vec())).collect()).to_string();
+                return Err(format!("{}: inconsistent root and marker calls (marker: {}; root: {})", name, show(&expected), show(&actual)));
             }
             for call in &selected {
                 if negative {
