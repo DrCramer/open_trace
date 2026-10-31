@@ -44,3 +44,33 @@ fn weak_marker_calls_below_the_floors_do_not_break_marker_quality() {
     assert!(body["error"].as_str().unwrap().contains("inconsistent root and marker calls"));
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn str_run_accepts_configurable_floors() {
+    let tmp = std::env::temp_dir().join(format!("opentrace-floors2-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    let port = 18103u16;
+    let cfg = Config { port, projects_dir: Some(tmp.join("p")), security_dir: Some(tmp.join("s")), ..Config::default() };
+    let app = App::new(&cfg).expect("app");
+    let (_, demo) = post(&app, port, "/api/demo-str-run", &json!({}));
+    let run = |extra: Value| {
+        let mut body = json!({"sample": demo["sample"], "ladders": demo["ladders"], "kit": demo["kit"],
+            "ladder_quality_definition": demo["ladder_quality_definition"], "missing_offset_policy": "reject"});
+        for (k, v) in extra.as_object().unwrap() {
+            body[k] = v.clone();
+        }
+        post(&app, port, "/api/str-run", &body)
+    };
+    let (code, r) = run(json!({}));
+    assert_eq!(code, 200);
+    assert_eq!(r["settings"]["call_thresholds"], json!({"homozygous": 200.0, "heterozygous": 100.0}));
+    let n_default = r["calls"].as_array().unwrap().len();
+    assert!(n_default > 0);
+    let (code, r) = run(json!({"homozygous_min_height": 1e9, "heterozygous_min_height": 1e9}));
+    assert_eq!(code, 200);
+    assert_eq!(r["settings"]["call_thresholds"]["homozygous"], json!(1e9));
+    assert!(r["calls"].as_array().unwrap().is_empty(), "every call is below the floors");
+    let (code, _) = run(json!({"homozygous_min_height": -1}));
+    assert_eq!(code, 400);
+    let _ = std::fs::remove_dir_all(&tmp);
+}

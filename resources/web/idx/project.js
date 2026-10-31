@@ -841,7 +841,7 @@ async function genotype(){
    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
    const policy=g.pass?k.policy:'reference_bins';
    let rep;
-   try{rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.offLadders||g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy})}
+   try{rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.offLadders||g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy,homozygous_min_height:ProjectOptions.get().homoMinHeight,heterozygous_min_height:ProjectOptions.get().hetMinHeight})}
    catch(e){s.report=null;s.genotypeError=e.message;state.genotypeErrors=(state.genotypeErrors||[]).concat([`${s.file}: ${e.message}`]);s.rev=(s.rev||0)+1;return}
    s.genotypeError=null;
    // A sample that failed sizing (or another sample check) has no allele calls: keep the report with its reasons, skip GQ/control scoring.

@@ -620,8 +620,8 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
                 ladder_quality_definition: &lq,
                 missing_offset_policy: &policy,
                 marker_gate: false,
-                homozygous_min_height: json!(200.0),
-                heterozygous_min_height: json!(100.0),
+                homozygous_min_height: obj.get("homozygous_min_height").filter(|v| !v.is_null()).cloned().unwrap_or(json!(200.0)),
+                heterozygous_min_height: obj.get("heterozygous_min_height").filter(|v| !v.is_null()).cloned().unwrap_or(json!(100.0)),
             };
             Ok(crate::run_workflow::run_str_run_workflow(&jget(obj, "sample"), &jget(obj, "ladders"), &jget(obj, "kit"), &opts)?)
         }

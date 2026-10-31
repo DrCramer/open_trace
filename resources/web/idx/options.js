@@ -12,6 +12,8 @@ const DEFAULTS={
  after:'summary',          // 'summary' | 'samples'
  lowQualityTop:false,
  metrics:'symbols',        // 'symbols' | 'numbers' for SQ and GQ
+ homoMinHeight:200,       // RFU: sample calls of a homozygous marker below this are dropped (min call height)
+ hetMinHeight:100,        // RFU: same floor for markers with two or more calls
  dupHomo:false,            // show a single autosomal allele twice
  securityGroup:'GeneMapper ID-X Security Group', // default security group of new data items
 };
@@ -21,7 +23,7 @@ function load(){let v=null;try{v=JSON.parse(localStorage.getItem(KEY)||'null')}c
   if(v.add&&typeof v.add==='object')for(const k of Object.keys(DEFAULTS.add))if(typeof v.add[k]==='string')o.add[k]=v.add[k]}
  if(!['new','last'].includes(o.startup))o.startup='new';if(!['stop','continue'].includes(o.ars))o.ars='stop';
  if(!['stop','passing','all'].includes(o.alas))o.alas='stop';if(!['summary','samples'].includes(o.after))o.after='summary';
- if(!['symbols','numbers'].includes(o.metrics))o.metrics='symbols';o.comment=String(o.comment).slice(0,200);return o}
+ if(!['symbols','numbers'].includes(o.metrics))o.metrics='symbols';for(const k of ['homoMinHeight','hetMinHeight'])if(!Number.isFinite(o[k])||o[k]<0)o[k]=DEFAULTS[k];o.comment=String(o.comment).slice(0,200);return o}
 let cached=null;
 function save(o){cached=o;try{localStorage.setItem(KEY,JSON.stringify(o))}catch(e){}window.dispatchEvent(new Event('opentrace-options'))}
 function get(){return cached||(cached=load())}
@@ -63,6 +65,10 @@ function open(ctx){
     el('fieldset',{},el('legend',{text:T('optAfter')}),radio('after','summary',T('optAfterSummary'),o.after,v=>o.after=v),radio('after','samples',T('optAfterSamples'),o.after,v=>o.after=v)),
     el('fieldset',{},el('legend',{text:T('optAutomatic')}),check('lowQualityTop',T('lowQualityTop'),o.lowQualityTop,v=>o.lowQualityTop=v)),
     el('fieldset',{},el('legend',{text:T('optMetrics')}),radio('metrics','symbols',T('optSymbols'),o.metrics,v=>o.metrics=v),radio('metrics','numbers',T('optNumbers'),o.metrics,v=>o.metrics=v)),
+    el('fieldset',{},el('legend',{text:T('optCallHeight')}),el('p',{class:'note',text:T('optCallHeightNote')}),
+     ...[['homoMinHeight','optHomoMin'],['hetMinHeight','optHetMin']].map(([k,lbl])=>{const i=el('input',{type:'number',min:'0',step:'1','data-opt':k,value:String(o[k])});
+      i.addEventListener('change',()=>{const v=Number(i.value);if(Number.isFinite(v)&&v>=0)o[k]=v;else i.value=String(o[k])});
+      return el('div',{class:'field'},el('label',{text:T(lbl)}),i)})),
     el('fieldset',{},el('legend',{text:T('optDupHomo')}),check('dupHomo',T('optDupHomoText'),o.dupHomo,v=>o.dupHomo=v)))}
   b.append(tabs,page)};
  draw();return d}
