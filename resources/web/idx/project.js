@@ -631,12 +631,27 @@ function newProject(){
  dialog(T('newProjectTitle'),b=>{b.append(el('div',{class:'field'},el('label',{text:T('projectName'),for:'npName'}),el('input',{type:'text',id:'npName',value:''})))},
   [[T('ok'),body=>{const v=body.querySelector('#npName').value.trim();if(!v)return false;
     Object.assign(state.project,{name:v,savedAs:null,comment:'',runFolders:[],samples:[],reports:[],binOffsets:[],dirty:true});state.selected.clear();state.filter=null;render()},true],[T('cancel'),()=>true]])}
-// File-name heuristics for sample type; the user can change the type in the table.
+// File-name heuristics for sample type (used when the file carries no type itself); the user can change the type in the table.
+// The name is split into tokens at every non-alphanumeric character, so "AL", "L", "L2", "PC", "PC1", "NC", "NTC_03" are
+// recognised as whole name parts and not as letters inside a longer word (e.g. "L" in "Sample" or "NC" in "Vance").
+const SAMPLE_TYPE_TOKENS={
+ ladder:/^(al|l|lad|ladder|allelic\w*|alleliclad\w*|лестница|ладдер|ал|л)\d*$/i,
+ negative:/^(nc|ntc|neg|negative|negctrl|negcontrol|blank|нк|отр\w*)\d*$/i,
+ positive:/^(pc|pos|positive|posctrl|poscontrol|ctrl|control|ctl|9947a?|2800m|пк|пол\w*)\d*$/i};
 function sampleTypeFromName(n){
- if(/ladder|allelic|_al_|(^|[_-])lad([_-]|$)|^L\d*[_-]/i.test(n))return 'ladder';
- if(/neg|^NTC|[_-]NTC|^NC\d*[_-]|[_-]NC\d*[_-]|blank/i.test(n))return 'negative';
- // "007" is the AmpFlSTR control DNA only as a whole name part at the start (not a well/plate index like _007_D07).
- if(/pos|^PC\d*[_-]|[_-]PC\d*[_-]|control|9947|2800M|^007([_-]|$)/i.test(n))return 'positive';
+ const base=String(n).replace(/\.(fsa|ab1)$/i,'');
+ // Words that are unambiguous even when glued to other text ("Ladder_PG", "AllelicLadder", "negctrl").
+ if(/ladder|allelic|лестниц|ладдер/i.test(base))return 'ladder';
+ if(/(^|[^a-z])(neg(ative)?|ntc|blank)/i.test(base)||/(^|[^а-яё])отриц|нег/i.test(base))return 'negative';
+ if(/(^|[^a-z])(pos(itive)?|control)|9947|2800m/i.test(base)||/(^|[^а-яё])полож/i.test(base))return 'positive';
+ const toks=base.split(/[^A-Za-z0-9А-Яа-яЁё]+/).filter(Boolean);
+ // Tokens that carry a digit prefix glued to letters (e.g. "01PC") are split into letter and digit runs as well.
+ const parts=[];for(const t of toks){parts.push(t);for(const m of t.match(/[A-Za-zА-Яа-яЁё]+\d*/g)||[])if(m!==t)parts.push(m)}
+ // "K+" / "К+" and "+C" style positive markers.
+ if(/(^|[_\-\s.])[KkКк]\+|(^|[_\-\s.])\+[Cc]($|[_\-\s.])/.test(base))return 'positive';
+ // "007" is the AmpFlSTR control DNA only as the first name part (not a well/plate index like _007_D07).
+ if(/^007([^0-9]|$)/.test(base))return 'positive';
+ for(const k of ['ladder','negative','positive'])if(parts.some(t=>SAMPLE_TYPE_TOKENS[k].test(t)))return k;
  return 'sample'}
 function addSamples(){
  if(!Sec.need('UPDATE_PROJECT'))return;
