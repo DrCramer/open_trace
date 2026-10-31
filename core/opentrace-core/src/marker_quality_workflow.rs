@@ -254,7 +254,20 @@ pub fn evaluate_marker_quality(report: &Value, definition: &Value) -> Res<Value>
         let mut observations: Vec<Value> = Vec::new();
         if reason.is_none() {
             let trip = |c: &Value| [get(c, "peak_index").clone(), get(c, "label").clone(), get(c, "size_bp").clone()];
-            let expected: Vec<[Value; 3]> = marker["calls"].as_array().unwrap().iter().map(trip).collect();
+            // The run workflow drops sample calls below the min-call-height floors from the root list only; the marker
+            // keeps every observed call, so the same floors are applied here before comparing.
+            let all_calls = marker["calls"].as_array().unwrap();
+            let floors = report.get("settings").and_then(|s| s.get("call_thresholds")).and_then(|t| {
+                Some((t.get("homozygous")?.as_f64()?, t.get("heterozygous")?.as_f64()?))
+            });
+            let expected: Vec<[Value; 3]> = all_calls
+                .iter()
+                .filter(|c| match floors {
+                    Some((hom, het)) => c.get("height").and_then(|h| h.as_f64()).map_or(true, |h| h >= if all_calls.len() == 1 { hom } else { het }),
+                    None => true,
+                })
+                .map(trip)
+                .collect();
             let actual: Vec<[Value; 3]> = selected.iter().map(|c| trip(c)).collect();
             if actual.len() != expected.len() || !actual.iter().zip(expected.iter()).all(|(a, b)| tuple_eq(a, b)) {
                 // Same leading text as before; the detail names the diverging (peak_index, label, size_bp) triples.
