@@ -687,7 +687,7 @@ pub fn analyze_settings(method: &Value, standard_bp: &[Value], dye_channels: Opt
         return Err(format!("Analysis method settings not supported by OpenTrace: {}", bad.join(", ")));
     }
     let p = &method["peak_detector"];
-    let f = &method["fixed"];
+    let _f = &method["fixed"];
     let mut channels: Map<String, Value> = Map::new();
     for (d, c) in DEFAULT_DYE_CHANNELS {
         channels.insert(d.into(), Value::from(c));

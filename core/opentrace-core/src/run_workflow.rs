@@ -10,6 +10,7 @@ use crate::spike::load_spike_definition;
 use crate::str_workflow::{analysis, digest, ladder_stages, pullup_provenance, sample_stage, VERSION};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashSet};
+use std::sync::{Arc, Mutex};
 
 pub type Res<T> = Result<T, String>;
 
@@ -286,19 +287,75 @@ pub struct RunOptions<'a> {
 }
 
 pub fn run_str_run_workflow(sample_analysis: &Value, ladders: &Value, kit: &Value, opts: &RunOptions) -> Res<Value> {
+    run_str_run_workflow_cached(sample_analysis, ladders, kit, opts, None)
+}
+
+/// Ladder sets registered by the client once per run folder (the same 1-8 MB of ladder analyses were re-sent and re-parsed for every sample).
+type Cohort = Arc<Map<String, Value>>;
+type CohortSlot = Arc<Mutex<Option<Cohort>>>;
+const MAX_LADDER_SETS: usize = 8;
+const MAX_COHORTS: usize = 8;
+static LADDER_SETS: Mutex<Vec<(String, Arc<Value>)>> = Mutex::new(Vec::new());
+static COHORTS: Mutex<Vec<(String, CohortSlot)>> = Mutex::new(Vec::new());
+
+/// Store a ladder list; the id is the SHA-256 of its canonical JSON.
+pub fn register_ladder_set(ladders: &Value) -> Res<Value> {
+    ladder_entries(ladders, "analysis")?;
+    let id = digest(ladders)?;
+    let mut sets = LADDER_SETS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = sets.iter().position(|(k, _)| *k == id) {
+        let e = sets.remove(i);
+        sets.push(e);
+    } else {
+        sets.push((id.clone(), Arc::new(ladders.clone())));
+        while sets.len() > MAX_LADDER_SETS {
+            sets.remove(0);
+        }
+    }
+    Ok(json!({"ladder_set": id, "ladders": ladders.as_array().map_or(0, |l| l.len())}))
+}
+
+pub fn lookup_ladder_set(id: &str) -> Option<Arc<Value>> {
+    let sets = LADDER_SETS.lock().unwrap_or_else(|e| e.into_inner());
+    sets.iter().find(|(k, _)| k == id).map(|(_, v)| v.clone())
+}
+
+fn cohort_slot(key: &str) -> CohortSlot {
+    let mut c = COHORTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = c.iter().position(|(k, _)| k == key) {
+        let e = c.remove(i);
+        let slot = e.1.clone();
+        c.push(e);
+        return slot;
+    }
+    let slot: CohortSlot = Arc::new(Mutex::new(None));
+    c.push((key.to_string(), slot.clone()));
+    while c.len() > MAX_COHORTS {
+        c.remove(0);
+    }
+    slot
+}
+
+/// `cache_id` names a registered ladder set: the run-ladder cohort (everything that does not depend on the sample itself) is then computed once.
+pub fn run_str_run_workflow_cached(sample_analysis: &Value, ladders: &Value, kit: &Value, opts: &RunOptions, cache_id: Option<&str>) -> Res<Value> {
     let definition = load_kit_definition(kit)?;
     let quality_definition = load_ladder_quality_definition(opts.ladder_quality_definition)?;
     let policy = opts.missing_offset_policy;
     if !POLICIES.contains(&policy) {
         return Err("missing_offset_policy must be reject, forward_fill or reference_bins".into());
     }
-    let ladder_list: Vec<Value> = if truthy(ladders) || policy != "reference_bins" {
-        ladder_entries(ladders, "analysis")?.clone()
-    } else if let Value::Array(l) = ladders {
-        l.clone()
-    } else {
-        return Err("Explicit run ladder list required".into());
+    let ladder_list = |ladders: &Value| -> Res<Vec<Value>> {
+        if truthy(ladders) || policy != "reference_bins" {
+            Ok(ladder_entries(ladders, "analysis")?.clone())
+        } else if let Value::Array(l) = ladders {
+            Ok(l.clone())
+        } else {
+            Err("Explicit run ladder list required".into())
+        }
     };
+    if cache_id.is_none() {
+        ladder_list(ladders)?;
+    }
     let channels: BTreeSet<String> = definition["markers"].as_array().unwrap().iter().map(|m| m["channel"].as_str().unwrap().to_string()).collect();
     let mut sample = analysis(sample_analysis, "sample", &channels)?.as_object().unwrap().clone();
     let thresholds = call_thresholds(&opts.homozygous_min_height, &opts.heterozygous_min_height)?;
@@ -314,7 +371,30 @@ pub fn run_str_run_workflow(sample_analysis: &Value, ladders: &Value, kit: &Valu
         return Ok(Value::Object(result));
     }
     let (spike_definition, adjustments) = artifact_options(&sample)?;
-    let cohort = ladder_cohort(&sample, &ladder_list, &definition, &quality_definition, ladder_policy(policy), adjustments.as_ref(), opts.marker_gate)?;
+    let compute = || -> Res<Map<String, Value>> {
+        let list = ladder_list(ladders)?;
+        ladder_cohort(&sample, &list, &definition, &quality_definition, ladder_policy(policy), adjustments.as_ref(), opts.marker_gate)
+    };
+    let cohort: Cohort = match cache_id {
+        Some(id) => {
+            // the cohort depends on the sample only through its settings signature and analysis version
+            let key = digest(&json!({
+                "ladder_set": id, "kit": definition, "quality": quality_definition, "policy": policy, "adjustments": adjustments,
+                "marker_gate": opts.marker_gate, "signature": sample["signature"], "version": sample["analysis_version"],
+            }))?;
+            let slot = cohort_slot(&key);
+            let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_ref() {
+                Some(c) => c.clone(),
+                None => {
+                    let c = Arc::new(compute()?);
+                    *guard = Some(c.clone());
+                    c
+                }
+            }
+        }
+        None => Arc::new(compute()?),
+    };
     finish_run(&mut result, &mut sample, &definition, &cohort, adjustments.as_ref(), spike_definition.as_ref(), Some(&thresholds))?;
     Ok(Value::Object(result))
 }

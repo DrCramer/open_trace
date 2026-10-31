@@ -24,11 +24,11 @@ const IDX_FILES: [&str; 26] = [
     "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js",
     "plotsettings.js", "matrices.js",
 ];
-const POST_PATHS: [&str; 21] = [
+const POST_PATHS: [&str; 22] = [
     "/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline", "/api/str", "/api/demo-str", "/api/str-run",
     "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality",
     "/api/import-gm-kit", "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture",
-    "/api/security", "/api/sample-info", "/api/matrix",
+    "/api/security", "/api/sample-info", "/api/matrix", "/api/ladder-set",
 ];
 const DEMO_VARIANTS: [&str; 22] = [
     "ordinary", "negative", "amel", "ladder", "ladder-rejected", "spike", "spike-unrequested", "spike-low-initial",
@@ -514,6 +514,11 @@ impl App {
                 let name = user.as_ref().and_then(|u| u.get("name")).and_then(|n| n.as_str()).map(|s| s.to_string());
                 ok(self.library.request(&request, Some(&access), name.as_deref())?)
             }
+            "/api/ladder-set" => {
+                let request = loads_bytes(raw)?;
+                let obj = request.as_object().ok_or("Ladder set request must be an object")?;
+                ok(crate::run_workflow::register_ladder_set(&jget(obj, "ladders"))?)
+            }
             "/api/codis" => ok(crate::codis::codis_request(&loads_bytes(raw)?)?),
             "/api/mixture" => ok(crate::mixture::mixture_request(&loads_bytes(raw)?)?),
             "/api/profiles" => ok(crate::profiles::profile_request(&loads_bytes(raw)?)?),
@@ -607,6 +612,28 @@ fn analyze_kwargs(p: &BTreeMap<String, Vec<String>>) -> HR<(String, Map<String, 
     Ok((first(p, "filename").unwrap_or("synthetic.fsa").to_string(), kw))
 }
 
+/// Same reduction the project window applies to a stored report: per-attempt pull-up events become a count and the
+/// run ladders keep only identity and quality code.
+fn slim_report(report: &mut Value) {
+    if let Some(peaks) = report.get_mut("peaks").and_then(|p| p.as_array_mut()) {
+        for p in peaks.iter_mut() {
+            if let Some(pc) = p.get_mut("pullup_classification").and_then(|v| v.as_object_mut()) {
+                if let Some(Value::Array(ev)) = pc.remove("events") {
+                    pc.insert("event_count".into(), json!(ev.len()));
+                }
+            }
+        }
+    }
+    const KEEP: [&str; 7] = ["ladder_id", "identity", "status", "reasons", "quality_code", "quality_code_source", "provenance"];
+    if let Some(list) = report.get_mut("quality").and_then(|q| q.get_mut("run_ladders")).and_then(|r| r.as_array_mut()) {
+        for l in list.iter_mut() {
+            if let Some(m) = l.as_object_mut() {
+                m.retain(|k, _| KEEP.contains(&k.as_str()));
+            }
+        }
+    }
+}
+
 /// Body of the heavy JSON endpoints (`_json_task`).
 pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
     let request = loads_bytes(raw)?;
@@ -624,7 +651,32 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
                 heterozygous_min_height: obj.get("heterozygous_min_height").filter(|v| !v.is_null()).cloned().unwrap_or(json!(100.0)),
                 pullup_excludes_calls: obj.get("pullup_excludes_calls").and_then(|v| v.as_bool()).unwrap_or(true),
             };
-            Ok(crate::run_workflow::run_str_run_workflow(&jget(obj, "sample"), &jget(obj, "ladders"), &jget(obj, "kit"), &opts)?)
+            // `ladder_set` (from /api/ladder-set) replaces the inline ladder list; the run-ladder cohort is then cached.
+            let set_id = obj.get("ladder_set").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let registered = match &set_id {
+                Some(id) => Some(crate::run_workflow::lookup_ladder_set(id).ok_or(HErr::Bad("Unknown ladder_set: register the ladders again".into()))?),
+                None => None,
+            };
+            let inline;
+            let ladders: &Value = match &registered {
+                Some(l) => &**l,
+                None => {
+                    inline = jget(obj, "ladders");
+                    &inline
+                }
+            };
+            let mut report = crate::run_workflow::run_str_run_workflow_cached(&jget(obj, "sample"), ladders, &jget(obj, "kit"), &opts, set_id.as_deref())?;
+            // Optional: marker quality and the slimmed report in the same round trip (no 10 MB report echoed back by the client).
+            let mq = obj.get("marker_quality_definition").filter(|v| !v.is_null());
+            if let Some(def) = mq {
+                if report.get("allele_calling").map_or(false, |a| !a.is_null()) {
+                    report = crate::marker_quality_workflow::attach_marker_quality(&report, def)?;
+                }
+            }
+            if obj.get("slim").and_then(|v| v.as_bool()) == Some(true) {
+                slim_report(&mut report);
+            }
+            Ok(report)
         }
         "marker-quality" => {
             let obj = obj_of("Marker quality request must be an object")?;

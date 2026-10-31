@@ -875,19 +875,24 @@ async function genotype(){
   const methods=[...new Set(g.group.filter(s=>s.type!=='ladder').map(s=>s.method))];
   const kits={};for(const mname of methods)kits[mname]=await kitFor(g.key,mname);
   const todo=g.group.filter(x=>x.type!=='ladder');let at=0;
+  // The run's ladders are identical for every sample: send them once and let the server cache the ladder cohort.
+  const register=async()=>{try{return (await jsonPost('/api/ladder-set',{ladders:g.offLadders||g.ladders})).ladder_set}catch(e){return null}};
+  let ladderSet=await register();
   const one=async s=>{
    const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
    const policy=g.pass?k.policy:'reference_bins';
    let rep;
-   try{rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.offLadders||g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy,pullup_excludes_calls:ProjectOptions.get().pullupExcludesCalls===true,homozygous_min_height:ProjectOptions.get().homoMinHeight,heterozygous_min_height:ProjectOptions.get().hetMinHeight})}
+   // Marker quality (and the slimmed report) come back in the same round trip instead of echoing a multi-MB report to /api/marker-quality.
+   let mqDef=null;
+   if(k.mq){mqDef=k.mq;const accW=Number(Methods.get(s.method)?.sq_gq?.weights?.acc||0);
+    // Samples: AMEL cross check weight of the method enters GQ (ID-X: "Effect on GQ (samples only)").
+    if(s.type==='sample'&&k.mq.amel_marker&&accW>0)mqDef={...k.mq,schema_version:2,sample_type:'Sample',control_mode:'none',amel_cross_check:{weight:accW}}}
+   const body=()=>({sample:s.compact||compactAnalysis(s.analysis),...(ladderSet?{ladder_set:ladderSet}:{ladders:g.offLadders||g.ladders}),kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:policy,marker_quality_definition:mqDef,slim:true,pullup_excludes_calls:ProjectOptions.get().pullupExcludesCalls===true,homozygous_min_height:ProjectOptions.get().homoMinHeight,heterozygous_min_height:ProjectOptions.get().hetMinHeight});
+   try{try{rep=await jsonPost('/api/str-run',body())}catch(e){if(ladderSet&&/ladder_set/.test(e.message)){ladderSet=await register();rep=await jsonPost('/api/str-run',body())}else throw e}}
    catch(e){s.report=null;s.genotypeError=e.message;state.genotypeErrors=(state.genotypeErrors||[]).concat([`${s.file}: ${e.message}`]);s.rev=(s.rev||0)+1;return}
    s.genotypeError=null;
    // A sample that failed sizing (or another sample check) has no allele calls: keep the report with its reasons, skip GQ/control scoring.
-   if(rep.allele_calling&&k.mq){let def=k.mq;const accW=Number(Methods.get(s.method)?.sq_gq?.weights?.acc||0);
-    // Samples: AMEL cross check weight of the method enters GQ (ID-X: "Effect on GQ (samples only)").
-    if(s.type==='sample'&&k.mq.amel_marker&&accW>0)def={...k.mq,schema_version:2,sample_type:'Sample',control_mode:'none',amel_cross_check:{weight:accW}};
-    rep=await jsonPost('/api/marker-quality',{report:rep,definition:def})}
    if(rep.allele_calling&&(s.type==='positive'||s.type==='negative')){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
    s.report=slimReport(rep);s.referenceBins=!g.pass;s.rev=(s.rev||0)+1};
   // independent samples: several requests in flight keep the server's worker processes busy
