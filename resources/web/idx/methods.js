@@ -97,12 +97,20 @@ const TABS=[['general','amGeneral',tabGeneral],['allele','amAllele',tabAllele],[
 const FACTORY_KEYS={allele:'allele',detector:'peak_detector',quality:'peak_quality',sqgq:'sq_gq'};
 
 // Opens the editor on a copy; onSave(method, previousName) is called after validation.
+// Checks ID-X applies in the editor (PkThresholdIntegerMinVerifier, *RangeFrom/ToVerifier, stutter From/To verifiers) on top of the server validation,
+// which stays byte-compatible with the reference implementation.
+function idxChecks(m){
+ for(const [dye,v] of Object.entries(m.peak_detector?.thresholds||{})){const n=Number(v);if(Number.isFinite(n)&&n>500000)throw Error(T('amThrMax')+' ('+dye+')')}
+ const bad=(f,t)=>{f=Number(f);t=Number(t);return Number.isFinite(f)&&Number.isFinite(t)&&!(f<t||(f===0&&t===0))};
+ for(const [dye,r] of Object.entries(m.allele?.range_filter||{}))if(bad(r.from,r.to))throw Error(T('amFromTo')+' ('+dye+')');
+ for(const [rep,row] of Object.entries(m.allele?.repeats||{}))for(const k of ['minus_a','minus_stutter','plus_stutter'])if(bad(row[k+'_from'],row[k+'_to']))throw Error(T('amFromTo')+' ('+k+')')}
 // restrict: null (full edit), 'ranges' (Analyst: analysis and sizing ranges only) or 'read' (view only)
 function openEditor(source,{title,onSave,restrict=null}={}){
  const m=clone(source);const previous=source.name;let tab='general';
  const d=dialog(title||T('amTitle'),b=>{b.classList.add('amdlg')},
   [[T('ok'),async()=>{try{
      m.name=(m.name||'').trim();
+     idxChecks(m);
      const r=await post('/api/analysis-method',{action:'validate',method:m});
      if(r.method.name!==previous&&get(r.method.name)){message(fmt('methodNameExists',r.method.name));return false}
      if(previous&&get(previous)&&!(await ask(T('methodSaveWarning'))))return false;
