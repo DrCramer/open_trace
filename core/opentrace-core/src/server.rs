@@ -149,7 +149,7 @@ pub fn resource_root(explicit: Option<&Path>) -> Result<PathBuf, String> {
 pub fn default_security_dir() -> PathBuf {
     match std::env::var("OPENTRACE_SECURITY") {
         Ok(p) if !p.is_empty() => PathBuf::from(p),
-        _ => PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join("OpenTrace").join("security"),
+        _ => crate::paths::home_dir().unwrap_or_else(|| PathBuf::from(".")).join("OpenTrace").join("security"),
     }
 }
 

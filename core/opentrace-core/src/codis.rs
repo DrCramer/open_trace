@@ -324,32 +324,8 @@ pub fn quoteattr(s: &str) -> String {
     }
 }
 
-#[repr(C)]
-struct Tm {
-    tm_sec: i32,
-    tm_min: i32,
-    tm_hour: i32,
-    tm_mday: i32,
-    tm_mon: i32,
-    tm_year: i32,
-    tm_wday: i32,
-    tm_yday: i32,
-    tm_isdst: i32,
-    tm_gmtoff: i64,
-    tm_zone: *const i8,
-}
-extern "C" {
-    fn time(t: *mut i64) -> i64;
-    fn localtime_r(t: *const i64, r: *mut Tm) -> *mut Tm;
-}
-
 fn now_stamp() -> String {
-    unsafe {
-        let t = time(std::ptr::null_mut());
-        let mut tm: Tm = std::mem::zeroed();
-        localtime_r(&t, &mut tm);
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
-    }
+    crate::localtime::now().iso()
 }
 
 #[derive(Clone)]

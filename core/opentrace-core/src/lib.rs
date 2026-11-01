@@ -4,6 +4,8 @@
 //! reproduces the reference arithmetic exactly (same operation order, `math.fsum` correct rounding, Python
 //! floor division and int/int true division), so results are bit-identical; the Python test suite checks it.
 pub mod abif;
+pub mod localtime;
+pub mod paths;
 pub mod analysis;
 pub mod sizing_quality;
 pub mod autoheight;

@@ -61,21 +61,7 @@ pub fn strftime_now() -> String {
         FAKE_CLOCK.with(|c| c.set(Some(n + 1)));
         return format!("2024-01-01T00:{:02}:{:02}", (n / 60) % 60, n % 60);
     }
-    let mut t: libc::time_t = 0;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::time(&mut t);
-        libc::localtime_r(&t, &mut tm);
-    }
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min,
-        tm.tm_sec
-    )
+    crate::localtime::now().iso()
 }
 
 // ---------- validation helpers ----------
@@ -250,8 +236,7 @@ pub fn default_root() -> PathBuf {
     match std::env::var("OPENTRACE_PROJECTS") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
         _ => {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-            Path::new(&home).join("OpenTrace").join("projects")
+            crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("/")).join("OpenTrace").join("projects")
         }
     }
 }

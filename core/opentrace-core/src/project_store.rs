@@ -9,7 +9,7 @@ use crate::pullup_quality::{py_eq, sha256_hex};
 use crate::pyjson::{self, LoadErr};
 use rusqlite::{params, Connection, OpenFlags};
 use serde_json::{json, Map, Value};
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -67,7 +67,6 @@ thread_local! {
     static DET: Cell<bool> = Cell::new(false);
     static UUID_N: Cell<u64> = Cell::new(0);
     static NOW_N: Cell<u64> = Cell::new(0);
-    static ENTROPY: RefCell<Option<std::fs::File>> = RefCell::new(None);
 }
 
 /// Replace uuid4 / now by counters (`00000000-0000-4000-8000-%012x`, `2024-01-01T00:00:SS.NNNNNN+00:00`).
@@ -86,14 +85,8 @@ pub fn new_uuid() -> String {
         return format!("00000000-0000-4000-8000-{:012x}", n);
     }
     let mut b = [0u8; 16];
-    let ok = ENTROPY.with(|e| {
-        use std::io::Read;
-        let mut e = e.borrow_mut();
-        if e.is_none() {
-            *e = std::fs::File::open("/dev/urandom").ok();
-        }
-        e.as_mut().map_or(false, |f| f.read_exact(&mut b).is_ok())
-    });
+    // OS CSPRNG on every platform (getrandom: getrandom(2)/BCryptGenRandom); no /dev/urandom path dependency.
+    let ok = getrandom::getrandom(&mut b).is_ok();
     if !ok {
         let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         let t = t ^ ((std::process::id() as u128) << 64) ^ (&b as *const _ as usize as u128);

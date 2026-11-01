@@ -691,9 +691,9 @@ fn jloads_value(v: &Value) -> LR<Value> {
 }
 
 fn expand_user(p: &str) -> PathBuf {
-    if p == "~" || p.starts_with("~/") {
-        if let Ok(h) = std::env::var("HOME") {
-            return Path::new(&h).join(p.trim_start_matches('~').trim_start_matches('/'));
+    if p == "~" || p.starts_with("~/") || p.starts_with("~\\") {
+        if let Some(h) = crate::paths::home_dir() {
+            return h.join(p.trim_start_matches('~').trim_start_matches(['/', '\\']));
         }
     }
     PathBuf::from(p)
