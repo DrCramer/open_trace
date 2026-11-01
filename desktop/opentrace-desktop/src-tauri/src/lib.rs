@@ -150,7 +150,11 @@ pub fn run() {
             };
             let st2 = st.clone();
             st.pool.execute(move || {
+                let (m, path) = (req.method().to_string(), req.uri().path().to_string());
                 let r = bridge::handle(&app, &st2, &label, req);
+                if windows::trace() {
+                    eprintln!("[trace] {} {} {} -> {}", label, m, path, r.status());
+                }
                 responder.respond(r);
             });
         })

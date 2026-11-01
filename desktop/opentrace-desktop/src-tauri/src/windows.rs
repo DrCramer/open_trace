@@ -12,6 +12,12 @@ use std::sync::Arc;
 use tauri::webview::{DownloadEvent, NewWindowFeatures, NewWindowResponse};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 
+/// `OPENTRACE_DESKTOP_TRACE=1`: log page loads, popups and scheme requests (paths only, no bodies) to stderr.
+pub fn trace() -> bool {
+    static T: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *T.get_or_init(|| std::env::var_os("OPENTRACE_DESKTOP_TRACE").is_some_and(|v| !v.is_empty()))
+}
+
 /// Origin of the scheme as the platform webview exposes it.
 pub fn base_url() -> Url {
     if cfg!(windows) {
@@ -77,6 +83,11 @@ fn decorate<'a>(app: &AppHandle, st: &Arc<DesktopState>, b: WebviewWindowBuilder
             ok
         })
         .on_new_window(move |url, features| popup(&app_nw, url, features))
+        .on_page_load(|w, p| {
+            if trace() {
+                eprintln!("[trace] page {} {:?} {}", w.label(), p.event(), p.url());
+            }
+        })
         .on_document_title_changed(|w, title| {
             let _ = w.set_title(if title.trim().is_empty() { "OpenTrace" } else { &title });
         })
@@ -156,6 +167,9 @@ fn popup(app: &AppHandle, url: Url, features: NewWindowFeatures) -> NewWindowRes
     let st = app.state::<Arc<DesktopState>>().inner().clone();
     let n = st.popup_seq.fetch_add(1, Ordering::SeqCst) + 1;
     let label = format!("{}-{}", kind_of(&url), n);
+    if trace() {
+        eprintln!("[trace] window.open {} -> {} (features: size {:?})", url, label, features.size());
+    }
     let b = WebviewWindowBuilder::new(app, &label, WebviewUrl::External("about:blank".parse().unwrap())).window_features(features).title("OpenTrace");
     match decorate(app, &st, b).build() {
         Ok(window) => {
