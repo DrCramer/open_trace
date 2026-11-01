@@ -1,3 +1,5 @@
+/* Hot keys follow the physical key (works with a Russian layout: Ctrl+В is Ctrl+D). */
+var hotKey=e=>/^Key[A-Z]$/.test(e.code||'')?e.code.slice(3).toLowerCase():String(e.key||'').toLowerCase();
 // Report Manager window: table-formatted reports built with Report Settings from the
 // project window's selected samples; custom columns, flip, table by marker, export, print, save in project.
 (function(){
@@ -101,7 +103,7 @@ function buildChrome(){
   tbutton('exportTable',T('rpExport'),exportDialog,{id:'rpExportBtn'}),tbutton('printPreview',T('printPreview'),printPreview,{id:'rpPreview'}),tbutton('print',T('print'),printNow,{id:'rpPrint'}))}
 document.addEventListener('keydown',e=>{
  if(e.key==='F5'){e.preventDefault();refresh(false);return}
- if(!(e.ctrlKey||e.metaKey))return;const k=e.key.toLowerCase();
+ if(!(e.ctrlKey||e.metaKey))return;const k=hotKey(e);
  if(e.target.closest('input')&&k!=='d')return;
  const map={o:openReport,s:saveReport,e:exportDialog,c:copy,d:fillDown,p:printNow,l:plots};if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('storage',e=>{if(e.key===ReportSettings.KEY){if(st.setting)st.setting=ReportSettings.get(st.setting.name)||st.setting;refresh(true)}});

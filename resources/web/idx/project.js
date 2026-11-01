@@ -1,3 +1,5 @@
+/* Hot keys follow the physical key (works with a Russian layout: Ctrl+В is Ctrl+D). */
+var hotKey=e=>/^Key[A-Z]$/.test(e.code||'')?e.code.slice(3).toLowerCase():String(e.key||'').toLowerCase();
 // OpenTrace Project window: samples, analysis summary and genotypes.
 (function(){
 const $=id=>document.getElementById(id);
@@ -1200,7 +1202,7 @@ function toggleNavigator(){state.showNavigator=!state.showNavigator;buildChrome(
 function toggleLowQualityTop(){state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}
 // Hot keys follow ID-X (docs: IDX_UI_HOTKEYS.md). Shift variants are separate bindings, never fall through to the plain key.
 document.addEventListener('keydown',e=>{
- const k=e.key.toLowerCase();
+ const k=hotKey(e);
  // Ctrl+D (Fill Down) must never reach the browser (bookmark), also while a table cell editor has the focus
  if(k==='d'&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();if(!e.target.closest('.dlg,.back,textarea'))fillDown();return}
  if(e.target.closest('input,select,textarea'))return;

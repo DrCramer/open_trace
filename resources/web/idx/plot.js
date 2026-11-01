@@ -1,3 +1,5 @@
+/* Hot keys follow the physical key (works with a Russian layout: Ctrl+В is Ctrl+D). */
+var hotKey=e=>/^Key[A-Z]$/.test(e.code||'')?e.code.slice(3).toLowerCase():String(e.key||'').toLowerCase();
 // OpenTrace Samples Plot window.
 (function(){
 const $=id=>document.getElementById(id);
@@ -555,7 +557,7 @@ function build(){
 const DYE_BY_DIGIT={Digit1:'DATA1',Digit2:'DATA2',Digit3:'DATA3',Digit4:'DATA4',Digit5:'DATA105',Digit0:'DATA106'};
 const LAYOUT_BY_DIGIT={Digit7:'combine',Digit8:'separate',Digit9:'overlay'};
 document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
- const inField=!!e.target.closest('input,textarea,select');const k=e.key.toLowerCase();
+ const inField=!!e.target.closest('input,textarea,select');const k=hotKey(e);
  if(e.shiftKey&&!e.altKey){if(e.code==='KeyB'&&!inField){e.preventDefault();view.bins=!view.bins;build();draw()}return}
  if(e.altKey)return;
  if(DYE_BY_DIGIT[e.code]&&!inField){e.preventDefault();const t=DYE_BY_DIGIT[e.code];view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw();return}
