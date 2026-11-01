@@ -1107,6 +1107,44 @@ function exportCombined(){
     const names=[];for(const f of files){const n=`${name}${f.panel?'_'+f.panel.replace(/[\\/:*?"<>|]+/g,'_'):''}.${type}`;saveText(n,serialize(f.rows,type),type);names.push(n)}
     if(mode==='allele')message(T('ecFilesCreated')+'\n'+names.join('\n'))},true],[T('cancel'),()=>true]])}
 
+// ---------- Export Project Panel (ID-X ProjectPanelExporter) ----------
+// Copies the project's panel under new, unique Chemistry Kit / Panel names and writes <Kit>_Panel.txt and <Kit>_Bin.txt (bin set <Kit>_Bin_Set).
+const validName=n=>/^[A-Za-z0-9][A-Za-z0-9_.\- ]*$/.test(n)&&n.length<=64;
+function projectPanelFiles(panelKey,methodName,kitName,panelName){
+ const db=KitStore.load();const [srcKit,srcPanel]=panelKey.split('\u0001');const kit=db.kits.find(k=>k.name===srcKit);const pn=kit?.panels.find(p=>p.name===srcPanel);
+ if(!kit||!pn)throw Error(T('panelNotReady'));
+ const method=methodName&&Methods.get(methodName);const usable=kit.binSets.filter(x=>x.panels[srcPanel]);
+ const set=usable.find(x=>x.name===method?.allele?.bin_set)||usable[0];
+ const out={name:kitName,type:kit.type||'MICROSATELLITE',comment:'',panelsVersion:kit.panelsVersion,panels:[{name:panelName,comment:'',markers:KitStore.clone(pn.markers)}],binSets:[],stutter:null};
+ const binSet={name:kitName+'_Bin_Set',version:set?.version,panels:{[panelName]:KitStore.clone(set?.panels[srcPanel]||{})}};
+ return {panel:KitStore.panelsText(out),bin:KitStore.binsText(out,binSet)}}
+async function writeToFolder(files){ // [{name,text}] -> true when written, null when cancelled
+ if(!window.showDirectoryPicker)return false;
+ let dir;try{dir=await window.showDirectoryPicker({mode:'readwrite'})}catch(e){return null}
+ let exists=false;for(const f of files){try{await dir.getFileHandle(f.name);exists=true}catch(e){}}
+ if(exists&&!(await Methods.ask(T('epOverwrite'))))return null;
+ for(const f of files){const h=await dir.getFileHandle(f.name,{create:true});const w=await h.createWritable();await w.write(f.text);await w.close()}
+ return true}
+function exportProjectPanel(){
+ const used=[...new Map(state.project.samples.filter(x=>x.panelKey&&x.panelKey!==EXAMPLE_KEY).map(x=>[x.panelKey,x])).values()];
+ if(!used.length)return message(T('epNoPanel'));
+ const sel=state.project.samples.find(x=>state.selected.has(x.id)&&x.panelKey&&x.panelKey!==EXAMPLE_KEY)||used[0];
+ let src=sel;const kits=KitStore.load().kits.map(k=>k.name);const panels=new Set(KitStore.load().kits.flatMap(k=>k.panels.map(x=>x.name)));
+ dialog(T('epTitle'),b=>{b.classList.add('epdlg');
+  const pick=el('select',{id:'epSource'});for(const u of used)pick.append(new Option(u.panelKey.split('\u0001').join(' / '),u.panelKey));pick.value=src.panelKey;pick.addEventListener('change',()=>{src=used.find(u=>u.panelKey===pick.value)});
+  b.append(el('p',{text:T('epSpecify')}),...(used.length>1?[el('div',{class:'field'},el('label',{text:T('epSource')}),pick)]:[]),
+   el('div',{class:'field'},el('label',{text:T('epKitName')}),el('input',{type:'text',id:'epKit',maxlength:'64'})),
+   el('div',{class:'field'},el('label',{text:T('epPanelName')}),el('input',{type:'text',id:'epPanel',maxlength:'64'})))},
+  [[T('ok'),async b=>{const kn=b.querySelector('#epKit').value.trim(),pn=b.querySelector('#epPanel').value.trim();
+    if(!validName(kn)){message(T('epKitInvalid'));return false}
+    if(!validName(pn)){message(T('epPanelInvalid'));return false}
+    if(!kn||kits.includes(kn)){message(T('epKitUnique'));return false}
+    if(pn.toLowerCase()==='none'||panels.has(pn)){message(T('epPanelUnique'));return false}
+    try{const f=projectPanelFiles(src.panelKey,src.method,kn,pn);const files=[{name:`${kn}_Panel.txt`,text:f.panel},{name:`${kn}_Bin.txt`,text:f.bin}];
+     const r=await writeToFolder(files);if(r===null)return true;
+     if(r===false){for(const x of files)saveText(x.name,x.text,'txt')}
+     message(T('epDone')+'\n'+files.map(x=>x.name).join('\n'));return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]])}
+
 // ---------- copy ----------
 function copyRows(){const tab=state.tab==='genotypes'?'genotypes':'samples';const rows=tableRows(tab,true);
  const text=rows.map(r=>r.map(x=>x==null?'':String(x)).join('\t')).join('\n');
@@ -1203,7 +1241,7 @@ function buildChrome(){
   {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},{label:T('closeProject'),run:closeProject},
    {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},'-',
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
-   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
+   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportProjectPanel'),run:exportProjectPanel},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!histU.length,run:undoProject},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:!histR.length,run:redoProject},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},
