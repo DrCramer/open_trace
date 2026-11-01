@@ -34,10 +34,11 @@ function open(sample,actions){
   // electropherogram of the standard dye
   const W=Math.max(700,Math.min(1100,window.innerWidth-120)),H=230;
   const vals=ref.analyzed_values||ref.values||[];
-  const lo=peaks.length?Math.max(0,peaks[0].scan-300):0,hi=peaks.length?Math.min(vals.length-1,peaks[peaks.length-1].scan+300):vals.length-1;
+  const ZM=window.__smZ=window.__smZ||new WeakMap();const zs=ZM.get(ref)||{};
+  const lo=zs.lo??(peaks.length?Math.max(0,peaks[0].scan-300):0),hi=zs.hi??(peaks.length?Math.min(vals.length-1,peaks[peaks.length-1].scan+300):vals.length-1);
   // Scale to the matched fragments, as the primer peak would flatten the standard.
   const matchedH=peaks.filter(p=>[...assign.values()].includes(p.scan)).map(p=>vals[Math.round(p.scan)]??p.height);
-  const maxY=Math.max(1,...(matchedH.length?matchedH.map(h=>h*1.25):peaks.map(p=>p.height)));
+  const maxY=zs.maxY??Math.max(1,...(matchedH.length?matchedH.map(h=>h*1.25):peaks.map(p=>p.height)));
   const X=s=>(s-lo)/(hi-lo||1)*W,Y=v=>H-20-Math.max(0,Math.min(1.1,v/maxY))*(H-50);
   const svg=sv('svg',{width:W,height:H,class:'smsvg'});
   let path='';const step=Math.max(1,Math.floor((hi-lo)/W));
@@ -53,6 +54,13 @@ function open(sample,actions){
     const i=expected.indexOf(pick);pick=expected.slice(i+1).find(x=>!assign.has(x))??null;draw()});
    svg.append(g)}
   svg.append(sv('line',{x1:0,x2:W,y1:H-20,y2:H-20,stroke:'#555'}));
+  // Axis zones as in ID-X SizeMatchedPlot: drag along the bottom strip zooms scans, drag in the left strip zooms the height; double click on a strip restores it.
+  {const zone=(x,y)=>y>=H-20?'x':x<36?'y':'plot';let d=null;const pt=e=>{const r=svg.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top]};
+   svg.addEventListener('mousedown',e=>{const [x,y]=pt(e);d={z:zone(x,y),x,y}});
+   svg.addEventListener('mouseup',e=>{if(!d)return;const q=d;d=null;const [x,y]=pt(e);const z={...(ZM.get(ref)||{})};
+    if(q.z==='x'&&Math.abs(x-q.x)>4){z.lo=lo+Math.min(q.x,x)/W*(hi-lo);z.hi=lo+Math.max(q.x,x)/W*(hi-lo);ZM.set(ref,z);draw()}
+    else if(q.z==='y'&&Math.abs(y-q.y)>4){const top=Math.min(q.y,y);z.maxY=Math.max(1,maxY*(H-20-top)/(H-50));ZM.set(ref,z);draw()}});
+   svg.addEventListener('dblclick',e=>{const [x,y]=pt(e);const z=zone(x,y);if(z==='plot')return;const o={...(ZM.get(ref)||{})};if(z==='x'){delete o.lo;delete o.hi}else delete o.maxY;ZM.set(ref,o);draw()})}
   b.append(el('div',{class:'pmplot'},svg),el('div',{class:'note',text:T('smHint')}));
   // fragment table + calibration curve
   const t=el('table',{class:'g smtab'});t.append(el('thead',{},el('tr',{},...[T('colSize'),T('smScan'),T('colHeight'),''].map(h=>el('th',{text:h})))));
