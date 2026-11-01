@@ -364,7 +364,11 @@ function genoRows(s){
    GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
   return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||'',mec:eff.mec[m.name]||''}})}
 function genoCell(id,r,i){
- const s=r.sample;const c=r.calls[i]??(i===1&&r.calls.length===1&&ProjectOptions.get().dupHomo&&autosomal(r.marker)?r.calls[0]:undefined);const info=s.analysis?.run_info||{};
+ const s=r.sample;const gts=TableSettings.active().genotypes;let c;
+ if((gts.onlyBinned||gts.limitToBins)&&r.marker){const bins=(sampleKit(s)?.markers||[]).find(m=>m.name===r.marker)?.bins||[];
+  // 'Show only binned alleles in their respective bin positions': column i holds the call of bin i; 'Limit ... to the number of bins': no columns beyond the marker's bins
+  if(gts.onlyBinned){const lab=bins[i]?.label;c=lab==null?undefined:r.calls.find(x=>x.label===lab)}else c=!bins.length||i<bins.length?r.calls[i]:undefined}
+ else c=r.calls[i]??(i===1&&r.calls.length===1&&ProjectOptions.get().dupHomo&&autosomal(r.marker)?r.calls[0]:undefined);const info=s.analysis?.run_info||{};
  switch(id){
   case 'sampleFile':return {value:s.file};case 'sampleName':return {value:s.name};case 'sampleID':return {value:s.sampleId||''};
   case 'runName':return {value:info.run_name||''};case 'panel':return {value:s.panel||''};case 'marker':return {value:r.marker};
@@ -527,6 +531,7 @@ function renderFilterBar(){const bar=$('filterBar');if(!bar)return;const f=state
 function renderTitle(){document.title=`${T('app')}${Sec.user&&Sec.state.require_login?' ['+Sec.user.name+']':''} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`}
 function render(){
  renderTitle();
+ {const ts=TableSettings.active();const fz=(ts[state.tab==='genotypes'?'genotypes':'samples']||{}).fontSize;document.documentElement.style.setProperty('--tbl-font',fz?fz+'px':'')}
  renderNavigator();
  if(state.tab==='samples')renderSamples();else if(state.tab==='summary')renderSummary();else if(state.tab==='genotypes')renderGenotypes();else SampleViews.render(state.tab);
  renderFilterBar();
@@ -769,7 +774,8 @@ function addSamples(){
    el('div',{class:'field'},el('label',{text:T('colSizeStandard')}),ss));
   if(!panelChoices().length)fs.append(el('div',{class:'note',text:T('noPanelsYet')}));
   b.append(el('div',{text:T('addFiles')}),list,cnt,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,chooseDir,clear,input,dirIn),fs)},
-  [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;const meth=body.querySelector('#addMethod').value;
+  [[T('add'),body=>doAdd(body,false),true],[T('addAndAnalyze'),body=>doAdd(body,true)],[T('cancel'),()=>true]])
+ function doAdd(body,andAnalyze){{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;const meth=body.querySelector('#addMethod').value;
     try{localStorage.setItem('opentrace.lastMethod',meth)}catch(e){}
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
     if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
@@ -778,7 +784,7 @@ function addSamples(){
       runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
     Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
     sniffSamples(state.project.samples);
-    state.project.dirty=true;render()},true],[T('cancel'),()=>true]])}
+    state.project.dirty=true;render();if(andAnalyze)analyze('pending')}return true}}
 
 // ---------- Edit > Define New Sample File Path ----------
 // The sample keeps a reference to its .fsa (Sample Origin Path = folder it was added from; browsers expose only the

@@ -25,7 +25,7 @@ function load(){let v=null;try{v=JSON.parse(localStorage.getItem(KEY)||'null')}c
   if(v.add&&typeof v.add==='object')for(const k of Object.keys(DEFAULTS.add))if(typeof v.add[k]==='string')o.add[k]=v.add[k]}
  if(!['new','last'].includes(o.startup))o.startup='new';if(!['stop','continue'].includes(o.ars))o.ars='stop';
  if(!['stop','passing','all'].includes(o.alas))o.alas='stop';if(!['summary','samples'].includes(o.after))o.after='summary';if(!['green','greenYellow'].includes(o.binOffsets))o.binOffsets='green';
- if(!['symbols','numbers'].includes(o.metrics))o.metrics='symbols';o.pullupExcludesCalls=o.pullupExcludesCalls===true;for(const k of ['homoMinHeight','hetMinHeight'])if(!Number.isFinite(o[k])||o[k]<0)o[k]=DEFAULTS[k];o.comment=String(o.comment).slice(0,200);return o}
+ if(!['symbols','numbers'].includes(o.metrics))o.metrics='symbols';o.pullupExcludesCalls=o.pullupExcludesCalls===true;for(const k of ['homoMinHeight','hetMinHeight'])if(!Number.isFinite(o[k])||o[k]<0)o[k]=DEFAULTS[k];o.comment=String(o.comment).slice(0,30);return o}
 let cached=null;
 function save(o){cached=o;try{localStorage.setItem(KEY,JSON.stringify(o))}catch(e){}window.dispatchEvent(new Event('opentrace-options'))}
 function get(){return cached||(cached=load())}
@@ -50,7 +50,7 @@ function open(ctx){
     el('fieldset',{},el('legend',{text:T('optSecurity')}),(()=>{const s=el('select',{id:'optGroup'});
       const gs=window.Sec?Sec.groupNames():[o.securityGroup];for(const g of gs)s.append(new Option(g,g));if(!gs.includes(o.securityGroup))s.append(new Option(o.securityGroup,o.securityGroup));
       s.value=o.securityGroup;s.addEventListener('change',()=>{o.securityGroup=s.value});return s})()));
-   const cm=el('input',{type:'text',id:'optComment',maxlength:'200',value:o.comment});cm.disabled=!o.printComment;cm.addEventListener('input',()=>{o.comment=cm.value});
+   const cm=el('input',{type:'text',id:'optComment',maxlength:'30',value:o.comment});cm.disabled=!o.printComment;cm.addEventListener('input',()=>{o.comment=cm.value});
    page.children[1].append(el('div',{class:'field'},el('label',{text:T('optComment')}),cm))}
   else if(tab==='add'){
    const ms=ctx.methodSelect(o.add.method,v=>{o.add.method=v});ms.prepend(new Option(T('optNone'),''));ms.value=o.add.method;ms.id='optMethod';

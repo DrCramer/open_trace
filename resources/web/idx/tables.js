@@ -82,7 +82,8 @@ function validate(s){
    if(!op)continue;if(sp.type==='contains'){const text=String(f.text||'').slice(0,200);if(text)fl[id]={op:1,text}}else if(sp.options.some(o=>o.op===op))fl[id]={op}}
   t.filters=fl}
  const n=Number(s.genotypes.numAlleles);if(!Number.isInteger(n)||n<1||n>20)throw Error(T('numAllelesRange'));
- s.genotypes.numAlleles=n;return s}
+ s.genotypes.numAlleles=n;s.genotypes.limitToBins=s.genotypes.limitToBins===true;s.genotypes.onlyBinned=s.genotypes.onlyBinned===true;
+ for(const k of ['samples','genotypes']){const f=Math.round(Number(s[k].fontSize));s[k].fontSize=f>=8&&f<=24?f:0}return s}
 function put(s,previous){validate(s);const db=load();const i=db.settings.findIndex(r=>r.setting.name===(previous??s.name));
  const row={setting:clone(s),saved:new Date().toISOString()};if(i>=0)db.settings[i]=row;else db.settings.push(row);
  if(previous&&db.active===previous)db.active=s.name;if(!store(db))throw Error(T('storageFull'));window.dispatchEvent(new Event('opentrace-tables'))}
@@ -171,7 +172,10 @@ function openEditor(source,{title,onSave}={}){
   gridWrap.addEventListener('keydown',e=>{if(e.key==='Home'||e.key==='End'){e.preventDefault();gridWrap.scrollTop=e.key==='Home'?0:gridWrap.scrollHeight;if(e.ctrlKey)gridWrap.scrollLeft=e.key==='Home'?0:gridWrap.scrollWidth}});
   page.append(el('fieldset',{},el('legend',{text:T('showColumns')}),gridWrap,btns),sortBox);
   if(tab==='genotypes'){const n=el('input',{type:'text',class:'num',id:'tsAlleles',value:String(t.numAlleles)});n.addEventListener('change',()=>{t.numAlleles=Number(n.value)});
-   page.append(el('div',{class:'field'},el('label',{text:T('numAlleles')}),n))}
+   const chk=(id,key,label)=>{const c=el('input',{type:'checkbox',id});c.checked=!!t[key];c.addEventListener('change',()=>{t[key]=c.checked});return el('label',{class:'chk'},c,document.createTextNode(' '+T(label)))};
+   page.append(el('div',{class:'field'},el('label',{text:T('numAlleles')}),n),chk('tsLimitBins','limitToBins','tsLimitBins'),chk('tsOnlyBinned','onlyBinned','tsOnlyBinned'))}
+  const fz=el('input',{type:'text',class:'num',id:'tsFont',value:String(t.fontSize||0),title:T('tsFontHint')});fz.addEventListener('change',()=>{t.fontSize=Number(fz.value)});
+  page.append(el('div',{class:'field'},el('label',{text:T('tsFont')}),fz))
   b.append(el('div',{class:'field'},el('label',{text:T('amName')}),name),tabs,page)};
  draw();return d}
 
