@@ -21,4 +21,11 @@ libc = "0.2.191"
 sha2 = "0.10"
 hmac = "0.12"
 getrandom = "0.2"
+libm = { version = "0.2", optional = true }
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+
+[features]
+default = []
+# Pure-Rust libm (musl port) instead of the platform C library: identical bits on Windows/Linux. Opt-in until the
+# golden corpora prove it equal to glibc on Linux (see docs/desktop/BASELINE_AUDIT.md, "Numerical portability").
+portable-math = ["dep:libm"]

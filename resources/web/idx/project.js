@@ -22,7 +22,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
+window.OT={state,plotPayload,printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
  // plot window: Edit > Undo (latest active label edit of the displayed samples), View > Sample Info / Raw Data / EPT Data
  undoLast:(ids)=>{const all=state.project.samples.filter(s=>ids.includes(s.id)).flatMap(s=>(s.edits||[]).filter(e=>!e.undone).map(e=>({s,e})));
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];

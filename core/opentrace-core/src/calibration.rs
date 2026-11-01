@@ -16,16 +16,6 @@ const QR_RANK_TOLERANCE: f64 = 1e-12;
 const MIN_RATIONAL_Q: f64 = 1e-12;
 const MAX_RATIONAL_Q: f64 = 1e12;
 
-extern "C" {
-    #[link_name = "pow"]
-    fn libm_pow(x: f64, y: f64) -> f64;
-    #[link_name = "exp"]
-    fn libm_exp(x: f64) -> f64;
-    #[link_name = "frexp"]
-    fn libm_frexp(x: f64, e: *mut i32) -> f64;
-    #[link_name = "ldexp"]
-    fn libm_ldexp(x: f64, e: i32) -> f64;
-}
 
 /// CPython `float ** int` for the small non-negative integer exponents used here.
 pub fn py_pow(x: f64, y: f64) -> f64 {
@@ -33,11 +23,11 @@ pub fn py_pow(x: f64, y: f64) -> f64 {
         return 1.0;
     }
     // black_box: stop LLVM from rewriting pow(x, 2.0) into x * x (glibc pow is not always equal to x * x)
-    unsafe { libm_pow(x, std::hint::black_box(y)) }
+    crate::cmath::pow(x, std::hint::black_box(y))
 }
 
 pub fn py_exp(x: f64) -> f64 {
-    unsafe { libm_exp(x) }
+    crate::cmath::exp(x)
 }
 
 fn dl_mul(x: f64, y: f64) -> (f64, f64) {
@@ -58,15 +48,14 @@ fn vector_norm(v: &mut [f64], max: f64) -> f64 {
     if max == 0.0 || v.len() <= 1 {
         return max;
     }
-    let mut max_e: i32 = 0;
-    unsafe { libm_frexp(max, &mut max_e) };
+    let (_, max_e) = crate::cmath::frexp(max);
     if max_e < -1023 {
         for x in v.iter_mut() {
             *x /= f64::MIN_POSITIVE;
         }
         return f64::MIN_POSITIVE * vector_norm(v, max / f64::MIN_POSITIVE);
     }
-    let scale = unsafe { libm_ldexp(1.0, -max_e) };
+    let scale = crate::cmath::ldexp(1.0, -max_e);
     let (mut csum, mut frac1, mut frac2) = (1.0f64, 0.0f64, 0.0f64);
     for &x in v.iter() {
         let x = x * scale;

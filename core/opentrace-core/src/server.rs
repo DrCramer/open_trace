@@ -468,6 +468,17 @@ impl App {
         self.security.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The shared user/rights/audit store. Embedders (OpenTrace Server API v1, Desktop) must use this instance rather
+    /// than opening a second `SecurityStore` on the same directory: the store rewrites its documents in place.
+    pub fn security_store(&self) -> std::sync::MutexGuard<'_, SecurityStore> {
+        self.security_guard()
+    }
+
+    /// Port the session-host check (`Host: 127.0.0.1:<port>`) is evaluated against.
+    pub fn bound_port(&self) -> u16 {
+        self.port
+    }
+
     fn dispatch(&self, path: &str, query: &str, req: &Request) -> HR<Vec<u8>> {
         let raw = &req.body;
         let params = parse_qs(query);

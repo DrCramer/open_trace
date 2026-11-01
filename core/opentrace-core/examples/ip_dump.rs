@@ -49,7 +49,9 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Value)>) {
     let mut entries: Vec<PathBuf> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
     entries.sort();
     for p in entries {
+        // `/` on every OS so the dump compares equal to the reference recorded on Linux.
         let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+        let rel = if cfg!(windows) { rel.replace('\\', "/") } else { rel };
         if p.is_dir() {
             out.push((rel.clone(), json!(["d", rel])));
             walk(root, &p, out);
@@ -177,7 +179,8 @@ fn main() {
                         }
                         if let Some(r) = res.get_mut("root") {
                             if let Some(s) = r.as_str() {
-                                *r = Value::String(s.replace(&base.display().to_string(), "<base>"));
+                                let s = s.replace(&base.display().to_string(), "<base>");
+                                *r = Value::String(if cfg!(windows) { s.replace('\\', "/") } else { s });
                             }
                         }
                         println!("IP {} {} OK {}", si, i, dumps(&res));

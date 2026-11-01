@@ -3,3 +3,8 @@ runtime/
 core/target/
 build/
 dist/
+server/opentrace-server/target/
+desktop/opentrace-desktop/src-tauri/target/
+desktop/opentrace-desktop/src-tauri/gen/
+desktop/opentrace-desktop/node_modules/
+**/*.fsa.part

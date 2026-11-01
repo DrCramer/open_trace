@@ -7,13 +7,9 @@ use serde_json::{json, Map, Value};
 
 pub type Res<T> = Result<T, String>;
 
-extern "C" {
-    #[link_name = "log"]
-    fn libm_log(x: f64) -> f64;
-}
 
 fn log(x: f64) -> f64 {
-    unsafe { libm_log(x) }
+    crate::cmath::log(x)
 }
 
 fn fv(x: f64) -> Value {

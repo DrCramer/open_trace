@@ -5,17 +5,11 @@ use crate::numeric::{py_pow, py_sum};
 use crate::small_svd::SOLVER_ID;
 use serde_json::{json, Map, Value};
 
-extern "C" {
-    #[link_name = "sin"]
-    fn libm_sin(x: f64) -> f64;
-    #[link_name = "exp"]
-    fn libm_exp(x: f64) -> f64;
-}
 fn sin(x: f64) -> f64 {
-    unsafe { libm_sin(x) }
+    crate::cmath::sin(x)
 }
 fn exp(x: f64) -> f64 {
-    unsafe { libm_exp(x) }
+    crate::cmath::exp(x)
 }
 /// Python `round(x)` (half to even) as an int.
 fn pyround(x: f64) -> i64 {

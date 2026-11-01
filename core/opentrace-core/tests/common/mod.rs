@@ -80,3 +80,42 @@ pub fn mask(data: &[u8]) -> Vec<u8> {
     out
 }
 
+
+/// Windows only: maps a native path prefix (raw and JSON-escaped, with or without the `\\?\` verbatim prefix) to
+/// `placeholder` and the remaining JSON-escaped/raw separators right after it to `/`, so outputs compare equal to the
+/// references recorded on Linux. A no-op on other platforms.
+pub fn normalize_native_path(data: &[u8], native: &str, placeholder: &[u8]) -> Vec<u8> {
+    if !cfg!(windows) {
+        return data.to_vec();
+    }
+    let plain = native.strip_prefix(r"\\?\").unwrap_or(native);
+    let mut d = data.to_vec();
+    for p in [native.to_string(), plain.to_string()] {
+        d = replace(&d, p.replace('\\', "\\\\").as_bytes(), placeholder);
+        d = replace(&d, p.as_bytes(), placeholder);
+    }
+    // Separators inside paths that start at the placeholder.
+    let mut out = Vec::with_capacity(d.len());
+    let mut i = 0;
+    let mut in_path = false;
+    while i < d.len() {
+        if d[i..].starts_with(placeholder) {
+            out.extend_from_slice(placeholder);
+            i += placeholder.len();
+            in_path = true;
+            continue;
+        }
+        let c = d[i];
+        if in_path && c == b'\\' {
+            out.push(b'/');
+            i += if d.get(i + 1) == Some(&b'\\') { 2 } else { 1 };
+            continue;
+        }
+        if in_path && (c == b'"' || c == b' ' || c == b'\n' || c == b'\'' || c == b',') {
+            in_path = false;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}

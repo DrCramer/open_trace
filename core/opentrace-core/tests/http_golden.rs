@@ -28,6 +28,7 @@ fn http_exchanges_match_python_server() {
     let norm = |data: &[u8]| -> Vec<u8> {
         let d = replace(data, token.as_bytes(), b"@TOKEN@");
         let d = replace(&d, port.to_string().as_bytes(), b"@PORT@");
+        let d = common::normalize_native_path(&d, &tmp_text, b"@TMP@");
         let d = replace(&d, tmp_text.as_bytes(), b"@TMP@");
         mask(&d)
     };

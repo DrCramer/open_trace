@@ -17,7 +17,7 @@ fn regularized_gamma_q(shape: f64, value: f64) -> Result<f64, String> {
     if value.is_infinite() {
         return Ok(0.0);
     }
-    let log_factor = shape * value.ln() - value - lgamma(shape);
+    let log_factor = shape * crate::cmath::log(value) - value - lgamma(shape);
     if value < shape + 1.0 {
         let mut term = 1.0 / shape;
         let mut total = term;
@@ -25,8 +25,8 @@ fn regularized_gamma_q(shape: f64, value: f64) -> Result<f64, String> {
             term *= value / (shape + step as f64);
             total += term;
             if term.abs() <= total.abs() * EPSILON {
-                let log_lower = (log_factor + total.ln()).min(0.0);
-                return Ok((-log_lower.exp_m1()).min(1.0).max(0.0));
+                let log_lower = (log_factor + crate::cmath::log(total)).min(0.0);
+                return Ok((-crate::cmath::expm1(log_lower)).min(1.0).max(0.0));
             }
         }
         return Err("Incomplete-gamma series did not converge".into());
@@ -54,7 +54,7 @@ fn regularized_gamma_q(shape: f64, value: f64) -> Result<f64, String> {
             if fraction <= 0.0 {
                 return Err("Incomplete-gamma fraction became nonpositive".into());
             }
-            return Ok((log_factor + fraction.ln()).exp().min(1.0).max(0.0));
+            return Ok(crate::cmath::exp(log_factor + crate::cmath::log(fraction)).min(1.0).max(0.0));
         }
     }
     Err("Incomplete-gamma fraction did not converge".into())

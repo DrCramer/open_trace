@@ -139,26 +139,22 @@ pub fn lgamma(x: f64) -> f64 {
     }
     let absx = x.abs();
     if absx < 1e-20 {
-        return -absx.ln();
+        return -crate::cmath::log(absx);
     }
-    let mut r = lanczos_sum(absx).ln() - LANCZOS_G;
-    r += (absx - 0.5) * ((absx + LANCZOS_G - 0.5).ln() - 1.0);
+    let mut r = crate::cmath::log(lanczos_sum(absx)) - LANCZOS_G;
+    r += (absx - 0.5) * (crate::cmath::log(absx + LANCZOS_G - 0.5) - 1.0);
     if x < 0.0 {
         // Reflection formula (never used by the sizing code, which only passes positive shapes).
-        let logpi = std::f64::consts::PI.ln();
-        let sinpi = (std::f64::consts::PI * (absx % 2.0)).sin().abs();
-        r = logpi - r - sinpi.ln() - absx.ln();
+        let logpi = crate::cmath::log(std::f64::consts::PI);
+        let sinpi = crate::cmath::sin(std::f64::consts::PI * (absx % 2.0)).abs();
+        r = logpi - r - crate::cmath::log(sinpi) - crate::cmath::log(absx);
     }
     r
 }
 
-extern "C" {
-    #[link_name = "pow"]
-    fn libm_pow(x: f64, y: f64) -> f64;
-}
 
 /// Python `x ** y` for floats (C `pow`); the exponent is hidden from the optimizer so that `pow(x, 2.0)` is
 /// not folded into `x * x` (glibc's pow is not always correctly rounded, CPython calls it directly).
 pub fn py_pow(x: f64, y: f64) -> f64 {
-    unsafe { libm_pow(x, std::hint::black_box(y)) }
+    crate::cmath::pow(x, std::hint::black_box(y))
 }

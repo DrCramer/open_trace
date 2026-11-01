@@ -21,6 +21,7 @@ fn walk(dir: &Path, base: &Path, out: &mut BTreeMap<String, String>) {
         } else {
             let name = p.file_name().unwrap().to_string_lossy().into_owned();
             let rel = p.strip_prefix(base).unwrap().to_string_lossy().into_owned();
+            let rel = if cfg!(windows) { rel.replace('\\', "/") } else { rel };
             let opaque = (name.ends_with(".sqlite") || name.ends_with(".json"))
                 && !name.contains("report")
                 && !["c.json", "pq.json", "size.json", "out_str.json", "run_out.json"].contains(&name.as_str());
@@ -31,7 +32,8 @@ fn walk(dir: &Path, base: &Path, out: &mut BTreeMap<String, String>) {
 }
 
 fn norm(wd: &str, data: &[u8]) -> String {
-    let d = replace(data, wd.as_bytes(), b"@WD@");
+    let d = common::normalize_native_path(data, wd, b"@WD@");
+    let d = replace(&d, wd.as_bytes(), b"@WD@");
     String::from_utf8_lossy(&mask(&d)).into_owned()
 }
 
