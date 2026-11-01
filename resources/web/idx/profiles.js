@@ -148,9 +148,34 @@ function profileComparison(){
   const keys=[...checks.entries()].filter(([k,v])=>v.on);if(!keys.length){message(T('pcNoPlotSelected'));return null}
   const files=new Set(),missing=[];for(const [,v] of keys){if(v.files.length)v.files.forEach(f=>files.add(f));else missing.push(v.name)}
   if(missing.length)message(fmt('pcPlotNotInProject',missing.join(',')));return [...files]};
+ // ID-X ProfileConcordancePrintDlg: "Select the tab(s) to print:" with a check box per tab (enabled when the tab has results), then Print / Cancel.
+ const TABS=[['concordance','pcConcordance'],['samples','pcSamples'],['lab_reference','pcLabRef'],['control','pcControl']];
+ const hasData=id=>{const r=results[id];return !!r&&(id==='concordance'?(r.groups||[]).length>0:(r.rows||[]).length>0)};
+ const buildPrintPage=ids=>{const keep=tab;const root=document.createElement('div');root.className='pcdlg pcprint';
+  ids.forEach((id,i)=>{tab=id;const sec=el('section',{class:'pcprintsec',style:i?'page-break-before:always':''});sec.append(el('h2',{text:T(TABS.find(x=>x[0]===id)[1])}));
+   if(id==='concordance'){for(const kind of ['single','mixed']){const list=(results.concordance.groups||[]).filter(g=>g.kind===kind);if(!list.length)continue;
+     sec.append(el('div',{class:'pctitle'},el('b',{text:T(kind==='single'?'pcSingleSource':'pcMixedSource')}),el('span',{text:'   '+T('pc100Conc')})));
+     for(const g of list){const fs=el('fieldset',{class:'pcgroup'},el('legend',{text:g.name}));
+      for(const m of g.members){const x=byId(m);fs.append(el('div',{class:'pcsample',text:x?fullLabel(x):m}))}
+      const ms=Object.entries(g.markers);const t=el('table',{class:'g pcpanel'});t.append(el('tr',{},...ms.map(e=>el('th',{text:e[0]}))));t.append(el('tr',{},...ms.map(e=>el('td',{class:'pcal',text:e[1].join(', ')}))));fs.append(t);sec.append(fs)}}}
+   else{sec.append(el('div',{class:'note',text:T('pcThreshold')+' '+threshold+'%'}));let cur=null;
+    const secTitle=p=>id==='samples'?{'single-single':T('pcSingleSingle'),'single-mixed':T('pcSingleMixed'),'mixed-mixed':T('pcMixedMixed')}[p.section]:p.title;
+    for(const p of pcPanels(results[id].rows)){const st=secTitle(p);if(st!==cur){cur=st;sec.append(el('div',{class:'pctitle'},el('b',{text:st})))}sec.append(panelEl(p))}}
+   root.append(sec)});
+  tab=keep;
+  root.querySelectorAll('input').forEach(i=>{if(i.type==='checkbox'){i.closest('td')?.replaceChildren();return}i.replaceWith(el('span',{text:i.value}))});
+  return root};
+ const printDialog=()=>{const avail=TABS.filter(([id])=>hasData(id));if(!avail.length){message(T('pcNoDataPrint'));return}
+  dialog(T('print'),b=>{b.append(el('div',{text:T('pcSelectTabs')}));for(const [id,key] of TABS){const c=el('input',{type:'checkbox','data-tab':id});c.disabled=!hasData(id);c.checked=hasData(id);
+    b.append(el('label',{class:'chk',style:'display:block;margin:6px 0 6px 20px'},c,document.createTextNode(' '+T(key))))}},
+   [[T('print'),b=>{const ids=[...b.querySelectorAll('input:checked')].map(i=>i.dataset.tab);if(!ids.length)return false;
+     const root=buildPrintPage(ids);const w=window.open('','opentrace-pc-print','width=1000,height=760');if(!w){message(T('plotWindowBlocked'));return false}
+     w.document.open();w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+T('profileComparison').replace(/[<&]/g,'')+'</title><link rel="stylesheet" href="/idx/idx.css"><style>body{background:#fff;overflow:auto;padding:12px}.pcprint h2{font-size:14px}</style></head><body>'+root.outerHTML+'</body></html>');
+     w.document.close();w.onload=()=>{try{w.focus();w.print()}catch(e){}};setTimeout(()=>{try{w.print()}catch(e){}},600);return true},true],[T('cancel'),()=>true]])};
  const d=dialog(T('profileComparison').replace(/\.+$/,''),()=>{},[
   [T('displayPlots'),()=>{const f=plotFiles();if(f&&f.length)ctx.plot(f);return false}],
   [T('exportBtn'),()=>{exportCsv();return false}],
+  [T('print'),()=>{printDialog();return false}],
   [T('closeWin'),()=>true,true]]);
  const markerGrid=(names,alleles,bold,other)=>names.map(n=>{const v=alleles[n]||[];const td=el('td',{class:'pcal'});
   v.forEach((a,i)=>{if(i)td.append(', ');const blue=other(n,a);const sp=el('span',{text:a});sp.style.color=blue?'#0000ff':'#000';if(bold)sp.style.fontWeight='bold';td.append(sp)});return td});
