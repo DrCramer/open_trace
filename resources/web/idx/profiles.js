@@ -13,44 +13,76 @@ function profiles(){const v=read(PKEY,null);return v&&Array.isArray(v.profiles)?
 function saveProfiles(list){if(!write(PKEY,{schema:1,profiles:list}))throw Error(T('storageFull'));window.dispatchEvent(new Event('opentrace-profiles'))}
 const customControls=()=>profiles().filter(p=>p.type==='Custom Control');
 function getProfile(id){return profiles().find(p=>p.id===id)||null}
-// Add profiles from samples: an existing Profile ID only gets new markers (ID-X behaviour).
-function addFromSamples(list,type){const db=profiles();const report=[];
- for(const s of list){if(!s.profileId){report.push([s.name,T('pfNoProfileId')]);continue}
-  if(!Object.keys(s.markers).length){report.push([s.name,T('pfNoAlleles')]);continue}
-  let p=db.find(x=>x.id===s.profileId);
-  if(!p){p={id:s.profileId,type,markers:{},dye:{},size:{},added:new Date().toISOString(),source:s.file};db.push(p);
-   Object.assign(p.markers,s.markers);Object.assign(p.dye,s.dye||{});Object.assign(p.size,s.size||{});report.push([s.name,fmt('pfAdded',s.profileId,Object.keys(s.markers).length)]);continue}
-  let n=0;for(const [m,a] of Object.entries(s.markers))if(!p.markers[m]){p.markers[m]=a;if(s.dye?.[m])p.dye=Object.assign(p.dye||{},{[m]:s.dye[m]});n++}
-  report.push([s.name,n?fmt('pfMarkersAdded',s.profileId,n):fmt('pfNothingNew',s.profileId)])}
- saveProfiles(db);
- dialog(T('pfAddTitle'),b=>{const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},el('th',{text:T('colSampleName')}),el('th',{text:T('pfStatus')}))));
-  const tb=el('tbody');for(const [n,st] of report)tb.append(el('tr',{},el('td',{text:n}),el('td',{text:st})));t.append(tb);b.append(el('div',{class:'grid mgrgrid'},t))})}
+// Merge incoming profiles into the store (ID-X ProfileManager): an existing Profile ID only gets markers it does not have yet;
+// when a marker it already has carries different alleles the profile is rejected as a whole and listed with the conflicting markers.
+const sameAlleles=(x,y)=>[...x].map(String).sort().join('\u0001')===[...y].map(String).sort().join('\u0001');
+function mergeProfiles(incoming,db,{overwrite=false}={}){const success=[],errors=[];let added=0,merged=0;
+ for(const p of incoming){let cur=db.find(x=>x.id===p.id);
+  if(!cur){db.push({...clone(p),added:new Date().toISOString()});success.push(p.id);added++;continue}
+  const conflicts=Object.keys(p.markers).filter(m=>cur.markers[m]&&!sameAlleles(cur.markers[m],p.markers[m]));
+  if(conflicts.length&&!overwrite){errors.push({id:p.id,detail:conflicts.join(', '),conflicts});continue}
+  for(const [m,al] of Object.entries(p.markers)){if(!cur.markers[m]||conflicts.includes(m)){cur.markers[m]=al;merged++;
+    if(p.dye?.[m])(cur.dye=cur.dye||{})[m]=p.dye[m];if(p.size?.[m]!=null)(cur.size=cur.size||{})[m]=p.size[m]}}
+  success.push(p.id)}
+ return {success,errors,added,merged}}
+// "Add Profile Results" window: successes and errors in two tables.
+function resultsDialog(success,errors,skipped=[]){
+ if(!success.length&&!errors.length&&!skipped.length)return message(T('pfResNone'));
+ return dialog(T('pfResTitle'),b=>{b.classList.add('pfresdlg');
+  const tbl=(heads,rows,id)=>{const t=el('table',{class:'g',id});t.append(el('thead',{},el('tr',{},...heads.map(h=>el('th',{text:h})))));const tb=el('tbody');for(const r of rows)tb.append(el('tr',{},...r.map(x=>el('td',{text:x}))));t.append(tb);return el('div',{class:'grid pfgrid'},t)};
+  if(success.length)b.append(el('p',{text:T('pfResOk')}),tbl([T('pfProfileId')],success.map(x=>[x]),'pfOkTable'));
+  if(errors.length||skipped.length)b.append(el('p',{class:'err',text:T('pfResError')}),tbl([T('pfResErrId'),T('pfResConflicts')],[...errors.map(e=>[e.id,e.detail]),...skipped],'pfErrTable'))},
+  [[T('closeWin'),()=>true,true]])}
+// Add profiles from samples. Samples without Profile ID or alleles, and samples with off-ladder (OL) alleles, are skipped.
+function addFromSamples(list,type){const db=profiles();const skipped=[];const incoming=[];
+ for(const s of list){if(!s.profileId){skipped.push([s.name,T('pfNoProfileId')]);continue}
+  if(!Object.keys(s.markers).length){skipped.push([s.name,T('pfNoAlleles')]);continue}
+  if(Object.values(s.markers).some(a=>a.some(x=>String(x).toUpperCase()==='OL'))){skipped.push([s.name,T('pfHasOl')]);continue}
+  const ex=incoming.find(x=>x.id===s.profileId);
+  if(ex){for(const [m,a] of Object.entries(s.markers))if(!ex.markers[m]){ex.markers[m]=a;if(s.dye?.[m])ex.dye[m]=s.dye[m];if(s.size?.[m]!=null)ex.size[m]=s.size[m]}continue}
+  incoming.push({id:s.profileId,type,markers:{...s.markers},dye:{...(s.dye||{})},size:{...(s.size||{})},source:s.file})}
+ const r=mergeProfiles(incoming,db);if(r.success.length)saveProfiles(db);
+ resultsDialog(r.success,r.errors,skipped)}
 
 function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type:type||'text/plain'}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function pickFile(accept){return new Promise(res=>{const i=el('input',{type:'file',accept,style:'display:none'});i.addEventListener('change',async()=>{const f=i.files[0];i.remove();res(f?await f.text():null)});document.body.append(i);i.click()})}
 
 // ---------- Profile Manager ----------
+function importDialog(){return new Promise(res=>{let type='Lab Reference',ftype='tab';
+ dialog(T('pfImportTitle'),b=>{b.classList.add('pfimpdlg');
+  const radio=(name,value,label,cur,set)=>{const r=el('input',{type:'radio',name,value,id:`pf_${name}_${value.replace(/\W/g,'')}`});r.checked=cur===value;r.addEventListener('change',()=>{if(r.checked)set(value)});return el('label',{class:'chk'},r,document.createTextNode(' '+label))};
+  b.append(el('fieldset',{},el('legend',{text:T('pfChooseType')}),radio('ptype','Lab Reference',T('pfLab'),type,v=>type=v),radio('ptype','Custom Control',T('pfCustom'),type,v=>type=v)),
+   el('fieldset',{},el('legend',{text:T('pfChooseFileType')}),radio('ftype','tab',T('pfFileTab'),ftype,v=>ftype=v),radio('ftype','csv',T('pfFileCsv'),ftype,v=>ftype=v)))},
+  [[T('ok'),()=>{res({type,ftype});return true},true],[T('cancel'),()=>{res(null);return true}]])})}
 function profileManager(){let sel=null;const open=new Set();
  const d=dialog(T('profileManager').replace(/\.+$/,''),()=>{},[[T('closeWin'),()=>true,true]]);
  const draw=()=>{const b=d.body;b.replaceChildren();b.classList.add('pmgrdlg');
-  const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...['',T('pfProfileId'),T('pfType'),T('pfMarkers'),T('pfAddedOn')].map(h=>el('th',{text:h})))));
+  const t=el('table',{class:'g',id:'pfTree'});t.append(el('thead',{},el('tr',{},...['',T('pfIdMarker'),T('pfType'),T('pfAlleles')].map(h=>el('th',{text:h})))));
   const tb=el('tbody');
   for(const p of profiles()){const exp=open.has(p.id);const tw=el('span',{class:'twisty',text:exp?'−':'+'});
-   const tr=el('tr',{class:p.id===sel?'sel':''},el('td',{class:'ic'},tw),el('td',{text:p.id}),el('td',{text:T(p.type==='Custom Control'?'pfCustom':'pfLab')}),el('td',{class:'num',text:String(Object.keys(p.markers).length)}),el('td',{text:p.added?new Date(p.added).toLocaleString():''}));
+   const tr=el('tr',{class:'prow'+(p.id===sel?' sel':''),title:p.added?T('pfAddedOn')+': '+new Date(p.added).toLocaleString():''},el('td',{class:'ic'},tw),el('td',{text:p.id}),el('td',{text:T(p.type==='Custom Control'?'pfCustom':'pfLab')}),el('td'));
    tw.addEventListener('mousedown',e=>{e.stopPropagation();exp?open.delete(p.id):open.add(p.id);draw()});
-   tr.addEventListener('mousedown',()=>{sel=p.id;tb.querySelectorAll('tr.prow').forEach(x=>x.classList.toggle('sel',x===tr))});tr.classList.add('prow');tb.append(tr);
-   if(exp)for(const [m,a] of Object.entries(p.markers))tb.append(el('tr',{class:'sub'},el('td'),el('td',{text:'   '+m}),el('td',{text:p.dye?.[m]||''}),el('td',{text:a.join(', ')}),el('td')))}
+   tr.addEventListener('mousedown',()=>{sel=p.id;tb.querySelectorAll('tr.prow').forEach(x=>x.classList.toggle('sel',x===tr))});
+   tr.addEventListener('dblclick',()=>{exp?open.delete(p.id):open.add(p.id);draw()});tb.append(tr);
+   if(exp)for(const [m,a] of Object.entries(p.markers))tb.append(el('tr',{class:'sub'},el('td'),el('td',{text:'   '+m}),el('td',{text:p.dye?.[m]||''}),el('td',{text:a.join(', ')})))}
   t.append(tb);
-  const btn=(text,fn,id)=>{const x=el('button',{class:'btn',type:'button',text,id});x.addEventListener('click',fn);return x};
+  const btn=(text,fn,id,title)=>{const x=el('button',{class:'btn',type:'button',text,id,...(title?{title}:{})});x.addEventListener('click',fn);return x};
   b.append(el('div',{class:'grid mgrgrid'},t),el('div',{class:'btnrow'},
-   btn(T('pfExpandAll'),()=>{if(open.size)open.clear();else profiles().forEach(p=>open.add(p.id));draw()},'pfExpand'),
-   btn(T('mgrImport'),async()=>{const text=await pickFile('.txt,.csv,.tsv');if(text==null)return;
-    try{const r=await ctx.post('/api/profiles',{action:'parse',text});const db=profiles();let added=0,merged=0;
-     for(const p of r.profiles){const cur=db.find(x=>x.id===p.id);if(!cur){db.push({...p,added:new Date().toISOString(),source:'import'});added++}
-      else{for(const [m,a] of Object.entries(p.markers))if(!cur.markers[m]){cur.markers[m]=a;merged++}}}
-     saveProfiles(db);draw();message(fmt('pfImported',added,merged))}catch(e){message(e.message)}},'pfImport'),
+   btn(T('pfExpandAll'),()=>{profiles().forEach(p=>open.add(p.id));draw()},'pfExpand',T('pfExpandTip')),
+   btn(T('pfCollapseAll'),()=>{open.clear();draw()},'pfCollapse',T('pfCollapseTip')),
+   btn(T('mgrImport'),async()=>{const o=await importDialog();if(!o)return;const text=await pickFile('.txt,.csv,.tsv');if(text==null)return;
+    const first=text.split('\n')[0]||'';const tabs=(first.match(/\t/g)||[]).length,commas=(first.match(/,/g)||[]).length;
+    if((o.ftype==='tab'&&commas>tabs)||(o.ftype==='csv'&&tabs>commas))return message(T('pfBadFormat'));
+    try{const r=await ctx.post('/api/profiles',{action:'parse',text});if(!r.profiles.length)return message(T('pfBadFormat'));
+     const incoming=r.profiles.map(p=>({...p,type:o.type,source:'import'}));const db=profiles();
+     let res=mergeProfiles(incoming,db);
+     if(res.errors.length){const list=res.errors.map(e=>`${e.id}: ${e.detail}`).join('\n');
+      if(await Methods.ask(fmt('pfOverwrite',list))){const again=mergeProfiles(res.errors.map(e=>incoming.find(p=>p.id===e.id)),db,{overwrite:true});res={success:[...res.success,...again.success],errors:[]}}}
+     if(res.success.length)saveProfiles(db);draw();
+     resultsDialog(res.success,res.errors);
+     }catch(e){message(e.message)}},'pfImport'),
    btn(T('mgrExport'),async()=>{if(!profiles().length)return message(T('pfNone'));try{const r=await ctx.post('/api/profiles',{action:'export',profiles:profiles()});download('Profiles.txt',r.text)}catch(e){message(e.message)}},'pfExport'),
-   btn(T('mgrDelete'),async()=>{if(!sel)return message(T('selectRow'));if(!(await Methods.ask(fmt('pfConfirmDelete',sel))))return;saveProfiles(profiles().filter(p=>p.id!==sel));sel=null;draw()},'pfDelete')),
+   btn(T('mgrDelete'),async()=>{if(!sel)return message(T('pfSelectProfile'));if(!(await Methods.ask(fmt('pfConfirmDelete',sel))))return;saveProfiles(profiles().filter(p=>p.id!==sel));sel=null;draw()},'pfDelete')),
    el('div',{class:'note',text:T('pfNote')}))};
  draw();return d}
 
