@@ -20,6 +20,8 @@ pub struct Session {
 pub struct Remote {
     agent: Mutex<Option<(String, ureq::Agent)>>,
     pub session: Mutex<Option<Session>>,
+    /// Remember session tokens in the OS credential store (off for self-tests, which must leave no trace).
+    persist: bool,
 }
 
 #[derive(Debug)]
@@ -72,8 +74,8 @@ fn build_agent(ca_pem: Option<&std::path::Path>) -> Result<ureq::Agent, String> 
 }
 
 impl Remote {
-    pub fn new() -> Remote {
-        Remote { agent: Mutex::new(None), session: Mutex::new(None) }
+    pub fn new(persist: bool) -> Remote {
+        Remote { agent: Mutex::new(None), session: Mutex::new(None), persist }
     }
 
     fn agent(&self, ca_pem: Option<&std::path::Path>) -> Result<ureq::Agent, RemoteError> {
@@ -130,7 +132,9 @@ impl Remote {
             roles: r["user"]["roles"].as_array().map(|v| v.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default(),
             expires_ms: r["expires_ms"].as_i64().unwrap_or(0),
         };
-        store_token(&s);
+        if self.persist {
+            store_token(&s);
+        }
         *self.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(s.clone());
         Ok(s)
     }
@@ -147,7 +151,7 @@ impl Remote {
 
     /// Restores a session saved in the OS credential store and checks it with `/me`.
     pub fn resume(&self, server: &str, user: &str, ca: Option<&std::path::Path>) -> RResult<Session> {
-        let token = load_token(server, user).ok_or(RemoteError::NotLoggedIn)?;
+        let token = if self.persist { load_token(server, user) } else { None }.ok_or(RemoteError::NotLoggedIn)?;
         let a = self.agent(ca)?;
         let me: Value = a
             .get(&format!("{}/api/v1/me", server))

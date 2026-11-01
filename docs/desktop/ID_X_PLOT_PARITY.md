@@ -10,9 +10,9 @@
 
 | Действие | Ожидаемо (ID-X) | Реализация | Проверка | Статус |
 |---|---|---|---|---|
-| Показать графики (Ctrl+L) из Samples/Genotypes | отдельное окно графиков | `window.open('/idx/plot.html')` → `on_new_window` → нативное окно `plot-N` | самотест: `plot_opened`, окно создано | ✅ Linux (Xvfb), 🔍 Windows |
-| Окно графиков читает данные проекта | общие данные с проектом | `window.opener.OT.plotPayload()` синхронно | самотест: `opener_ot`, `samples_in_payload ≥ 1` | ✅ Linux, 🔍 Windows |
-| Отрисовка электрофореграммы | поле с кривыми каналов | Canvas 2D `plot.js` без изменений | самотест: canvas есть, >100 цветных пикселей | ✅ Linux, 🔍 Windows |
+| Показать графики (Ctrl+L) из Samples/Genotypes | отдельное окно графиков | `window.open('/idx/plot.html')` → `on_new_window` → нативное окно `plot-N` | самотест: `plot_opened`, окно `plot-1` создано | ✅ Linux (Xvfb), ✅ Windows (WebView2) |
+| Окно графиков читает данные проекта | общие данные с проектом | `window.opener.OT.plotPayload()` синхронно | самотест: `opener_ot`, `samples_in_payload ≥ 1` | ✅ Linux, ✅ Windows |
+| Отрисовка электрофореграммы | поле с кривыми каналов | Canvas 2D `plot.js` без изменений | самотест: 5 canvas, 2633 (Linux) / 10265 (Windows, HiDPI) цветных пикселей | ✅ Linux, ✅ Windows |
 | Правки аллелей из окна графиков попадают в проект | да, с Undo | `opener.OT.edit/editItems/undoLast` | Playwright (WEB) | 🟡 |
 | Второй монитор, сохранение размера/положения | окно запоминает место | плагин window-state, ключ по виду окна (`plot`) | — | 🔍 ручная проверка на 2 мониторах |
 | Esc закрывает окно графиков | да | `plot.js` (`window.close()` для окна с opener) | — | 🔍 |

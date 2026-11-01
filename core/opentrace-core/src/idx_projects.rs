@@ -232,6 +232,19 @@ fn path_str(s: &str) -> String {
     }
 }
 
+/// Existing sample id in `samples` that differs from `sid` only by letter case.
+fn case_collision(samples: &Path, sid: &str) -> Option<String> {
+    let rd = fs::read_dir(samples).ok()?;
+    for e in rd.flatten() {
+        let n = e.file_name().to_string_lossy().into_owned();
+        let Some(stem) = n.strip_suffix(".json.gz").or_else(|| n.strip_suffix(".fsa")) else { continue };
+        if stem != sid && stem.eq_ignore_ascii_case(sid) {
+            return Some(stem.to_string());
+        }
+    }
+    None
+}
+
 pub fn default_root() -> PathBuf {
     match std::env::var("OPENTRACE_PROJECTS") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
@@ -445,6 +458,13 @@ impl ProjectLibrary {
         let sid = py_str(sample_id);
         let samples = folder.join("samples");
         fs::create_dir_all(&samples).map_err(io)?;
+        // Windows/macOS file systems are case-insensitive: ids "S1" and "s1" would share one file and the second save
+        // would silently overwrite the first sample. Refuse instead (Linux keeps both, as before).
+        if cfg!(any(windows, target_os = "macos")) {
+            if let Some(other) = case_collision(&samples, &sid) {
+                return verr(format!("Sample id {} collides with existing sample {} on this file system (case-insensitive); rename the sample", sid, other));
+            }
+        }
         if !fsa_b64.is_null() {
             let s = match fsa_b64 {
                 Value::String(s) => s,

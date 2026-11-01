@@ -44,7 +44,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
     };
     let core = Arc::new(opentrace_core::server::App::new(&core_cfg)?);
     let cfg = config::DesktopConfig::load(&cfg_path);
-    let remote = Arc::new(remote::Remote::new());
+    let remote = Arc::new(remote::Remote::new(selftest.is_none()));
     let sync = sync::SyncQueue::open(data.join("fsa-cache"), cfg.fsa_cache_max_mib.saturating_mul(1024 * 1024));
     *sync.enabled.lock().unwrap_or_else(|e| e.into_inner()) = cfg.sync_fsa;
     sync.pause(Some("Нет входа на сервер".into()));

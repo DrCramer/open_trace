@@ -31,6 +31,8 @@ Workspace `core/Cargo.toml` и `core/Cargo.lock` используются Docker
 | W4 | git checkout с `core.autocrlf=true` | `resources/web/*` получают CRLF → `GET /idx` отличается от эталона | ✅ `.gitattributes` (LF для текстов, бинарные `*.gz`) |
 | W5 | тестовые обвязки `ip_dump`, `http_golden`, `cli_golden` | пути с `\` в выводе, JSON-экранирование `\\` | ✅ нормализация только под `cfg(windows)`; на Linux вывод не меняется |
 | **W6** | **`exp`/`pow`/`log`/`sin` из системной libm** | **UCRT ≠ glibc на 1 ULP**: golden `morphology` (19 строк), `spike` (1 строка) | ⚠️ **открыто**, см. §4 |
+| **W7** | `idx_projects.rs::save_sample` | **потеря данных на NTFS/APFS**: id образцов `S1` и `s1` дают один файл (`S1.fsa` = `s1.fsa`), второй молча затирал первый (найдено golden-тестом `idx_projects` на Windows) | ✅ на Windows/macOS запись отклоняется с сообщением; Linux без изменений |
+| W8 | CLI-golden на Windows | текст системной ошибки «файл не найден» другой (`os error 2` — тот же код) | принято как различие ОС; коды возврата совпадают |
 
 Все math-вызовы собраны в `src/cmath.rs` (раньше — `extern "C"` в 4 модулях и `f64::ln/exp/exp_m1/sin` в 2 модулях). Поведение на Linux не изменилось: полный набор тестов ядра после рефакторинга проходит побитово (см. §6).
 
@@ -63,9 +65,9 @@ Workspace `core/Cargo.toml` и `core/Cargo.lock` используются Docker
 
 | Проверка | Результат |
 |---|---|
-| `cargo test --release` ядра на Linux после `localtime`/`paths`/`cmath`/`.gitattributes` | см. `DEVELOPMENT.md` §«Проверки» (зелёные, побитово) |
+| `cargo test --release` ядра на Linux после `localtime`/`paths`/`cmath`/`.gitattributes`/W7 | ✅ все наборы, побитово |
 | Сборка `opentrace` на Windows MSVC | ✅ (`BUILD_EXIT=0`, ваш ПК, 1 мин 22 с) |
-| Golden на Windows | остаются расхождения W6 (1 ULP); CRLF/пути устранены — подтверждение повторным прогоном в CI |
+| Golden на Windows (повторный прогон на ПК заказчика) | HTTP-golden ✅ (CRLF/пути устранены); `golden`: W6 (1 ULP) и W7 (отказ вместо тихой перезаписи — ожидаемо); CLI: W8 |
 
 ## 7. Узкие места и риски, учтённые в архитектуре
 
