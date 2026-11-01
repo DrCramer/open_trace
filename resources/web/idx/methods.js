@@ -159,7 +159,15 @@ function openManager(tab){
      tb.querySelectorAll('tr').forEach((x,i)=>x.classList.toggle('sel',multi.has(names[i])))}
     else tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',x===tr))});
    tr.addEventListener('dblclick',()=>K.open?K.open(r.name,{close:d.close}):openSel());tb.append(tr)}
-  t.append(tb);
+  t.append(tb);t.tabIndex=0;
+  // keyboard: Up/Down move the selection, Enter opens, Delete deletes, Ctrl+A selects all (multi-select tabs)
+  t.addEventListener('keydown',e=>{const rows=[...tb.querySelectorAll('tr')];if(!rows.length)return;let i=rows.findIndex(x=>x.classList.contains('sel'));
+   if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();i=Math.max(0,Math.min(rows.length-1,i<0?0:i+(e.key==='ArrowDown'?1:-1)));
+    const ev=new MouseEvent('mousedown',{bubbles:true,shiftKey:e.shiftKey});rows[i].dispatchEvent(ev);rows[i].scrollIntoView({block:'nearest'})}
+   else if(e.key==='Enter'){e.preventDefault();d.root.querySelector('#mgrOpenBtn')?.click()}
+   else if(e.key==='Delete'){e.preventDefault();d.root.querySelector('#mgrDeleteBtn')?.click()}
+   else if(e.key==='Home'||e.key==='End'){e.preventDefault();rows[e.key==='Home'?0:rows.length-1].dispatchEvent(new MouseEvent('mousedown',{bubbles:true}))}});
+  setTimeout(()=>t.focus());
   const btn=(label,fn,id)=>{const x=el('button',{class:'btn',type:'button',text:label,...(id?{id}:{})});x.addEventListener('click',fn);return x};
   const sec=K.sec,can=f=>!sec||!window.Sec||Sec.can(f),upd=()=>can(sec?.update);
   const audit=async(attribute,name,old)=>{if(!sec||!window.Sec)return {commit(){}};const A={created:'CREATE_',modified:'MODIFY_',deleted:'DELETE_'}[attribute]+sec.noun;
@@ -188,7 +196,7 @@ function openManager(tab){
     document.body.append(i);i.click()},'mgrImportBtn'),
    btn(T('mgrExport'),async()=>{const m=K.get(selected);if(!m)return message(T('selectRow'));try{if(K.exportFile){const x=await K.exportFile(m);download(x.name,x.blob,x.blob.type)}else download(m.name+'.xml',await K.exportText(m),'application/xml')}catch(e){message(e.message)}},'mgrExportBtn'),
    btn(T('mgrDelete'),()=>{if(!selected)return message(T('selectRow'));if(!upd())return Sec.denied();if(IT&&!IT.need(K.id,selected,'delete'))return;if(!K.allowEmpty&&K.count()<=1)return message(T('mgrKeepOne'));
-    ask(fmt(K.confirmDelete,selected)).then(async ok=>{if(ok){const ch=await audit('deleted',selected,selected);if(!ch)return;K.remove(selected);if(IT)IT.remove(K.id,selected);ch.commit();selected=null;draw()}})}),
+    ask(fmt(K.confirmDelete,selected)).then(async ok=>{if(ok){const ch=await audit('deleted',selected,selected);if(!ch)return;K.remove(selected);if(IT)IT.remove(K.id,selected);ch.commit();selected=null;draw()}})},'mgrDeleteBtn'),
    ...(IT?[btn(T('scChangeGroup'),async()=>{if(!selected)return message(T('selectRow'));if(!IT.need(K.id,selected,'control'))return;const cur=IT.get(K.id,selected);
      const g=await Sec.chooseGroup(cur.group);if(!g||g===cur.group)return;const ch=await audit('modified',selected,selected);if(!ch)return;IT.set(K.id,selected,g,cur.owner);ch.commit();draw()},'mgrGroupBtn')]:[])))};
  draw();return d}
