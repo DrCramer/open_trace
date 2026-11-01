@@ -516,6 +516,13 @@ function printPlots(preview){if(!payload||!payload.samples.length)return message
  return r}
 window.PP={printPlots,printPages,pageOpts};
 // Zoom To Next Marker (Ctrl+J): the next marker to the right of the current X range, with the marker margin.
+function zoomToMarkerDlg(){const cv=[...document.querySelectorAll('canvas')].find(c=>c._geom);if(!cv)return;const G=cv._geom;
+ const names=[...new Set(G.markers.map(m=>m.name))];const v=prompt(T('pmZoomToMarkerPrompt')+'\n'+names.join(', '),names[0]||'');if(v==null)return;
+ const m=G.markers.find(m=>m.name.toLowerCase()===v.trim().toLowerCase());if(!m){message(T('pmNoMarker').replace('{0}',v));return}
+ const mg=setting?.display?.markerMargin??5;let a=m.min_bp-mg,b=m.max_bp+mg;if(G.dp){a=bpToScan(G.curve,a);b=bpToScan(G.curve,b)}
+ view.x0=a;view.x1=b;view.userZoom=true;draw()}
+function markerMarginDlg(){const cur=setting?.display?.markerMargin??5;const v=prompt(T('pmMarkerMarginPrompt'),String(cur));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));
+ if(!(n>=0&&n<=100)||!setting){message(T('pmMarginInvalid'));return}setting.display.markerMargin=n;view.userZoom=false;view.x0=view.x1=null;build();draw()}
 function zoomNextMarker(){const cv=[...document.querySelectorAll('canvas')].find(c=>c._geom);if(!cv)return;const G=cv._geom;
  const ms=G.markers.filter(m=>m.channel===G.markers[0]?.channel||true).slice().sort((a,b)=>a.min_bp-b.min_bp);if(!ms.length)return;
  const mid=G.dp?scanToBp(G.curve,(G.x0+G.x1)/2):(G.x0+G.x1)/2;
@@ -566,25 +573,39 @@ function build(){
  const DYE_SC={DATA1:'Ctrl+1',DATA2:'Ctrl+2',DATA3:'Ctrl+3',DATA4:'Ctrl+4',DATA105:'Ctrl+5',DATA106:'Ctrl+0'};
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],sc:DYE_SC[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},{label:T('exportWithStutter')+'...',sc:'Ctrl+S',run:()=>{try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(e){message(String(e.message||e))}}},'-',{label:T('pageSetup'),run:plotPageSetup},{label:T('printPreview'),run:()=>printPlots(true)},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},'-',{label:T('closePlot'),run:()=>window.close()}]},
+  {label:T('file'),items:[{label:T('pageSetup'),run:plotPageSetup},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},{label:T('printPreview'),run:()=>printPlots(true)},'-',
+   {label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},{label:T('exportWithStutter')+'...',sc:'Ctrl+S',run:()=>{try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(e){message(String(e.message||e))}}},'-',{label:T('closePlot'),sc:'Esc',run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',run:undoLast},{label:T('copy'),sc:'Ctrl+C',run:copyPlotTable}]},
-  {label:T('view'),items:[{label:T('sampleInfo'),sc:'Ctrl+F1',run:()=>sampleView('info')},{label:T('rawData'),sc:'Ctrl+F2',run:()=>sampleView('raw')},{label:T('eptData'),sc:'Ctrl+F3',run:()=>sampleView('ept')},'-',
+  {label:T('view'),items:[{label:T('psToolbar'),checked:view.toolbar,run:set('toolbar',!view.toolbar)},'-',
+   {label:T('sampleInfo'),sc:'Ctrl+F1',run:()=>sampleView('info')},{label:T('rawData'),sc:'Ctrl+F2',run:()=>sampleView('raw')},{label:T('eptData'),sc:'Ctrl+F3',run:()=>sampleView('ept')},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
-  {label:T('plots'),items:[{label:T('multipleDyePlot'),run:multipleDyePlot},'-',{label:T('zoom'),sub:[{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('fullView'),sc:'Ctrl+]',run:()=>{view.x0=view.x1=null;draw()}},{label:T('zoomTo'),run:xZoomToDlg},'-',{label:T('zoomToNextMarker'),sc:'Ctrl+J',run:zoomNextMarker}]},
+  {label:T('plots'),items:[
+   {label:T('zoom'),sub:[{label:T('fullView'),sc:'Ctrl+]',run:xFullView},{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('zoomTo'),run:xZoomToDlg},'-',
+    {label:T('pmZoomToMarker'),run:zoomToMarkerDlg},{label:T('zoomToNextMarker'),sc:'Ctrl+J',run:zoomNextMarker}]},
    {label:T('xAxis'),sub:[{label:T('basepairs'),checked:view.xAxis==='bp',run:()=>{view.xAxis='bp';view.x0=view.x1=null;build();draw()}},{label:T('dataPoints'),checked:view.xAxis==='dp',run:()=>{view.xAxis='dp';view.x0=view.x1=null;build();draw()}}]},
    {label:T('yAxis'),sub:[{label:T('scaleInd'),checked:view.yAxis==='individual',run:()=>{view.yAxis='individual';build();draw()}},{label:T('scaleMaxY'),checked:view.yAxis==='max',run:()=>{view.yAxis='max';build();draw()}},
-    {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},
-   {label:T('psPlotColors'),sub:[{label:T('psStandardColors'),checked:!view.customColors,run:()=>{view.customColors=false;build();draw()}},{label:T('psCustom'),checked:view.customColors,run:()=>{view.customColors=true;build();draw()}}]},
-   {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
-   {label:T('psPeakPositions'),checked:view.peakPositions,run:()=>{view.peakPositions=!view.peakPositions;build();draw()}},
+    {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},'-',
    {label:T('labels'),sub:[{label:T('noLabels'),checked:ck('labels','none'),run:set('labels','none')},{label:T('hLabels'),checked:ck('labels','h'),run:set('labels','h')},{label:T('vLabels'),checked:ck('labels','v'),run:set('labels','v')}]},
-   {label:T('dyes'),sub:dyeItems},'-',
-   {label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')},'-',
-   {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},{label:T('showBins'),sc:'Ctrl+Shift+B',checked:view.bins,run:set('bins',!view.bins)},'-',
-   {label:T('table'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]}]},
+   {label:T('pmSizeStd'),checked:view.sizeStdLabels,run:set('sizeStdLabels',!view.sizeStdLabels)},
+   {label:T('showBins'),sc:'Ctrl+Shift+B',checked:view.bins,run:set('bins',!view.bins)},
+   {label:T('psPeakPositions'),checked:view.peakPositions,run:()=>{view.peakPositions=!view.peakPositions;build();draw()}},
+   {label:T('pmAlleleChanges'),checked:view.alleleChanges,run:set('alleleChanges',!view.alleleChanges)},
+   {label:T('pmControlsTop'),checked:view.controlsTop,run:set('controlsTop',!view.controlsTop)},
+   {label:T('pmLaddersTop'),checked:view.laddersTop,run:set('laddersTop',!view.laddersTop)},
+   {label:T('pmOffscale'),checked:view.offscale,run:set('offscale',!view.offscale)},'-',
+   {label:T('dyes'),sub:[...dyeItems.map((d,i)=>({...d,label:DYE_NAMES[DYE_KEYS[i]]})),'-',{label:T('allDyes'),sc:'Ctrl+6',run:()=>{DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw()}}]},
+   {label:T('plots'),sub:[{label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')}]},
+   {label:T('pmTables'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]},'-',
+   {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},
+   {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
+   {label:T('pmPqvTrigger'),checked:!!setting?.labels?.pqvTrigger,run:()=>{if(setting?.labels){setting.labels.pqvTrigger=!setting.labels.pqvTrigger;build();draw()}}},
+   {label:T('psPlotColors'),sub:[{label:T('psStandardColors'),checked:!view.customColors,run:()=>{view.customColors=false;build();draw()}},{label:T('psCustom'),checked:view.customColors,run:()=>{view.customColors=true;build();draw()}}]},'-',
+   {label:T('pmMarkerMargin'),run:markerMarginDlg},'-',
+   {label:T('multipleDyePlot'),run:multipleDyePlot}]},
   {label:T('tools'),items:[{label:T('manager'),disabled:true},'-',{label:T('psEditor'),sc:'Ctrl+T',run:editSetting}]},
-  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},
-   {label:T('deleteMultiple'),sub:[{label:T('deleteAllLabels'),run:()=>deleteLabels(payload?.samples||[],null)},{label:T('deleteInRange')+'...',run:deleteInRangeDialog}]},{label:T('deletePredefined')+'...',run:deletePredefined},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
+  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},'-',
+   {label:T('deletePredefined')+'...',run:deletePredefined},'-',
+   {label:T('deleteMultiple'),sub:[{label:T('deleteAllLabels'),run:()=>deleteLabels(payload?.samples||[],null)},{label:T('deleteInRange')+'...',run:deleteInRangeDialog}]},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
  const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>printPlots(false),{id:'tbPlotPrint'}),tbutton('printPreview',T('printPreview'),()=>printPlots(true),{id:'tbPlotPreview'}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
  const ps=el('select',{class:'combo',id:'psCombo'});for(const n of settingNames())ps.append(new Option(n,n));ps.value=setting?.name||'';
