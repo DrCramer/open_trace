@@ -365,3 +365,9 @@ table.g td.c{text-align:center}
 .pfresdlg .pfgrid{max-height:160px;overflow:auto;background:#fff;border:1px solid #7f9db9;min-width:480px}.pfresdlg .err{color:#a00;max-width:520px}.pfimpdlg fieldset{margin-bottom:8px}
 #page-samples table.g,#page-genotypes table.g{font-size:var(--tbl-font)}#page-samples table.g td,#page-genotypes table.g td{height:calc(var(--tbl-font,12px) + 7px)}
 .ptable.brk{break-after:page;margin-bottom:6mm}.ptable tr.newpage{break-before:page}
+
+.pcdlg .pctitle{margin:10px 0 4px;font-size:13px}.pcdlg .pctitle span{font-weight:normal}
+.pcdlg .pcgroup{margin:6px 0;border:1px solid #9a9a9a;padding:4px 8px}.pcdlg .pcsamples{cursor:pointer;user-select:none}.pcdlg .pcsample{margin-left:22px;font-size:12px}
+.pcdlg table.pcpanel{margin:6px 0 10px;border-collapse:collapse;background:#fff}.pcdlg table.pcpanel th,.pcdlg table.pcpanel td{border:1px solid #9a9a9a;padding:2px 8px;text-align:center;white-space:nowrap}
+.pcdlg table.pcpanel td.b{font-weight:bold;text-align:left}.pcdlg table.pcpanel td.num{text-align:right}.pcdlg .pccm{width:100%;min-width:300px}.pcdlg .pcnote{color:#4d47ef;font-weight:bold}
+.pcdlg .pcnone{font-size:15px;margin:12px 0}

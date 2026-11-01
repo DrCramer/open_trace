@@ -1326,7 +1326,7 @@ window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project
 function qcSamples(){return state.project.samples.map(s=>{const eff=s.report?effective(s):null;const markers={},dye={};
  if(eff)for(const c of eff.calls){if(!c.label)continue;(markers[c.marker]=markers[c.marker]||[]).push(String(c.label));dye[c.marker]=dyeLetter(c.channel)}
  const q=samplePqv(s).SQ;const ol=Object.values(markers).some(a=>a.some(x=>/^OL$/i.test(x)));const ud=s.ud||{};const info=s.analysis?.run_info||{};
- return {id:s.file,file:s.file,name:s.name,type:s.type,analyzed:!!s.report,profileId:(s.profileId||'').trim(),markers,dye,category:s.specimenCategory||'No Export',
+ return {id:s.file,file:s.file,name:s.name,type:s.type,analyzed:!!s.report,profileId:(s.profileId||'').trim(),markers,dye,hasOl:ol,well:info.well||'',runDate:info.run_date||'',panelMarkers:(sampleKit(s)?.markers||[]).map(m=>m.name),category:s.specimenCategory||'No Export',
   eligible:!!s.report&&s.type!=='ladder'&&['pass','check','override'].includes(q)&&!ol&&Object.keys(markers).length>0,
   codis:{sample_name:s.name,specimen_id:ud.UD1||s.name,category:s.specimenCategory||'No Export',panel:s.panel||'',batch_id:ud.UD2||info.plate||'',case_id:ud.UD3||'',
    comment:ud.UD4||'',partial:ud.UD5||'',source_id:ud.UD6||'',ncic:ud.UD7||'',vicap:ud.UD8||'',loci:Object.entries(markers).map(([marker,alleles])=>({marker,alleles,partial_locus:!!eff?.pli.has(marker)}))}}})}

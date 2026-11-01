@@ -124,6 +124,8 @@ struct Profile {
     markers: Vec<(String, Vec<String>)>,
     #[allow(dead_code)]
     kind: Option<String>,
+    /// Display name (ID-X: "well | file | sample name"); used only by the ID-X comparison mode.
+    label: String,
 }
 
 fn profile(raw: &Value, wh: &str) -> Res<Profile> {
@@ -149,7 +151,11 @@ fn profile(raw: &Value, wh: &str) -> Res<Profile> {
         Some(Value::String(t)) if t == "Lab Reference" || t == "Custom Control" => Some(t.clone()),
         _ => None,
     };
-    Ok(Profile { id: pid, markers: out, kind })
+    let label = match raw.get("label") {
+        Some(Value::String(l)) if !strip(l).is_empty() => strip(l).to_string(),
+        _ => pid.clone(),
+    };
+    Ok(Profile { id: pid, markers: out, kind, label })
 }
 
 fn markers_json(m: &[(String, Vec<String>)]) -> Value {
@@ -360,6 +366,9 @@ pub fn compare(request: &Value) -> Res<Value> {
         _ => vec![],
     };
     let ignore: HashSet<String> = ignore_vals.into_iter().take(5).collect();
+    if req.get("idx").map_or(false, truthy) {
+        return compare_idx(req, &samples, &ignore, &mode);
+    }
     let groups = concordance_groups(&samples);
     let groups_json = Value::Array(groups.iter().map(group_json).collect());
     if mode == json!("concordance") {
@@ -761,4 +770,300 @@ pub fn profile_request(request: &Value) -> Res<Value> {
         Some("export") => Ok(json!({"text": export_profiles(&get("profiles"))?})),
         _ => Err("action must be compare, export_csv, parse or export".into()),
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// ID-X semantics (request flag "idx": true). Derived from the decompiled ProfileConcordance GUI and the
+// BusinessLogic comparison classes of GeneMapper ID-X 1.6:
+//  * percent match = share of the REFERENCE alleles found in the comparison profile, counted only over the markers
+//    that exist (by name, trimmed, case-insensitive) in both profiles;
+//  * a sample is "mixed" when at least two of its markers carry three or more alleles;
+//  * source groups are formed per type from samples with identical genotypes (marker list included);
+//  * Sample Comparison: Mixed groups never serve as the reference of a Single group, a pair is reported once (the
+//    higher direction wins); Lab Reference / Control: a Mixed group is only ever compared against the profile.
+// The default (non-idx) mode stays byte-identical with the Python reference.
+// ---------------------------------------------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct IUnit {
+    name: String,
+    mixed: bool,
+    members: Vec<String>,
+    markers: Vec<(String, Vec<String>)>,
+}
+
+fn lc(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (a, b) = (a.to_lowercase(), b.to_lowercase());
+    let (ac, bc): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let (mut i, mut j) = (0, 0);
+    while i < ac.len() && j < bc.len() {
+        if ac[i].is_ascii_digit() && bc[j].is_ascii_digit() {
+            let (si, sj) = (i, j);
+            while i < ac.len() && ac[i].is_ascii_digit() {
+                i += 1;
+            }
+            while j < bc.len() && bc[j].is_ascii_digit() {
+                j += 1;
+            }
+            let na: String = ac[si..i].iter().collect::<String>().trim_start_matches('0').to_string();
+            let nb: String = bc[sj..j].iter().collect::<String>().trim_start_matches('0').to_string();
+            let o = na.len().cmp(&nb.len()).then_with(|| na.cmp(&nb));
+            if o != std::cmp::Ordering::Equal {
+                return o;
+            }
+        } else {
+            if ac[i] != bc[j] {
+                return ac[i].cmp(&bc[j]);
+            }
+            i += 1;
+            j += 1;
+        }
+    }
+    (ac.len() - i).cmp(&(bc.len() - j))
+}
+
+struct IMatch {
+    fraction: f64,
+    found: i64,
+    total: i64,
+    /// marker, reference alleles, comparison alleles, matched reference alleles, present in both
+    per: Vec<(String, Vec<String>, Vec<String>, Vec<String>, bool)>,
+}
+
+fn idx_match(reference: &[(String, Vec<String>)], comparison: &[(String, Vec<String>)], ignore: &HashSet<String>) -> IMatch {
+    let r = clean(reference, ignore);
+    let c = clean(comparison, ignore);
+    let (mut total, mut found) = (0i64, 0i64);
+    let mut per = Vec::new();
+    for (m, ra) in &r {
+        let other = c.iter().rev().find(|(n, _)| lc(n) == lc(m));
+        match other {
+            Some((_, ca)) => {
+                let set: HashSet<String> = ca.iter().map(|x| lc(x)).collect();
+                let hits: Vec<String> = ra.iter().filter(|a| set.contains(&lc(a))).cloned().collect();
+                total += ra.len() as i64;
+                found += hits.len() as i64;
+                per.push((m.clone(), ra.clone(), ca.clone(), hits, true));
+            }
+            None => per.push((m.clone(), ra.clone(), Vec::new(), Vec::new(), false)),
+        }
+    }
+    for (m, ca) in &c {
+        if !r.iter().any(|(n, _)| lc(n) == lc(m)) {
+            per.push((m.clone(), Vec::new(), ca.clone(), Vec::new(), false));
+        }
+    }
+    IMatch { fraction: if total > 0 { found as f64 / total as f64 } else { 0.0 }, found, total, per }
+}
+
+fn is_mixed(p: &Profile) -> bool {
+    p.markers.iter().filter(|(_, a)| a.len() >= 3).count() >= 2
+}
+
+fn idx_key(p: &Profile) -> Vec<(String, Vec<String>)> {
+    let mut k: Vec<(String, Vec<String>)> = p
+        .markers
+        .iter()
+        .map(|(m, a)| {
+            let mut s: Vec<String> = a.iter().map(|x| lc(x)).collect();
+            s.sort();
+            (lc(m), s)
+        })
+        .collect();
+    k.sort();
+    k
+}
+
+/// Source groups of one type (all of them, singletons included), named as ID-X names them.
+fn idx_groups(samples: &[Profile], mixed: bool) -> Vec<IUnit> {
+    let mut slots: Vec<Vec<usize>> = Vec::new();
+    let mut index: HashMap<Vec<(String, Vec<String>)>, usize> = HashMap::new();
+    for (i, s) in samples.iter().enumerate() {
+        if is_mixed(s) != mixed {
+            continue;
+        }
+        let slot = *index.entry(idx_key(s)).or_insert_with(|| {
+            slots.push(Vec::new());
+            slots.len() - 1
+        });
+        slots[slot].push(i);
+    }
+    let mut n = 0;
+    slots
+        .into_iter()
+        .map(|m| {
+            let first = &samples[m[0]];
+            let name = if m.len() > 1 {
+                n += 1;
+                format!("{} {}", if mixed { "Mixed Source-Group" } else { "Single Source-Group" }, n)
+            } else {
+                first.label.clone()
+            };
+            IUnit { name, mixed, members: m.iter().map(|&i| samples[i].id.clone()).collect(), markers: first.markers.clone() }
+        })
+        .collect()
+}
+
+fn pct_text(f: f64) -> f64 {
+    round1(f * 100.0)
+}
+
+fn idx_row(section: &str, r: &IUnit, c: &IUnit, m: &IMatch, ref_kind: &str) -> Value {
+    let mut markers = Map::new();
+    for (name, ra, ca, hits, shared) in &m.per {
+        markers.insert(name.clone(), json!({"reference": ra, "comparison": ca, "matched": hits, "shared": shared}));
+    }
+    json!({"section": section, "ref_kind": ref_kind, "reference": r.name, "reference_members": r.members, "reference_mixed": r.mixed,
+           "comparison": c.name, "comparison_members": c.members, "comparison_mixed": c.mixed,
+           "percent": fv(pct_text(m.fraction)), "found": m.found, "total": m.total, "markers": Value::Object(markers)})
+}
+
+fn compare_idx(req: &Map<String, Value>, samples: &[Profile], ignore: &HashSet<String>, mode: &Value) -> Res<Value> {
+    let singles = idx_groups(samples, false);
+    let mixeds = idx_groups(samples, true);
+    let group_json = |g: &IUnit| {
+        json!({"id": g.name, "name": g.name, "kind": if g.mixed { "mixed" } else { "single" }, "members": g.members, "markers": markers_json(&g.markers)})
+    };
+    if mode == &json!("concordance") {
+        let groups: Vec<Value> = singles.iter().chain(mixeds.iter()).filter(|g| g.members.len() > 1).map(group_json).collect();
+        return Ok(json!({"mode": mode, "idx": true, "groups": groups}));
+    }
+    let (thr_val, thr) = threshold(req.get("threshold"))?;
+    let mut rows: Vec<Value> = Vec::new();
+    if mode == &json!("samples") {
+        // ID-X walks Mixed groups first, then Single groups.
+        let units: Vec<&IUnit> = mixeds.iter().chain(singles.iter()).collect();
+        // (reference index, [(comparison index, fraction)]) in creation order
+        let mut list: Vec<(usize, Vec<(usize, f64)>)> = Vec::new();
+        for (i, g1) in units.iter().enumerate() {
+            for (j, g2) in units.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                let m = idx_match(&g1.markers, &g2.markers, ignore);
+                if m.total == 0 {
+                    continue;
+                }
+                let d = m.fraction;
+                if d * 100.0 < thr || (g1.mixed && !g2.mixed) {
+                    continue;
+                }
+                if list.is_empty() {
+                    list.push((i, vec![(j, d)]));
+                    continue;
+                }
+                let mut n3: Option<usize> = None;
+                let mut skip = false;
+                for (k, n) in list.iter().enumerate() {
+                    if n.0 == j {
+                        if let Some(e) = n.1.iter().find(|(c, _)| *c == i) {
+                            n3 = Some(k);
+                            if d > e.1 {
+                                break;
+                            }
+                            skip = true;
+                            break;
+                        }
+                    }
+                }
+                if skip {
+                    continue;
+                }
+                if let Some(k5) = list.iter().position(|n| n.0 == i) {
+                    list[k5].1.push((j, d));
+                    if let Some(k3) = n3 {
+                        list[k3].1.retain(|(c, _)| *c != i);
+                    }
+                    continue;
+                }
+                list.push((i, vec![(j, d)]));
+                if let Some(k3) = n3 {
+                    list[k3].1.retain(|(c, _)| *c != i);
+                }
+            }
+        }
+        for (ri, comps) in &list {
+            let r = units[*ri];
+            for (ci, _) in comps {
+                let c = units[*ci];
+                let m = idx_match(&r.markers, &c.markers, ignore);
+                let section = match (r.mixed, c.mixed) {
+                    (false, false) => "single-single",
+                    (false, true) => "single-mixed",
+                    _ => "mixed-mixed",
+                };
+                rows.push(idx_row(section, r, c, &m, "group"));
+            }
+        }
+        let rank = |s: &str| match s {
+            "single-single" => 0,
+            "single-mixed" => 1,
+            _ => 2,
+        };
+        rows.sort_by(|a, b| {
+            let g = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let (ra, rb) = (g(a, "reference"), g(b, "reference"));
+            let (ma, mb) = (a["reference_mixed"].as_bool().unwrap_or(false), b["reference_mixed"].as_bool().unwrap_or(false));
+            rank(&g(a, "section"))
+                .cmp(&rank(&g(b, "section")))
+                .then(ma.cmp(&mb))
+                .then_with(|| natural_cmp(&ra, &rb))
+                .then_with(|| b["percent"].as_f64().partial_cmp(&a["percent"].as_f64()).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| natural_cmp(&g(a, "comparison"), &g(b, "comparison")))
+        });
+    } else if mode == &json!("lab_reference") || mode == &json!("control") {
+        let profiles: Vec<Profile> = iter_or_empty(req.get("profiles"), "profile")?.into_iter().map(|p| profile(p, "profile")).collect::<Res<_>>()?;
+        // Lab Reference compares only the selected samples; Control/QC uses every eligible sample.
+        let (sg, mg) = if mode == &json!("lab_reference") {
+            match req.get("selected") {
+                Some(Value::Array(sel)) => {
+                    let chosen: Vec<&Profile> = samples.iter().filter(|s| sel.iter().any(|c| c == &json!(s.id))).collect();
+                    let owned: Vec<Profile> = chosen.into_iter().cloned().collect();
+                    (idx_groups(&owned, false), idx_groups(&owned, true))
+                }
+                _ => (singles.clone(), mixeds.clone()),
+            }
+        } else {
+            (singles.clone(), mixeds.clone())
+        };
+        let targets: Vec<&IUnit> = sg.iter().chain(mg.iter()).collect();
+        for p in &profiles {
+            let pu = IUnit { name: p.id.clone(), mixed: false, members: vec![p.id.clone()], markers: p.markers.clone() };
+            for t in &targets {
+                let d_a = idx_match(&pu.markers, &t.markers, ignore);
+                let (r_is_profile, m) = if !t.mixed {
+                    let d_b = idx_match(&t.markers, &pu.markers, ignore);
+                    if d_a.fraction >= d_b.fraction && d_a.fraction * 100.0 >= thr {
+                        (true, d_a)
+                    } else if d_b.fraction > d_a.fraction && d_b.fraction * 100.0 >= thr {
+                        (false, d_b)
+                    } else {
+                        continue;
+                    }
+                } else if d_a.fraction * 100.0 >= thr {
+                    (true, d_a)
+                } else {
+                    continue;
+                };
+                rows.push(if r_is_profile { idx_row("profile", &pu, t, &m, "profile") } else { idx_row("group", t, &pu, &m, "group") });
+            }
+        }
+        rows.sort_by(|a, b| {
+            let g = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let kind = |v: &Value| if g(v, "ref_kind") == "group" { 0 } else { 1 };
+            kind(a)
+                .cmp(&kind(b))
+                .then_with(|| natural_cmp(&g(a, "reference"), &g(b, "reference")))
+                .then_with(|| b["percent"].as_f64().partial_cmp(&a["percent"].as_f64()).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| natural_cmp(&g(a, "comparison"), &g(b, "comparison")))
+        });
+    } else {
+        return Err("mode must be concordance, samples, lab_reference or control".into());
+    }
+    let groups: Vec<Value> = singles.iter().chain(mixeds.iter()).filter(|g| g.members.len() > 1).map(group_json).collect();
+    Ok(json!({"mode": mode, "idx": true, "threshold": thr_val, "groups": groups, "rows": rows}))
 }

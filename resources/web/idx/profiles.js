@@ -89,46 +89,118 @@ function profileManager(){let sel=null;const open=new Set();
 // ---------- Profile Comparison ----------
 const pqvBlue=a=>el('span',{class:'pm-match',text:a});
 function allelesCell(list,matched,bold){const td=el('td');list.forEach((a,i)=>{if(i)td.append(', ');const n=matched.includes(a)?pqvBlue(a):el('span',{text:a});if(bold)n.style.fontWeight='bold';td.append(n)});return td}
+// Profile Comparison (ID-X ProfileConcordanceDlg): Sample Concordance, Sample Comparison, Lab Reference Comparison, Control/QC Comparison.
+// Calculation on the server in ID-X mode ("idx": true); layout, messages, export and Display Plot follow the decompiled ID-X windows.
+const pcSplit=s=>String(s).split(','); // ID-X splits GenotypeMarker.c() ("a, b") on commas and keeps the leading blanks
+const pcCsv=rows=>rows.map(r=>r.map(v=>v==null?'':'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n')+'\n'; // opencsv CSVWriter: every non-null field quoted
+const pcPct=v=>{const t=Number(v).toFixed(1);return (t.startsWith('0.')?t.slice(1):t)+'%'}; // DecimalFormat("###.0")
+// Comparison alleles in the layout of the ID-X export: those missing from the reference are written in [brackets].
+function pcCompText(refAlleles,compAlleles){const set=new Set((refAlleles||[]).map(a=>String(a).trim()));
+ const parts=pcSplit((compAlleles||[]).join(', '));return parts.map((p,i)=>(refAlleles==null?p.trim()!=='':!(set.has(p.trim())||p.trim()===''))?'['+p+']':p).join(',')}
 function profileComparison(){
  const all=ctx.samples();const eligible=all.filter(s=>s.eligible);
- let tab='concordance',threshold=80,ignore=read('opentrace.pcIgnore',''),results={},openRows=new Set(),selected=new Set(eligible.map(s=>s.id)),selRow=null;
- const comments={};
- const units=()=>eligible.map(s=>({id:s.id,markers:s.markers}));
- const filesOf=ids=>ids.map(id=>all.find(s=>s.id===id)?.file).filter(Boolean);
- const run=async mode=>{try{const req={action:'compare',mode,samples:units(),threshold,ignore:ignore.split(/[,\s]+/).filter(Boolean)};
+ let tab='concordance',threshold=80,ignore=read('opentrace.pcIgnore',''),results={},selected=new Set(eligible.map(s=>s.id));
+ const comments={},checks=new Map(),openSamples=new Set(),ran={}; // checks: checkbox key -> sample files
+ const byId=id=>all.find(s=>s.id===id);
+ const labelOf=s=>s.label||[s.well||'',s.file,s.name].join(' | ');
+ const fullLabel=s=>[s.well||'',s.file,s.name,s.runDate||''].join(' | ');
+ const full=s=>{const pm=s.panelMarkers||[];const o={};for(const m of pm)o[m]=s.markers[m]||[];for(const [m,a] of Object.entries(s.markers))if(!(m in o))o[m]=a;return o};
+ const units=()=>eligible.map(s=>({id:s.id,label:labelOf(s),markers:full(s)}));
+ const filesOf=ids=>ids.map(id=>byId(id)?.file).filter(Boolean);
+ if(all.some(s=>s.hasOl))message(T('pcOlWarn'),T('pcOlWarnTitle'));
+ const thrOk=()=>Number.isInteger(threshold)&&threshold>=50&&threshold<=100;
+ const run=async mode=>{if(mode!=='concordance'&&!thrOk()){message(fmt('pcInvalidValue',50,100),T('pcInvalidTitle'));return}
+  try{const req={action:'compare',idx:true,mode,samples:units(),threshold,ignore:ignore.split(/[,\s]+/).filter(Boolean)};
    if(mode==='lab_reference'){req.profiles=profiles().filter(p=>p.type!=='Custom Control');req.selected=[...selected]}
    if(mode==='control')req.profiles=customControls();
-   results[mode]=await ctx.post('/api/profiles',req);openRows.clear();selRow=null;draw()}catch(e){message(e.message)}};
+   results[mode]=await ctx.post('/api/profiles',req);ran[mode]=true;draw();
+   if(mode!=='concordance'&&!results[mode].rows.length)message(T('pcNoMatchesMsg'),T('pcNoMatchesTitle'))}catch(e){message(e.message)}};
+ const exportCsv=()=>{const r=results[tab];const lines=[];
+  if(tab==='concordance'){const g=r?.groups||[];if(!g.length)return message(T('pcNoDataExport'),T('exportBtn'));
+   for(const kind of ['single','mixed']){const list=g.filter(x=>x.kind===kind);if(!list.length)continue;
+    lines.push([kind==='single'?'Single Source':'Mixed Source','100% Concordance']);
+    for(const x of list){lines.push([x.name,'']);lines.push(['Samples','']);for(const m of x.members){const s=byId(m);lines.push([s?fullLabel(s):m,''])}
+     const ms=Object.entries(x.markers);lines.push(ms.map(e=>e[0]));lines.push(ms.map(e=>e[1].join(', ')))}}
+  }else{if(!r||!r.rows||!r.rows.length||!thrOk())return message(T('pcNoDataExport'),T('exportBtn'));
+   lines.push(['Threshold ',threshold+'%']);const panels=pcPanels(r.rows);let first=true;
+   for(const p of panels){if(!first)lines.push(['','']);first=false;
+    const names=[...p.markerNames];const rm=p.rows[0].markers;
+    if(tab==='samples')lines.push([p.sectionText.replace(/ /g,''),'']);
+    else lines.push([p.kind==='group'?'Project sample/source-group used as reference to calculate percent match':(tab==='control'?'Custom Control':'Lab Reference')+' profile used as reference to calculate percent match','']),lines.push([]);
+    const hdr=[null,null,...names];const ref=[p.reference+' (Reference)',' % Match',...names.map(n=>{const m=p.refMarkers[n];return m?m.join(', '):''})];
+    lines.push(hdr);lines.push(ref);
+    for(const x of p.rows){const row=[x.comparison,pcPct(x.percent),...names.map(()=>undefined)];
+     names.forEach((n,i)=>{const m=x.markers[n];if(!m)return;
+      if(m.reference.length||x.markers[n].shared)row[i+2]=pcCompText(m.reference,m.comparison);
+      else if(m.comparison.length)row[i+2]=pcCompText(null,m.comparison)});
+     lines.push(row)}
+    if(tab==='samples')lines.push(['Comments',comments[p.key]??''])}}
+  download(tab==='concordance'?'Sample Concordance.csv':`Profile Comparison - ${tab}.csv`,pcCsv(lines),'text/csv')};
+ // rows -> panels (one panel per reference as in ID-X)
+ function pcPanels(rows){const out=[],idx=new Map();
+  for(const x of rows){const k=x.section+'|'+x.reference;let p=idx.get(k);
+   if(!p){p={key:k,section:x.section,reference:x.reference,kind:x.ref_kind,rows:[],markerNames:new Set(),refMarkers:{},members:x.reference_members,
+     sectionText:{'single-single':'Single-Single','single-mixed':'Single-Mixed','mixed-mixed':'Mixed-Mixed'}[x.section]||'',
+     title:x.ref_kind==='group'?T('pcRefGroup'):fmt('pcRefProfile',tab==='control'?'Custom Control':'Lab Reference')};idx.set(k,p);out.push(p)}
+   p.rows.push(x);for(const [m,v] of Object.entries(x.markers)){p.markerNames.add(m);if(v.reference.length||!(m in p.refMarkers))p.refMarkers[m]=v.reference.length?v.reference:(p.refMarkers[m]||null)}}
+  for(const p of out){for(const n of p.markerNames)if(!p.refMarkers[n])p.refMarkers[n]=null}return out}
+ const plotFiles=()=>{if(tab==='concordance'){message(T('pcPlotNotConcordance'));return null}
+  const keys=[...checks.entries()].filter(([k,v])=>v.on);if(!keys.length){message(T('pcNoPlotSelected'));return null}
+  const files=new Set(),missing=[];for(const [,v] of keys){if(v.files.length)v.files.forEach(f=>files.add(f));else missing.push(v.name)}
+  if(missing.length)message(fmt('pcPlotNotInProject',missing.join(',')));return [...files]};
  const d=dialog(T('profileComparison').replace(/\.+$/,''),()=>{},[
-  [T('displayPlots'),()=>{const r=selRow;if(!r)return message(T('selectRow')),false;ctx.plot(filesOf([...(r.reference_members||[]),...(r.comparison_members||[])]));return false}],
-  [T('exportBtn'),async()=>{const r=results[tab];if(!r||!r.rows)return message(T('pcNothing')),false;
-    const nm=id=>all.find(s=>s.id===id)?.name||id;const rows=r.rows.map((x,i)=>({...x,reference:nm(x.reference),comparison:nm(x.comparison),comment:comments[tab+i]||''}));try{const o=await ctx.post('/api/profiles',{action:'export_csv',rows});download(`Profile Comparison - ${tab}.csv`,o.text,'text/csv')}catch(e){message(e.message)}return false}],
+  [T('displayPlots'),()=>{const f=plotFiles();if(f&&f.length)ctx.plot(f);return false}],
+  [T('exportBtn'),()=>{exportCsv();return false}],
   [T('closeWin'),()=>true,true]]);
+ const markerGrid=(names,alleles,bold,other)=>names.map(n=>{const v=alleles[n]||[];const td=el('td',{class:'pcal'});
+  v.forEach((a,i)=>{if(i)td.append(', ');const blue=other(n,a);const sp=el('span',{text:a});sp.style.color=blue?'#0000ff':'#000';if(bold)sp.style.fontWeight='bold';td.append(sp)});return td});
+ const cbox=(key,name,files)=>{const c=el('input',{type:'checkbox','data-key':key,title:T('pcSelectPlot')});const st=checks.get(key)||{on:false,files,name};st.files=files;st.name=name;checks.set(key,st);c.checked=st.on;
+  c.addEventListener('change',()=>{st.on=c.checked});return c};
+ const filesFor=(name,members,isProfile)=>isProfile?all.filter(s=>(s.profileId||'')===name).map(s=>s.file):filesOf(members||[]);
+ const panelEl=p=>{const names=[...p.markerNames];const t=el('table',{class:'g pcpanel'});
+  const hd=el('tr',{},el('th'),el('th'),el('th'),...names.map(n=>el('th',{text:n})));t.append(hd);
+  const refTip=p.members&&p.members.length>1?p.members.map(m=>{const s=byId(m);return s?fullLabel(s):m}).join('\n'):'';
+  const others=new Map();for(const x of p.rows){for(const n of names){const m=x.markers[n];(others.get(n)||others.set(n,new Set()).get(n));for(const a of (m?.comparison||[]))others.get(n).add(String(a).trim().toLowerCase())}}
+  const refRow=el('tr',{class:'pcref'},el('td',{},cbox('r|'+tab+'|'+p.key,p.reference,filesFor(p.reference,p.members,p.kind==='profile'))),
+   el('td',{class:'b',title:refTip,text:fmt('pcReferenceOf',p.reference)}),el('td',{class:'b',text:T('pcMatch')}),
+   ...markerGrid(names,Object.fromEntries(names.map(n=>[n,p.refMarkers[n]||[]])),true,(n,a)=>others.get(n)?.has(String(a).trim().toLowerCase())));
+  t.append(refRow);
+  const refSet=n=>new Set((p.refMarkers[n]||[]).map(a=>String(a).trim().toLowerCase()));
+  for(const x of p.rows){const tip=x.comparison_members&&x.comparison_members.length>1?x.comparison_members.map(m=>{const s=byId(m);return s?fullLabel(s):m}).join('\n'):'';
+   t.append(el('tr',{},el('td',{},cbox('c|'+tab+'|'+p.key+'|'+x.comparison,x.comparison,filesFor(x.comparison,x.comparison_members,tab!=='samples'&&x.ref_kind==='group'))),
+    el('td',{title:tip,text:x.comparison}),el('td',{class:'num',text:pcPct(x.percent)}),
+    ...markerGrid(names,Object.fromEntries(names.map(n=>[n,x.markers[n]?.comparison||[]])),false,(n,a)=>refSet(n).has(String(a).trim().toLowerCase()))))}
+  if(tab==='samples'){const cm=el('input',{type:'text',maxlength:'100',class:'pccm',value:comments[p.key]||''});cm.addEventListener('input',()=>{comments[p.key]=cm.value});
+   const tr=el('tr',{},el('td',{text:T('pcComments')}),el('td',{colspan:String(names.length+2)},cm));t.append(tr)}
+  return t};
  const draw=()=>{const b=d.body;b.replaceChildren();b.classList.add('pcdlg');
   const tabs=el('div',{class:'tabs dtabs'});
-  for(const [id,key] of [['concordance','pcConcordance'],['samples','pcSamples'],['lab_reference','pcLabRef'],['control','pcControl']]){const t=el('div',{class:'tab'+(tab===id?' on':''),text:T(key),'data-tab':id});t.addEventListener('mousedown',()=>{tab=id;selRow=null;openRows.clear();draw();if(id==='concordance'&&!results.concordance)run('concordance')});tabs.append(t)}
+  for(const [id,key] of [['concordance','pcConcordance'],['samples','pcSamples'],['lab_reference','pcLabRef'],['control','pcControl']]){const t=el('div',{class:'tab'+(tab===id?' on':''),text:T(key),'data-tab':id});t.addEventListener('mousedown',()=>{tab=id;draw();if(id==='concordance'&&!results.concordance)run('concordance')});tabs.append(t)}
   const page=el('div',{class:'tabpage dpage'});
   page.append(el('div',{class:'note',text:fmt('pcEligible',eligible.length,all.length)}));
-  if(tab==='concordance'){const r=results.concordance;const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...['',T('pcGroup'),T('samples')].map(h=>el('th',{text:h})))));const tb=el('tbody');
-   for(const g of r?.groups||[]){const exp=openRows.has(g.id);const tw=el('span',{class:'twisty',text:exp?'−':'+'});
-    const tr=el('tr',{},el('td',{class:'ic'},tw),el('td',{text:T(g.kind==='mixed'?'pcMixedGroup':'pcSingleGroup')+' '+g.id.replace(/\D+/g,'')}),el('td',{class:'num',text:String(g.members.length)}));
-    tw.addEventListener('mousedown',()=>{exp?openRows.delete(g.id):openRows.add(g.id);draw()});tr.addEventListener('dblclick',()=>ctx.plot(filesOf(g.members)));tb.append(tr);
-    if(exp)for(const m of g.members)tb.append(el('tr',{class:'sub'},el('td'),el('td',{text:'   '+(all.find(s=>s.id===m)?.name||m)}),el('td')))}
-   t.append(tb);page.append(el('div',{class:'grid pcgrid'},t));if(r&&!r.groups.length)page.append(el('p',{text:T('pcNoGroups')}))}
-  else{const thr=el('input',{type:'number',id:'pcThreshold',min:'50',max:'100',value:String(threshold),class:'num'});thr.addEventListener('change',()=>{threshold=Math.max(50,Math.min(100,Number(thr.value)||80));thr.value=threshold});
+  if(tab==='concordance'){const r=results.concordance;
+   const groups=r?.groups||[];
+   if(r&&!groups.length)page.append(el('p',{class:'pcnone',text:T('pcNoGroups')}));
+   for(const kind of ['single','mixed']){const list=groups.filter(g=>g.kind===kind);if(!list.length)continue;
+    page.append(el('div',{class:'pctitle'},el('b',{text:T(kind==='single'?'pcSingleSource':'pcMixedSource')}),el('span',{text:'   '+T('pc100Conc')})));
+    for(const g of list){const open=openSamples.has(g.name);const fs=el('fieldset',{class:'pcgroup'},el('legend',{text:g.name}));
+     const tw=el('span',{class:'twisty',text:open?'−':'+'});const hd=el('div',{class:'pcsamples'},tw,el('span',{text:' '+T('samples')}));
+     hd.addEventListener('mousedown',()=>{open?openSamples.delete(g.name):openSamples.add(g.name);draw()});fs.append(hd);
+     if(open)for(const m of g.members){const s=byId(m);fs.append(el('div',{class:'pcsample',text:s?fullLabel(s):m}))}
+     const ms=Object.entries(g.markers);const t=el('table',{class:'g pcpanel'});t.append(el('tr',{},...ms.map(e=>el('th',{text:e[0]}))));
+     t.append(el('tr',{},...ms.map(e=>el('td',{class:'pcal',text:e[1].join(', ')}))));fs.append(t);page.append(fs)}}}
+  else{const thr=el('input',{type:'text',id:'pcThreshold',maxlength:'3',value:String(threshold),class:'num'});
+   thr.addEventListener('input',()=>{thr.value=thr.value.replace(/\D/g,'').slice(0,3);if(Number(thr.value)>100)thr.value=thr.value.slice(0,-1);threshold=thr.value===''?NaN:Number(thr.value)});
    const ig=el('input',{type:'text',id:'pcIgnore',value:ignore,placeholder:'F, A'});ig.addEventListener('change',()=>{ignore=ig.value;write('opentrace.pcIgnore',ignore)});
    const go=el('button',{class:'btn',type:'button',text:T('pcCompare'),id:'pcCompareBtn'});go.addEventListener('click',()=>run(tab));
-   page.append(el('div',{class:'pcbar'},el('label',{text:T('pcThreshold')}),thr,el('label',{text:T('pcIgnoreLabels')}),ig,go));
-   if(tab==='lab_reference'){const box=el('div',{class:'pcsel'});for(const s of eligible){const cb=el('input',{type:'checkbox','data-id':s.id});cb.checked=selected.has(s.id);cb.addEventListener('change',()=>{cb.checked?selected.add(s.id):selected.delete(s.id)});box.append(el('label',{class:'chk'},cb,document.createTextNode(' '+s.name)))}
-    page.append(el('div',{class:'cap',text:fmt('pcLabRefNote',profiles().filter(p=>p.type!=='Custom Control').length)}),box)}
+   page.append(el('div',{class:'cap',text:T('pcThresholdFull')}),el('div',{class:'pcbar'},thr,go,el('label',{text:T('pcIgnoreLabels')}),ig));
+   if(tab==='lab_reference'){const box=el('div',{class:'pcsel'});for(const s of eligible){const cb=el('input',{type:'checkbox','data-id':s.id});cb.checked=selected.has(s.id);cb.addEventListener('change',()=>{cb.checked?selected.add(s.id):selected.delete(s.id)});box.append(el('label',{class:'chk'},cb,document.createTextNode(' '+labelOf(s))))}
+    page.append(el('div',{class:'cap pcnote',text:T('pcLabNote')}),box)}
    if(tab==='control')page.append(el('div',{class:'cap',text:fmt('pcControlNote',customControls().length)}));
-   const r=results[tab];const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},...['',T('pcReference'),T('pcComparisonProfile'),T('pcMatch'),T('pcComment')].map(h=>el('th',{text:h})))));const tb=el('tbody');
-   const nameOf=id=>all.find(s=>s.id===id)?.name||id;
-   (r?.rows||[]).forEach((x,i)=>{const exp=openRows.has(i);const tw=el('span',{class:'twisty',text:exp?'−':'+'});const cm=el('input',{type:'text',value:comments[tab+i]||''});cm.addEventListener('input',()=>{comments[tab+i]=cm.value});cm.addEventListener('mousedown',e=>e.stopPropagation());
-    const tr=el('tr',{class:'prow'+(selRow===x?' sel':'')},el('td',{class:'ic'},tw),el('td',{text:nameOf(x.reference)}),el('td',{text:nameOf(x.comparison)}),el('td',{class:'num',text:x.percent.toFixed(1)}),el('td',{class:'cust'},cm));
-    tw.addEventListener('mousedown',e=>{e.stopPropagation();exp?openRows.delete(i):openRows.add(i);draw()});tr.addEventListener('mousedown',()=>{selRow=x;tb.querySelectorAll('tr.prow').forEach(y=>y.classList.toggle('sel',y===tr))});tb.append(tr);
-    if(exp)for(const [m,v] of Object.entries(x.markers)){const sub=el('tr',{class:'sub'},el('td'),el('td',{text:'   '+m}));sub.append(allelesCell(v.reference,v.matched,true),allelesCell(v.comparison,v.matched,false),el('td'));tb.append(sub)}});
-   t.append(tb);page.append(el('div',{class:'grid pcgrid'},t));if(r&&!r.rows.length)page.append(el('p',{text:fmt('pcNoResults',threshold)}))}
+   const r=results[tab];
+   if(r&&r.rows&&r.rows.length){const panels=pcPanels(r.rows);let cur=null;
+    const secTitle=p=>tab==='samples'?{'single-single':T('pcSingleSingle'),'single-mixed':T('pcSingleMixed'),'mixed-mixed':T('pcMixedMixed')}[p.section]:p.title;
+    for(const p of panels){const st=secTitle(p);if(st!==cur){cur=st;page.append(el('div',{class:'pctitle'},el('b',{text:st})))}page.append(panelEl(p))}}}
   b.append(tabs,page)};
  draw();run('concordance');return d}
 
