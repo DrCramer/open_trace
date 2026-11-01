@@ -9,6 +9,7 @@ const DEFAULTS={
  add:{method:'',sizeStd:'',panelKey:'',type:'auto'},
  ars:'stop',               // 'stop' | 'continue'  (Analysis Requirements Summary)
  alas:'stop',              // 'stop' | 'passing' | 'all'  (Allelic Ladder Analysis Summary)
+ binOffsets:'green',       // 'green' | 'greenYellow': ladders whose SQ is green (or green/yellow) contribute to bin offsets
  after:'summary',          // 'summary' | 'samples'
  lowQualityTop:false,
  metrics:'symbols',        // 'symbols' | 'numbers' for SQ and GQ
@@ -23,7 +24,7 @@ function load(){let v=null;try{v=JSON.parse(localStorage.getItem(KEY)||'null')}c
  const o=clone(DEFAULTS);if(v&&typeof v==='object'){for(const k of Object.keys(DEFAULTS))if(k!=='add'&&typeof v[k]===typeof DEFAULTS[k])o[k]=v[k];
   if(v.add&&typeof v.add==='object')for(const k of Object.keys(DEFAULTS.add))if(typeof v.add[k]==='string')o.add[k]=v.add[k]}
  if(!['new','last'].includes(o.startup))o.startup='new';if(!['stop','continue'].includes(o.ars))o.ars='stop';
- if(!['stop','passing','all'].includes(o.alas))o.alas='stop';if(!['summary','samples'].includes(o.after))o.after='summary';
+ if(!['stop','passing','all'].includes(o.alas))o.alas='stop';if(!['summary','samples'].includes(o.after))o.after='summary';if(!['green','greenYellow'].includes(o.binOffsets))o.binOffsets='green';
  if(!['symbols','numbers'].includes(o.metrics))o.metrics='symbols';o.pullupExcludesCalls=o.pullupExcludesCalls===true;for(const k of ['homoMinHeight','hetMinHeight'])if(!Number.isFinite(o[k])||o[k]<0)o[k]=DEFAULTS[k];o.comment=String(o.comment).slice(0,200);return o}
 let cached=null;
 function save(o){cached=o;try{localStorage.setItem(KEY,JSON.stringify(o))}catch(e){}window.dispatchEvent(new Event('opentrace-options'))}
@@ -62,6 +63,7 @@ function open(ctx){
   else{
    page.append(
     el('fieldset',{},el('legend',{text:T('optArs')}),radio('ars','stop',T('optArsStop'),o.ars,v=>o.ars=v),radio('ars','continue',T('optArsContinue'),o.ars,v=>o.ars=v)),
+    el('fieldset',{},el('legend',{text:T('optBinOffsets')}),radio('bo','green',T('optBoGreen'),o.binOffsets,v=>o.binOffsets=v),radio('bo','greenYellow',T('optBoGreenYellow'),o.binOffsets,v=>o.binOffsets=v)),
     el('fieldset',{},el('legend',{text:T('optAlas')}),radio('alas','stop',T('optAlasStop'),o.alas,v=>o.alas=v),radio('alas','passing',T('alasPassing'),o.alas,v=>o.alas=v),radio('alas','all',T('alasAll'),o.alas,v=>o.alas=v)),
     el('fieldset',{},el('legend',{text:T('optAfter')}),radio('after','summary',T('optAfterSummary'),o.after,v=>o.after=v),radio('after','samples',T('optAfterSamples'),o.after,v=>o.after=v)),
     el('fieldset',{},el('legend',{text:T('optAutomatic')}),check('lowQualityTop',T('lowQualityTop'),o.lowQualityTop,v=>o.lowQualityTop=v)),

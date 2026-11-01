@@ -893,8 +893,8 @@ async function judgeLadders(g){
  const used=new Set(Object.values(rep.ladder?.markers||{}).flatMap(m=>m.status==='accepted'?m.source_ladders||[]:[]));
  for(const l of rep.quality?.run_ladders||[]){const s=lad.find(x=>x.file===l.ladder_id);if(s){s.ladderQuality=l.quality_code;s.ladderUsed=used.has(s.file)}}
  g.pass=['accepted','partial'].includes(rep.ladder?.status)&&lad.some(s=>s.ladderQuality===0&&sqPass(s));
- // ID-X bin offsets: only passing allelic ladders with green SQ contribute (AnalysisProperty.BinOffsetChoices = GreenSqOnly).
- const green=lad.filter(sqPass);let offRep=rep;g.offLadders=g.ladders;
+ // ID-X bin offsets: passing allelic ladders with green SQ (Project Options > Bin Offsets: or green and/or yellow SQ) contribute.
+ const bo=ProjectOptions.get().binOffsets;const green=lad.filter(s=>sqPass(s)||(bo==='greenYellow'&&samplePqv(s).SQ==='check'));let offRep=rep;g.offLadders=g.ladders;
  if(green.length&&green.length<lad.length){g.offLadders=green.map(ladderInput);
   const gp=green.find(s=>s.analysis?.sizing?.status==='accepted')||probe;
   try{offRep=await jsonPost('/api/str-run',{sample:ladderInput(gp).analysis,ladders:g.offLadders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
