@@ -166,7 +166,7 @@ function paint(cv,items,x0,x1,onlyMarker){
   g.lineWidth=1;g.beginPath();t.pts.forEach(([x,v],i)=>i?g.lineTo(Xc(x),Y(v)):g.moveTo(Xc(x),Y(v)));g.stroke()});
  // marker indicators: red triangles at the start and end of each marker range after bin offsetting
  if(view.markerIndicator&&!dp)for(const m of markers.filter(m=>dyes.includes(m.channel))){const w=markerCalling(s,m.name)?.window_bp||[m.min_bp,m.max_bp];
-  for(const v of w){const x=X(v);if(x<L-1||x>W-R+1)continue;g.fillStyle='#ff0000';g.beginPath();g.moveTo(x-4,bottom);g.lineTo(x,bottom-10);g.lineTo(x+4,bottom);g.closePath();g.fill()}}
+  for(const v of w){const x=X(v);if(x<L-1||x>W-R+1)continue;g.fillStyle=view.partial?.has(s.id+'|'+m.name)?'#ff9900':'#ff0000';g.beginPath();g.moveTo(x-4,bottom);g.lineTo(x,bottom-10);g.lineTo(x+4,bottom);g.closePath();g.fill()}}
  // peak position indicators: a tick under each detected peak
  if(view.peakPositions)for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null&&!dp)continue;const x=Xc(pos(pk.size_bp,pk.scan));if(x<L||x>W-R)continue;
   g.strokeStyle=DYE_COLORS[t.tag]||'#333';g.beginPath();g.moveTo(x,bottom-1);g.lineTo(x,bottom-7);g.stroke()}
@@ -237,6 +237,7 @@ function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw||1)));const
 // ---------- interaction ----------
 let drag=null;
 const peakKey=(s,tag,pk)=>`${s.id}|${tag}|${pk.size_bp.toFixed(3)}`;
+window.__otPeakKey=peakKey;
 view.selPeaks=view.selPeaks||new Map();window.__otView=view;
 const nearPeak=(G,x)=>G.peakPts.filter(p=>Math.abs(p.x-x)<=6).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0];
 // Zones as in ID-X EfChart: the strip above the plot is the X axis, the strip left of it the Y axis (own zoom, double click and menu).
@@ -294,10 +295,11 @@ document.addEventListener('dblclick',e=>{const cv=e.target.closest('canvas');if(
   const peak={scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag};
   ctxMenu(e.clientX,e.clientY,[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak})}])}});
 // Right arrow / left arrow: move the selection to the next / previous peak of the pane (Shift adds to the selection), wrapping round, as in ID-X.
-document.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest('input,textarea,select'))return;
+document.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;if(e.ctrlKey||e.metaKey||e.target.closest('input,textarea,select'))return;
  const last=[...view.selPeaks.keys()].pop();if(!last)return;
  for(const cv of document.querySelectorAll('canvas')){const pts=(cv._geom?.peakPts||[]).slice().sort((a,b)=>a.x-b.x);const i=pts.findIndex(p=>peakKey(p.sample,p.tag,p.peak)===last);if(i<0)continue;
-  const n=pts[(i+(e.key==='ArrowRight'?1:pts.length-1))%pts.length];e.preventDefault();if(!e.shiftKey)view.selPeaks.clear();view.selPeaks.set(peakKey(n.sample,n.tag,n.peak),n);draw();showPhr();return}});
+  const dir=e.key==='ArrowRight'?1:pts.length-1;let j=(i+dir)%pts.length;if(e.altKey)for(let g=0;g<pts.length&&Math.abs(pts[j].x-pts[i].x)<0.5;g++)j=(j+dir)%pts.length; // Alt: next peak at another scan position
+  const n=pts[j];e.preventDefault();if(!e.shiftKey)view.selPeaks.clear();view.selPeaks.set(peakKey(n.sample,n.tag,n.peak),n);draw();showPhr();return}});
 document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');if(!cv?._geom)return;const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const xv=G.x0+(x-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),v=(G.bottom-y)/(G.bottom-G.top)*G.ymax;const bp=G.dp?scanToBp(G.curve,xv):xv;
  $('xy').textContent=`[X ${G.dp?Math.round(xv):xv.toFixed(2)}  Y ${Math.round(v)}]`;
@@ -313,7 +315,7 @@ function exportPlotTable(){const ss=(payload?.samples||[]).filter(s=>s.markers?.
 const fmt=(key,...a)=>T(key).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
 function ctxMenu(x,y,items){document.querySelectorAll('.menu.ctx').forEach(m=>m.remove());
  const m=el('div',{class:'menu ctx show',style:`left:${x}px;top:${y}px`});
- for(const it of items){if(it==='-'){m.append(el('div',{class:'msep'}));continue}const r=el('div',{class:'mi'+(it.disabled?' dis':''),text:it.label});if(!it.disabled)r.addEventListener('click',()=>{m.remove();it.run()});m.append(r)}
+ for(const it of items){if(it==='-'){m.append(el('div',{class:'msep'}));continue}const r=el('div',{class:'mi'+(it.disabled?' dis':''),text:(it.checked?'✓ ':'')+it.label});if(!it.disabled)r.addEventListener('click',()=>{m.remove();it.run()});m.append(r)}
  document.body.append(m);setTimeout(()=>document.addEventListener('mousedown',function h(e){if(!m.contains(e.target)){m.remove();document.removeEventListener('mousedown',h)}}),0)}
 function ask(title,fields){return new Promise(res=>{dialog(title,b=>{for(const f of fields)b.append(el('div',{class:'field'},el('label',{text:f.label}),el('input',{type:'text',id:f.id,value:f.value||''})))},
  [[T('ok'),b=>{const out={};for(const f of fields){out[f.id]=b.querySelector('#'+f.id).value.trim();if(!out[f.id]){message(T('reasonRequired'));return false}}
@@ -352,7 +354,10 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
   ctxMenu(e.clientX,e.clientY,[{label:T('overrideCgq'),run:()=>edit(s,{action:'override_cgq'})}]);return}
  if(!cv?._geom)return;e.preventDefault();const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  {const z=zoneAt(G,x,y);
-  if(z==='x'){ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:xFullView},{label:T('zoomTo'),run:xZoomToDlg}]);return}
+  if(z==='x'){const xv=G.x0+(x-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),bpx=G.dp?scanToBp(G.curve,xv):xv;const pm=G.markers.find(m=>bpx>=m.min_bp&&bpx<=m.max_bp)||G.markers.find(m=>m.name===view.selMarker);
+   const pk=pm?G.sample.id+'|'+pm.name:null;
+   ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:xFullView},{label:T('zoomTo'),run:xZoomToDlg},
+    {label:T('partialLocus')+(pm?` (${pm.name})`:''),checked:!!(pk&&view.partial?.has(pk)),disabled:!pm,run:()=>{view.partial=view.partial||new Set();view.partial.has(pk)?view.partial.delete(pk):view.partial.add(pk);draw()}}]);return}
   if(z==='y'){ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:yFullView},{label:T('zoomTo'),run:yZoomToDlg}]);return}}
  const s=G.sample;if(!s.editable)return;
  const box=G.labelBoxes.find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);
@@ -631,7 +636,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(k==='e'){e.preventDefault();exportPlotTable();return}
  if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}
  if(e.key==='-'){e.preventDefault();zoom(2)}});
-let escBusy=false;document.addEventListener('keydown',e=>{if(e.key==='Escape')escBusy=!!document.querySelector('.dlg,.backdrop,.menu.show')},true);
+let escBusy=false;document.addEventListener('keydown',e=>{if(e.key==='Escape'){escBusy=!!document.querySelector('.dlg,.backdrop,.menu.show');document.querySelectorAll('.menu.ctx').forEach(m=>m.remove())}},true);
 document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||e.ctrlKey||e.altKey||e.shiftKey)return;
  if(escBusy)return;if(e.target.closest('input,textarea,select'))return;
  if(view.selPeaks&&view.selPeaks.size){view.selPeaks.clear();draw();return}
