@@ -289,6 +289,7 @@ function effective(s){
   else if(e.action==='rename'){const c=byId.get(e.callId);if(c){c.label=e.new;c.user_edited=true}}
   else if(e.action==='delete'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0)calls.splice(i,1)}
   else if(e.action==='add'){const c={...e.peak,id:'u'+e.id,marker:e.marker,label:e.new,flags:['user_added'],user_edited:true};calls.push(c);byId.set(c.id,c)}
+  else if(e.action==='move'){const c=byId.get(e.callId);if(c){Object.assign(c,e.peak,{label:e.new,user_edited:true})}}
   else if(e.action==='to_artifact'){const i=calls.findIndex(c=>c.id===e.callId);if(i>=0){const c=calls.splice(i,1)[0];
    arts.set('a'+e.id,{id:'a'+e.id,channel:c.channel,size_bp:c.size_bp,height:c.height,scan:c.scan,marker:c.marker,label:e.new,from:c.id,orig:c.label})}}
   else if(e.action==='add_artifact'){arts.set('a'+e.id,{id:'a'+e.id,...e.peak,marker:e.marker,label:e.new})}
@@ -305,10 +306,10 @@ function editItems(sampleId,spec){const s=state.project.samples.find(x=>x.id===s
  if(spec.action==='override_gq')return [{map:'Sample',attribute:'OverrideGQ',instance:`${inst} · ${spec.marker}`,old:'',new:'1.0',label:`${T('overrideGq')} (${spec.marker})`,event:'Override GQ'}];
  if(spec.action==='override_cgq')return [{map:'Sample',attribute:'OverrideCGQ',instance:inst,old:'',new:'1.0',label:T('overrideCgq'),event:'Override CGQ'}];
  if(spec.action==='pli')return [{map:'Sample',attribute:'modified',instance:`${inst} · ${spec.marker}`,old:spec.new==='on'?'':'PLI',new:spec.new==='on'?'PLI':'',label:`PLI (${spec.marker})`,event:'Partial Locus Indicator'}];
- const attr={add:'created',rename:'modified',delete:'deleted',to_artifact:'modified',add_artifact:'created',rename_artifact:'modified',delete_artifact:'deleted',artifact_to_allele:'modified'}[spec.action];
+ const attr={move:'modified',add:'created',rename:'modified',delete:'deleted',to_artifact:'modified',add_artifact:'created',rename_artifact:'modified',delete_artifact:'deleted',artifact_to_allele:'modified'}[spec.action];
  const gone=spec.action==='delete'||spec.action==='delete_artifact';
  return [{map:'Allele',attribute:attr,instance:where,old:old?String(old.label):'',new:gone?'':String(spec.new??''),label:`${T('colAllele')} ${spec.marker||''}`,
-  event:{created:'Add Allele',modified:'Modify Allele',deleted:'Delete Allele'}[attr]}]}
+  event:spec.action==='move'?'Move Allele':{created:'Add Allele',modified:'Modify Allele',deleted:'Delete Allele'}[attr]}]}
 // spec: {action:'rename'|'delete'|'add'|'override_gq'|'override_cgq', marker, callId?, peak?, new?, reason?}
 // reason === undefined -> ask here (Reason for Change when the audit state is On); a string -> already asked by the caller.
 async function applyEdit(sampleId,spec){

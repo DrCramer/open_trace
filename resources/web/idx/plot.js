@@ -255,16 +255,24 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
  if(z==='y'){drag={cv,mode:'y',x0:x,y0:y};e.preventDefault();return}
  if(z!=='plot')return;
  const near=nearPeak(G,x);const multi=e.ctrlKey||e.metaKey||e.shiftKey;
+ // Ctrl+drag of the single selected labeled peak onto another peak moves its allele label there (ID-X Move Allele)
+ if(near&&e.ctrlKey&&near.sample.editable&&view.selPeaks.size===1&&view.selPeaks.has(peakKey(near.sample,near.tag,near.peak))){
+  const call=(near.sample.report?.calls||[]).find(c=>c.channel===near.tag&&Math.abs(c.size_bp-near.peak.size_bp)<0.05);
+  if(call){drag={cv,mode:'move',x0:x,y0:y,call,near};e.preventDefault();return}}
  if(!near){drag={cv,mode:e.shiftKey?'sel':'h',x0:x,y0:y,moved:false,multi};e.preventDefault();return}
  const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
  else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw();showPhr()});
 document.addEventListener('mousemove',e=>{if(!drag)return;const r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
- if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved)bandShow(drag.cv,drag,x,y)});
+ if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved&&drag.mode!=='move')bandShow(drag.cv,drag,x,y)});
 // Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
 function showPhr(){const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
  if(sel.length!==2){c.textContent='';return}const [a,b]=sel.map(p=>p.peak.height);c.textContent=fmt('phrStatus',(Math.min(a,b)/Math.max(a,b)).toFixed(2),Math.round(a),Math.round(b))}
 document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;bandHide();const G=d.cv._geom,r=d.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const invX=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),invY=py=>(G.bottom-py)/(G.bottom-G.top)*G.ymax;
+ if(d.mode==='move'){if(!d.moved)return;const t=nearPeak(G,x);if(!t||t===d.near||t.tag!==d.near.tag||t.sample!==d.near.sample)return;const bp=t.peak.size_bp;
+  const mk=G.markers.find(m=>m.name===d.call.marker);if(!mk||bp<mk.min_bp||bp>mk.max_bp)return;
+  const taken=(t.sample.report?.calls||[]).some(c=>c.channel===t.tag&&Math.abs(c.size_bp-bp)<0.05&&c!==d.call);if(taken)return;
+  edit(t.sample,{action:'move',marker:mk.name,callId:d.call.id,new:binLabel(mk,bp),peak:{scan:t.peak.scan,size_bp:bp,height:t.peak.height,channel:t.tag}});return}
  if(d.mode==='x'){const a=invX(Math.min(d.x0,x)),b=invX(Math.max(d.x0,x));if(b-a>1&&Math.abs(x-d.x0)>3){view.x0=a;view.x1=b;view.userZoom=true;draw()}return}
  if(d.mode==='y'){if(Math.abs(y-d.y0)>3){yZoomTo(invY(Math.min(d.y0,y)))}return}
  if(d.mode==='h'){if(!d.moved||Math.abs(y-d.y0)<=4){if(!d.multi&&view.selPeaks.size){view.selPeaks.clear();draw();showPhr()}return}yZoomTo(invY(Math.min(d.y0,y)));return}
