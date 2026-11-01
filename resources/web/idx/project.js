@@ -1245,6 +1245,10 @@ async function deleteFromProject(){
  ch.commit();
  state.project.runFolders=state.project.runFolders.filter(rf=>state.project.samples.some(s=>s.runFolder===rf));
  state.selected.clear();state.project.dirty=true;render()}
+function yScaleToDialog(){const r=SampleViews.yRange();let lo,hi;
+ dialog(T('scaleTo').replace(/\.+$/,''),b=>{lo=el('input',{type:'number',id:'ysMin',value:String(Math.round(r.ymin))});hi=el('input',{type:'number',id:'ysMax',value:String(Math.round(r.ymax))});
+  b.append(el('div',{class:'field'},el('label',{text:T('siMin')}),lo),el('div',{class:'field'},el('label',{text:T('siMax')}),hi))},
+  [[T('ok'),()=>{const a=Number(lo.value),z=Number(hi.value);if(!(z>a)){message(T('rangeInvalid'));return false}SampleViews.yScaleTo(a,z);buildChrome()},true],[T('cancel'),()=>true]])}
 function selectAll(){state.selected=new Set(visibleSamples().map(s=>s.id));render()}
 function setLang(l){I18N.set(l);buildChrome();render()}
 
@@ -1253,32 +1257,44 @@ function buildChrome(){
  document.documentElement.lang=I18N.lang;
  const lang=I18N.lang;
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},{label:T('closeProject'),run:closeProject},
-   {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},'-',
+  // Menu layout and order follow ProjectMgr of ID-X 1.6 (menu construction at the end of ProjectMgr.java). Items marked "extra" exist only in OpenTrace.
+  {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},
+   {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},{label:T('closeProject'),run:closeProject}/*extra*/,'-',
+   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},{label:T('exportCombined'),run:exportCombined},
+   {label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)}/*extra*/,{label:T('exportProjectPanel'),run:exportProjectPanel}/*extra: created but not placed in a menu in ID-X*/,'-',
+   {label:T('pageSetup'),run:pageSetupDialog},{label:T('print'),sc:'Ctrl+P',run:printNow},{label:T('printPreview'),run:printPreview},'-',
+   {label:T('projectOptions'),run:projectOptions},'-',
+   {label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password}/*extra*/,{label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('exit'),run:()=>window.close()}]},
+  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!histU.length,run:undoProject}/*extra*/,{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:!histR.length,run:redoProject}/*extra*/,'-',
+   {label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},{label:T('clear'),sc:'Delete',run:clearCells}/*extra*/,'-',
    {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
-   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportProjectPanel'),run:exportProjectPanel},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
-   {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
-   {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!histU.length,run:undoProject},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:!histR.length,run:redoProject},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},
-   {label:T('clear'),sc:'Delete',run:clearCells},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},{label:T('defineSamplePath'),run:defineSamplePath},'-',
+   {label:T('deleteFromProject'),run:deleteFromProject},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('defineSamplePath'),run:defineSamplePath}/*extra*/,'-',
+   {label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{label:T('fitToContent'),sc:'Ctrl+I',run:fitToContent},'-',
    {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog}]},
-  {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},'-',
-   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{label:T('nonConcordantTop'),checked:!!state.nonConcTop,run:toggleNonConcordantTop},'-',
-   {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch}]},
+  {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},
+   {label:T('analyzeMarkers'),disabled:true}]},
   {label:T('view'),items:[{label:T('samples'),sc:'Ctrl+Shift+1',checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),sc:'Ctrl+Shift+2',checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
-   {label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',{label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
-   {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},{label:T('fitToContent'),sc:'Ctrl+I',run:fitToContent},'-',
-   {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}]},
-  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},{label:T('labelEditViewer'),run:labelEditViewer},
-   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},'-',{label:T('addProfile'),sub:[{label:T('pfLab'),run:()=>addProfile('Lab Reference')},{label:T('pfCustom'),run:()=>addProfile('Custom Control')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
-   {label:T('mixture'),sc:'Ctrl+U',run:()=>Mixture.open()},{label:T('mixtureManager'),sc:'Ctrl+Y',run:()=>Mixture.manager()}]},
+   {label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',
+   {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},{label:T('labelEditViewer'),run:labelEditViewer},'-',
+   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{label:T('nonConcordantTop'),checked:!!state.nonConcTop,run:toggleNonConcordantTop},'-',
+   {label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',
+   {label:T('fullView'),sc:'Ctrl+]',disabled:!['raw','ept'].includes(state.tab),run:()=>SampleViews.fullView()},
+   {label:T('yAxis'),sub:[{label:T('scaleMaxY'),checked:!SampleViews.yRange().custom,disabled:state.tab!=='raw',run:()=>SampleViews.yScaleMax()},{label:T('scaleTo'),checked:SampleViews.yRange().custom,disabled:state.tab!=='raw',run:yScaleToDialog}]},'-',
+   {label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
+   {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},'-',
+   {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}/*extra*/]},
+  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},'-',
+   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},{label:T('mixture'),sc:'Ctrl+U',run:()=>Mixture.open()},{label:T('mixtureManager'),sc:'Ctrl+Y',run:()=>Mixture.manager()},'-',
+   {label:T('addProfile'),sub:[{label:T('pfCustom'),run:()=>addProfile('Custom Control')},{label:T('pfLab'),run:()=>addProfile('Lab Reference')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
+   {label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch}]},
   {label:T('admin'),items:[{label:T('securityManager'),run:()=>Sec.securityManager(),disabled:!Sec.can('AdminToolAcc/General/May run application')},
    {label:T('auditManager'),sub:[{label:T('auditSetting'),run:()=>Sec.auditSettings(),disabled:!Sec.can('AuditGUI/Map Configuration Tool/May run application')},
-    {label:T('auditHistory'),run:()=>Sec.auditHistory(),disabled:!Sec.can('AuditGUI/Audit History Viewer/May run application')},'-',
-    {label:T('scShowCount'),run:()=>Sec.auditCount()},{label:T('scBackupMenu'),run:()=>Sec.auditBackup(),disabled:!Sec.can('AuditGUI/Audit Management/Backup Audit Records')},
-    {label:T('scRestoreMenu'),run:()=>Sec.auditRestore(),disabled:!Sec.can('AuditGUI/Audit Management/Restore Audit Records')},{label:T('scDeleteMenu'),run:()=>Sec.auditDelete(),disabled:!Sec.can('AuditGUI/Audit Management/Delete Audit Records')}]},
-   {label:T('esig'),run:()=>Sec.esigAdmin(),disabled:!Sec.can('ESig/ESig Administration Tool/May run application')},'-',{label:T('scRemoteShutdown'),disabled:true},{label:T('databaseManager'),disabled:true}]},
-  {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:showHelp},{label:T('loadExample'),run:loadExample},'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
+    {label:T('auditReport'),run:()=>Sec.auditHistory(),disabled:!Sec.can('AuditGUI/Audit History Viewer/May run application')},'-',
+    {label:T('scBackupMenu'),run:()=>Sec.auditBackup(),disabled:!Sec.can('AuditGUI/Audit Management/Backup Audit Records')},
+    {label:T('scRestoreMenu'),run:()=>Sec.auditRestore(),disabled:!Sec.can('AuditGUI/Audit Management/Restore Audit Records')},{label:T('scDeleteMenu'),run:()=>Sec.auditDelete(),disabled:!Sec.can('AuditGUI/Audit Management/Delete Audit Records')},
+    {label:T('scShowCount'),run:()=>Sec.auditCount()}]},
+   {label:T('esig'),run:()=>Sec.esigAdmin(),disabled:!Sec.can('ESig/ESig Administration Tool/May run application')},'-',{label:T('scRemoteShutdown'),disabled:true}]},
+  {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:showHelp},{label:T('loadExample'),run:loadExample}/*extra*/,'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
  ]);
  const tb=$('toolbar');tb.replaceChildren(
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),openProject,{id:'tbOpen'}),tbutton('saveProject',T('saveProject'),saveProject,{id:'tbSave'}),tsep(),
@@ -1316,6 +1332,7 @@ document.addEventListener('keydown',e=>{
  if(e.key==='F1'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();showHelp();return}
  if(!e.ctrlKey&&!e.metaKey)return;
  if(/^F[123]$/.test(e.key)&&!e.shiftKey&&!e.altKey){e.preventDefault();buildAfter(()=>showTab({F1:'info',F2:'raw',F3:'ept'}[e.key]));return}
+ if(e.code==='BracketRight'&&!e.shiftKey&&!e.altKey){e.preventDefault();if(['raw','ept'].includes(state.tab))SampleViews.fullView();return}
  if(e.shiftKey){
   const sm={Digit1:()=>buildAfter(()=>showTab('samples')),Digit2:()=>buildAfter(()=>showTab('summary')),Digit3:()=>buildAfter(()=>showTab('genotypes')),KeyR:()=>analyze('all'),KeyN:toggleNavigator,KeyZ:redoProject};
   if(sm[e.code]){e.preventDefault();sm[e.code]()}return}

@@ -59,7 +59,7 @@ async function renderRaw(page,list){
  const draw=()=>{holder.replaceChildren();G=makeCanvas(holder,Math.max(260,page.clientHeight-80));const {g,W,H}=G;
   const n=r.scan_count||r.raw[0]?.values.length||1;const x0=v.x0??0,x1=v.x1??n-1;
   let ymax=1,ymin=0;for(const ch of r.raw){if(v.hidden.has(ch.dye_index))continue;for(let i=Math.max(0,Math.floor(x0));i<=Math.min(ch.values.length-1,Math.ceil(x1));i++){const y=ch.values[i];if(y>ymax)ymax=y;if(y<ymin)ymin=y}}
-  ymax*=1.05;if(v.ya!=null){ymin=v.ya;ymax=v.yb}G.x0=x0;G.x1=x1;G.ymin=ymin;G.ymax=ymax;
+  ymax*=1.05;if(v.ya!=null){ymin=v.ya;ymax=v.yb}G.x0=x0;G.x1=x1;G.ymin=ymin;G.ymax=ymax;v.last={ymin,ymax};
   axes(g,W,H,L,B,x0,x1,ymin,ymax,T('siScan'));
   for(const ch of r.raw)if(!v.hidden.has(ch.dye_index))trace(g,ch.values,x0,x1,ymin,ymax,W,H,L,B,DYE_COLORS[ch.dye_index]||'#000');
   if(v.focus!=null&&v.focus>=x0&&v.focus<=x1){const fx=L+(v.focus-x0)/(x1-x0)*(W-6-L);g.save();g.strokeStyle='#e040a0';g.setLineDash([4,3]);g.beginPath();g.moveTo(fx,4);g.lineTo(fx,H-B);g.stroke();g.restore();
@@ -103,5 +103,10 @@ function render(tab){const page=$('page-'+tab);if(!page||!ctx)return;const list=
  const key=tab+':'+list.map(s=>s.id).join(',');if(page.dataset.key===key&&page.childElementCount)return;page.dataset.key=key;
  ({info:renderInfo,raw:renderRaw,ept:renderEpt})[tab](page,list)}
 window.addEventListener('resize',()=>{for(const t of ['raw','ept']){const p=$('page-'+t);if(p&&!p.hidden){p.dataset.key='';render(t)}}});
-window.SampleViews={init(c){ctx=c},render,focusRaw(scan){const v=view.raw;v.focus=scan;v.x0=Math.max(0,scan-150);v.x1=scan+150;const p=$('page-raw');if(p)p.dataset.key=''},invalidate(){for(const t of ['info','raw','ept']){const p=$('page-'+t);if(p)p.dataset.key=''}}};
+// View > Full View / Y-Axis Scale of the project window (ID-X FullViewCommand, scaleYMaxCommand, scaleUserDefinedCommand): act on the visible Raw Data or EPT Data view.
+function fullView(){const v=view.raw;v.x0=v.x1=null;v.ya=v.yb=null;v.focus=null;invalidate()}
+function yScaleMax(){const v=view.raw;v.ya=v.yb=null;invalidate()}
+function yScaleTo(lo,hi){const v=view.raw;v.ya=lo;v.yb=hi;invalidate()}
+function invalidate(){for(const t of ['info','raw','ept']){const p=$('page-'+t);if(p)p.dataset.key=''}}
+window.SampleViews={init(c){ctx=c},fullView,yScaleMax,yScaleTo,yRange(){const l=view.raw.last;return l?{...l,custom:view.raw.ya!=null}:{ymin:0,ymax:1,custom:false}},render,focusRaw(scan){const v=view.raw;v.focus=scan;v.x0=Math.max(0,scan-150);v.x1=scan+150;const p=$('page-raw');if(p)p.dataset.key=''},invalidate(){for(const t of ['info','raw','ept']){const p=$('page-'+t);if(p)p.dataset.key=''}}};
 })();
