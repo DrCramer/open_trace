@@ -1,0 +1,9 @@
+# TLS in front of OpenTrace Server (transport = "proxy", listen = "127.0.0.1:8770").
+# `tls internal` = Caddy's own local CA; for a laboratory CA use `tls /etc/ssl/opentrace.crt /etc/ssl/opentrace.key`.
+opentrace.lab.local {
+	tls internal
+	request_body {
+		max_size 1100MB
+	}
+	reverse_proxy 127.0.0.1:8770
+}

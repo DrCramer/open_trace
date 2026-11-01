@@ -1,0 +1,29 @@
+# OpenTrace Server configuration (TOML). Every key is optional; environment variables OPENTRACE_SERVER_* override.
+# Copy to /etc/opentrace/server.toml (Linux) or C:\ProgramData\OpenTrace\server\server.toml (Windows).
+
+# Listener. With transport = "proxy" (recommended) keep it on loopback and let a TLS reverse proxy (Caddy, nginx,
+# IIS ARR) be the public endpoint.
+listen = "127.0.0.1:8770"
+transport = "proxy"
+
+# Plain HTTP on a LAN address: only for an isolated, trusted segment. Passwords, session tokens, genetic data and FSA
+# files are NOT encrypted. The server refuses to start in that configuration unless this is true.
+# transport = "http"
+# listen = "0.0.0.0:8770"
+# allow_insecure_http = true
+
+# All server state: SQLite database, FSA store, projects, users/audit trail. Linux default:
+# ~/.local/share/opentrace-server ; Windows default: %ProgramData%\OpenTrace\server
+data_dir = "/var/lib/opentrace-server"
+backup_dir = "/var/backups/opentrace-server"
+
+# Host names (no port) under which browsers open the legacy web UI (/idx/). Add the public proxy name.
+allowed_hosts = ["localhost", "127.0.0.1", "opentrace.lab.local"]
+
+session_ttl_hours = 12
+# Edit lease: the desktop renews it every ~third of this; a crashed client loses the lock after this time.
+lease_ttl_seconds = 90
+max_fsa_mib = 64
+legacy_max_body_mib = 1024
+legacy_web = true
+login_attempts_per_minute = 10

@@ -1,0 +1,42 @@
+[package]
+name = "opentrace-server"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "OpenTrace Server: organisation API v1 (auth, project leases, FSA store, lab standards) plus the legacy web UI"
+publish = false
+
+# Standalone workspace: core/Cargo.lock stays exactly as the Docker build of `opentrace` expects.
+[workspace]
+
+[[bin]]
+name = "opentrace-server"
+path = "src/main.rs"
+
+[lib]
+name = "opentrace_server"
+path = "src/lib.rs"
+
+[dependencies]
+opentrace-core = { path = "../../core/opentrace-core" }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "fs", "io-util", "sync", "time"] }
+tower = { version = "0.5", default-features = false, features = ["util", "limit"] }
+http-body-util = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+# Same version as opentrace-core: one libsqlite3-sys (links = "sqlite3") in the graph.
+rusqlite = { version = "0.41", features = ["bundled", "backup"] }
+sha2 = "0.10"
+getrandom = "0.2"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

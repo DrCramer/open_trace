@@ -1,0 +1,28 @@
+[Unit]
+Description=OpenTrace Server (API v1 + web UI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opentrace
+Group=opentrace
+ExecStart=/usr/local/bin/opentrace-server serve --config /etc/opentrace/server.toml
+Environment=OPENTRACE_RESOURCES=/usr/local/share/opentrace/resources
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/opentrace-server /var/backups/opentrace-server
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

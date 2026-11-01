@@ -1,0 +1,19 @@
+# OpenTrace Server (API v1 + web UI) next to, or instead of, the existing `opentrace` service.
+#   docker compose -f server/opentrace-server/packaging/docker/docker-compose.server.yml up -d --build
+# The port is published on the host loopback only; put Caddy/nginx with TLS in front for the LAN.
+services:
+  opentrace-server:
+    build:
+      context: ../../../..
+      dockerfile: server/opentrace-server/packaging/docker/Dockerfile
+    image: opentrace-server:latest
+    container_name: opentrace-server
+    user: "${OPENTRACE_UID:-1000}:${OPENTRACE_GID:-1000}"
+    environment:
+      TZ: ${TZ:-Europe/Moscow}
+      OPENTRACE_ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-8770}:8770"
+    volumes:
+      - ../../../../runtime/server:/data
+    restart: unless-stopped
