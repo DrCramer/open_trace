@@ -81,7 +81,32 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
         return json_response(413, &json!({"error": format!("Request too large: {} bytes (limit {} MiB)", req.body().len(), limit / (1024 * 1024))}));
     }
     let r = st.core.handle(&to_core(&req, st.core.bound_port()));
-    response(r.code, &r.kind, r.body)
+    let body = if r.code == 200 && r.kind.starts_with("text/html") { inject_scripts(r.body, st.selftest.is_some()) } else { r.body };
+    response(r.code, &r.kind, body)
+}
+
+/// Desktop scripts go into every HTML page as the first element of `<head>`, so they run before the page's own
+/// scripts in every window — including windows handed to WebView2 through `SetNewWindow`, where
+/// `initialization_script` was observed not to run (Windows 11, WebView2 142+).
+pub fn inject_scripts(html: Vec<u8>, selftest: bool) -> Vec<u8> {
+    let mut tags = String::from("<script src=\"/desktop/shim.js\"></script>");
+    if selftest {
+        tags.push_str("<script>window.__OT_SELFTEST__=true;");
+        if std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_some() {
+            tags.push_str("window.__OT_SELFTEST_SERVER__=true;");
+        }
+        tags.push_str("</script><script src=\"/desktop/selftest.js\"></script>");
+    }
+    let lower: Vec<u8> = html.iter().take(4096).map(|b| b.to_ascii_lowercase()).collect();
+    let at = match lower.windows(6).position(|w| w == b"<head>") {
+        Some(i) => i + 6,
+        None => return html,
+    };
+    let mut out = Vec::with_capacity(html.len() + tags.len());
+    out.extend_from_slice(&html[..at]);
+    out.extend_from_slice(tags.as_bytes());
+    out.extend_from_slice(&html[at..]);
+    out
 }
 
 fn body_json(req: &Request<Vec<u8>>) -> Value {
@@ -105,8 +130,10 @@ fn remote_err(e: crate::remote::RemoteError) -> Response<Vec<u8>> {
 fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let post = req.method() == tauri::http::Method::POST;
     match (rest, post) {
-        ("connection.html", false) => response(200, "text/html; charset=utf-8", CONNECTION_HTML.as_bytes().to_vec()),
+        ("connection.html", false) => response(200, "text/html; charset=utf-8", inject_scripts(CONNECTION_HTML.as_bytes().to_vec(), false)),
         ("connection.js", false) => response(200, "text/javascript; charset=utf-8", CONNECTION_JS.as_bytes().to_vec()),
+        ("shim.js", false) => response(200, "text/javascript; charset=utf-8", SHIM_JS.as_bytes().to_vec()),
+        ("selftest.js", false) if st.selftest.is_some() => response(200, "text/javascript; charset=utf-8", crate::selftest::SELFTEST_JS.as_bytes().to_vec()),
         ("api/info", false) => {
             let cfg = st.config();
             let s = st.remote.session();
@@ -247,6 +274,13 @@ mod tests {
         assert_eq!(c.header("origin"), None);
         assert_eq!(c.header("x-session-token"), Some("tok"));
         assert_eq!(c.body, b"ABIF");
+    }
+
+    #[test]
+    fn scripts_are_injected_first_in_head() {
+        let out = String::from_utf8(inject_scripts(b"<!doctype html>\n<html><HEAD><meta charset=utf-8><script src=/idx/ui.js></script>".to_vec(), false)).unwrap();
+        assert!(out.contains("<HEAD><script src=\"/desktop/shim.js\"></script><meta"));
+        assert_eq!(inject_scripts(b"no head here".to_vec(), true), b"no head here");
     }
 
     #[test]

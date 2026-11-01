@@ -57,22 +57,12 @@ pub fn state_key(label: &str) -> &str {
     }
 }
 
-fn init_script(st: &DesktopState) -> String {
-    let mut s = String::from(crate::bridge::SHIM_JS);
-    if st.selftest.is_some() {
-        s.push_str("\nwindow.__OT_SELFTEST__ = true;\n");
-        if std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_some() {
-            s.push_str("window.__OT_SELFTEST_SERVER__ = true;\n");
-        }
-        s.push_str(crate::selftest::SELFTEST_JS);
-    }
-    s
-}
-
 fn decorate<'a>(app: &AppHandle, st: &Arc<DesktopState>, b: WebviewWindowBuilder<'a, Wry, AppHandle>) -> WebviewWindowBuilder<'a, Wry, AppHandle> {
     let app_nw = app.clone();
     let app_dl = app.clone();
-    b.initialization_script(init_script(st))
+    let _ = st;
+    // Desktop scripts are injected into the HTML by bridge::inject_scripts (works in every window on every platform).
+    b
         // HTML5 drag & drop of .fsa files into the Add Samples dialog (the native handler would swallow the events).
         .disable_drag_drop_handler()
         .on_navigation(|u| {
