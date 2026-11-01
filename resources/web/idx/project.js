@@ -1187,7 +1187,10 @@ window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.assoc
 // ---------- printing: page setup and print preview ----------
 const PAGE_KEY='opentrace.pageSetup.v1';
 function pageSetup(){let v={};try{v=JSON.parse(localStorage.getItem(PAGE_KEY)||'{}')||{}}catch(e){}
- return {orientation:v.orientation==='portrait'?'portrait':'landscape',fit:v.fit!==false,header:v.header!==false,paper:['A4','Letter','Legal'].includes(v.paper)?v.paper:'A4'}}
+ const fz=Math.round(Number(v.fontSize));
+ return {orientation:v.orientation==='portrait'?'portrait':'landscape',fit:v.fit!==false,header:v.header!==false,paper:['A4','Letter','Legal'].includes(v.paper)?v.paper:'A4',
+  // ID-X Page Setup (tables): Use Screen Font / Font size, Print All Data, Start New Page, Print column first / row first
+  screenFont:v.screenFont!==false,fontSize:fz>=6&&fz<=16?fz:10,printAll:v.printAll!==false,newPage:v.newPage===true,order:v.order==='row'?'row':'column'}}
 function pageSetupDialog(){const o=pageSetup();
  dialog(T('pageSetup').replace(/\.+$/,''),b=>{b.classList.add('psdlg');
   const paper=el('select',{id:'psPaper'});for(const p of ['A4','Letter','Legal'])paper.append(new Option(p,p));paper.value=o.paper;paper.addEventListener('change',()=>o.paper=paper.value);
@@ -1195,11 +1198,17 @@ function pageSetupDialog(){const o=pageSetup();
   const fit=el('input',{type:'checkbox',id:'psFit'});fit.checked=o.fit;fit.addEventListener('change',()=>o.fit=fit.checked);
   const hd=el('input',{type:'checkbox',id:'psHeader'});hd.checked=o.header;hd.addEventListener('change',()=>o.header=hd.checked);
   b.append(el('div',{class:'field'},el('label',{text:T('psPaper')}),paper),el('div',{class:'field'},el('label',{text:T('psOrientation')}),or),
-   el('label',{class:'chk'},fit,document.createTextNode(' '+T('psFit'))),el('label',{class:'chk'},hd,document.createTextNode(' '+T('psHeaderText'))))},
+   el('label',{class:'chk'},fit,document.createTextNode(' '+T('psFit'))),el('label',{class:'chk'},hd,document.createTextNode(' '+T('psHeaderText'))),
+   (()=>{const chk=(id,key,label)=>{const c=el('input',{type:'checkbox',id});c.checked=o[key];c.addEventListener('change',()=>{o[key]=c.checked});return el('label',{class:'chk'},c,document.createTextNode(' '+T(label)))};
+    const sf=el('input',{type:'checkbox',id:'psScreenFont'});sf.checked=o.screenFont;const fs=el('select',{id:'psFontSize'});for(let n=6;n<=16;n++)fs.append(new Option(String(n),String(n)));fs.value=String(o.fontSize);fs.disabled=o.screenFont;
+    sf.addEventListener('change',()=>{o.screenFont=sf.checked;fs.disabled=sf.checked});fs.addEventListener('change',()=>{o.fontSize=Number(fs.value)});
+    const radio=(v,label)=>{const r=el('input',{type:'radio',name:'psOrder',value:v,id:'psOrder_'+v});r.checked=o.order===v;r.addEventListener('change',()=>{if(r.checked)o.order=v});return el('label',{class:'chk'},r,document.createTextNode(' '+T(label)))};
+    return el('fieldset',{},el('legend',{text:T('psTables')}),el('label',{class:'chk'},sf,document.createTextNode(' '+T('psScreenFont'))),el('div',{class:'field'},el('label',{text:T('psTblFontSize')}),fs),
+     chk('psPrintAll','printAll','psPrintAll'),chk('psNewPage','newPage','psNewPage'),radio('column','psColumnFirst'),radio('row','psRowFirst'))})())},
   [[T('ok'),()=>{try{localStorage.setItem(PAGE_KEY,JSON.stringify(o))}catch(e){}},true],[T('cancel'),()=>true]])}
 function printPayload(){
  const tab=state.tab;let title=T(tab==='summary'?'analysisSummary':tab),table=null,html=null;
- if(tab==='summary')html=$('summary').innerHTML;else table=tableRows(tab==='genotypes'?'genotypes':'samples',false);
+ if(tab==='summary')html=$('summary').innerHTML;else{const pg=pageSetup();table=tableRows(tab==='genotypes'?'genotypes':'samples',!pg.printAll&&state.selected.size>0)}
  return {title,project:state.project.name||T('untitled'),date:new Date().toLocaleString(),page:pageSetup(),table,html,lang:I18N.lang}}
 function printPreview(){const w=window.open('/idx/print.html','opentrace-print','width=1000,height=760');if(!w)message(T('plotWindowBlocked'));else w.focus()}
 function printNow(){const w=window.open('/idx/print.html#print','opentrace-print','width=1000,height=760');if(!w)message(T('plotWindowBlocked'))}
