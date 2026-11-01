@@ -249,7 +249,7 @@ function sampleCell(id,s,flags){
   case 'panel':{const sel=panelSelect(s.panelKey,v=>{const l=peers(s);for(const x of l){x.panelKey=v;x.panel=v?v.split('\u0001')[1]:'';if(v)x.sizeStd=fitStandard(v,x.sizeStd)}changedAll(l)});
    return {value:s.panel||'',node:sel}}
   case 'sizeStandard':{const sel=el('select');for(const k of Object.keys(SIZE_STANDARDS))sel.append(new Option(k,k));sel.value=s.sizeStd;
-   sel.addEventListener('change',()=>{const l=peers(s);for(const x of l)x.sizeStd=sel.value;changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.sizeStd,node:sel}}
+   sel.addEventListener('change',()=>{const l=peers(s);for(const x of l)x.sizeStd=sel.value;changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.sizeStd,node:sel,dbl:()=>editSizeStandard(s.sizeStd)}}
   case 'matrix':{if(!s.inst?.is310)return {value:''};const sel=el('select');sel.append(new Option('',''));
    for(const n of Matrices.names())sel.append(new Option(n,n));if(s.matrix&&!Matrices.get(s.matrix))sel.append(new Option(s.matrix,s.matrix));sel.value=s.matrix||'';
    sel.addEventListener('change',()=>{const l=peers(s).filter(x=>x===s||x.inst?.is310);for(const x of l)x.matrix=sel.value;changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.matrix||'',node:sel}}
@@ -663,7 +663,7 @@ function fillDown(){
  for(const s of rows.slice(1))setField(s,key,v);render()}
 // ---------- size standards and Size Match Editor ----------
 const firstSelected=()=>sortedSamples().find(s=>state.selected.has(s.id));
-function editSizeStandard(){const name=firstSelected()?.sizeStd||SizeStd.names()[0];const s=SizeStd.get(name);if(!s)return message(T('arnmStandard'));
+function editSizeStandard(nm){const name=(typeof nm==='string'&&nm)||firstSelected()?.sizeStd||SizeStd.names()[0];const s=SizeStd.get(name);if(!s)return message(T('arnmStandard'));
 if(!Sec.need('READ_SIZE_STANDARD'))return;
  SizeStd.openEditor(s,{restrict:Sec.can('UPDATE_SIZE_STANDARD')?null:'read',onSave:(ns,prev)=>{SizeStd.put(ns,prev);for(const x of state.project.samples)if(x.sizeStd===prev){x.sizeStd=ns.name;if(x.status==='analyzed')x.status='changed'}
   settingsCache.clear();state.project.dirty=true;render()}})}

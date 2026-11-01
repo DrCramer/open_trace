@@ -178,16 +178,27 @@ function deleteStutter(dir,index){const k=selKit(),p=selPanel(),m=selMarker();co
  k.stutter.panels[p.name][m.name]=all.filter(s=>s!==mine[index]);touch();render()}
 
 // ---------- navigator ----------
-function node(iconName,text,sel,onClick,kids){
- const li=el('li');const n=el('span',{class:'tnode'+(sel?' sel':'')});n.innerHTML=icon(iconName);n.append(document.createTextNode(text));
+function node(iconName,text,sel,onClick,kids,dnd){
+ const li=el('li');const n=el('span',{class:'tnode'+(sel?' sel':'')});if(dnd)dnd(n);n.innerHTML=icon(iconName);n.append(document.createTextNode(text));
  n.addEventListener('click',onClick);li.append(n);if(kids&&kids.length){const ul=el('ul',{class:'tree'});ul.append(...kids);li.append(ul)}return li}
+// Drag a marker onto another panel (or one of its markers) to copy it there, as in ID-X IFATreeNavigator.
+let dragged=null;
+function dragMarker(k,p,m){return n=>{n.draggable=true;n.addEventListener('dragstart',e=>{dragged={k,p,m};e.dataTransfer.effectAllowed='copy';e.dataTransfer.setData('text/plain',m.name)});n.addEventListener('dragend',()=>{dragged=null})}}
+function dropMarker(k,p){return n=>{n.addEventListener('dragover',e=>{if(dragged&&dragged.k===k&&dragged.p!==p){e.preventDefault();n.classList.add('drop')}});
+ n.addEventListener('dragleave',()=>n.classList.remove('drop'));
+ n.addEventListener('drop',e=>{e.preventDefault();n.classList.remove('drop');if(!dragged||dragged.k!==k||dragged.p===p)return;const {p:sp,m}=dragged;dragged=null;copyMarker(k,sp,m,p)})}}
+function copyMarker(k,sp,m,tp){if(tp.markers.some(x=>x.name===m.name))return message(T('markerExists'));
+ const c=KitStore.clone(m);tp.markers.push(c);
+ for(const set of k.binSets){const sb=set.panels[sp.name]?.[m.name];if(sb){set.panels[tp.name]=set.panels[tp.name]||{};set.panels[tp.name][m.name]=KitStore.clone(sb)}}
+ if(k.stutter?.panels?.[sp.name]?.[m.name]){k.stutter.panels[tp.name]=k.stutter.panels[tp.name]||{};k.stutter.panels[tp.name][m.name]=KitStore.clone(k.stutter.panels[sp.name][m.name])}
+ ui.sel={type:'marker',kit:k.name,panel:tp.name,marker:m.name};touch();render()}
 function renderNavigator(){
  const s=ui.sel;const nav=$('navigator');nav.classList.toggle('hidden',!!ui.hideNav);nav.replaceChildren();
  const root=el('ul',{class:'tree root'});
  const kits=visKits().map(k=>node('kit',k.name,s.type==='kit'&&s.kit===k.name,()=>go({type:'kit',kit:k.name}),
   (s.kit===k.name||ui.expanded.has(k.name))?k.panels.map(p=>node('panel',p.name,s.type==='panel'&&s.kit===k.name&&s.panel===p.name,()=>go({type:'panel',kit:k.name,panel:p.name}),
    (s.kit===k.name&&s.panel===p.name)?p.markers.map(m=>node('marker',m.name,s.type==='marker'&&s.marker===m.name,()=>go({type:'marker',kit:k.name,panel:p.name,marker:m.name}),
-    s.marker===m.name?[node('stutter',T('stutterNode'),s.type==='stutter',()=>go({type:'stutter',kit:k.name,panel:p.name,marker:m.name}))]:[])):[])):[]));
+    s.marker===m.name?[node('stutter',T('stutterNode'),s.type==='stutter',()=>go({type:'stutter',kit:k.name,panel:p.name,marker:m.name}))]:[],dragMarker(k,p,m))):[],dropMarker(k,p))):[]));
  root.append(node('panelManager',T('panelMgrTitle'),s.type==='root',()=>go({type:'root'}),kits));nav.append(root);
  nav.querySelector('.tnode.sel')?.scrollIntoView({block:'nearest'})}
 function go(sel){if(sel.kit&&sel.kit!==ui.sel.kit)ui.binSet=null;ui.sel=sel;ui.selBin=null;ui.selRow=null;if(sel.kit)ui.expanded.add(sel.kit);ui.view=null;render()}
