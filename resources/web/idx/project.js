@@ -428,7 +428,9 @@ function tsFilter(kind,list,raw){const fs=TableSettings.activeFilters(kind);stat
  const out=list.filter(x=>fs.every(([id,f])=>TableSettings.matches(kind,id,f,raw(id,x))));state.tsCount[kind]=[out.length,list.length,fs.map(([id])=>id)];return out}
 function sortedSamples(){let list=visibleSamples();const flags=new Map(list.map(s=>[s.id,sampleFlags(s)]));
  list=tsFilter('samples',list,(id,s)=>sampleRaw(id,s,flags.get(s.id)));if(state.lowQualityTop)return list;
- return sortRows(list,currentSort('samples'),(id,s)=>sampleCell(id,s,flags.get(s.id)))}
+ const out=sortRows(list,currentSort('samples'),(id,s)=>sampleCell(id,s,flags.get(s.id)));
+ if(state.nonConcTop&&state.nonConc?.size)return [...out.filter(s=>state.nonConc.has(s.id)),...out.filter(s=>!state.nonConc.has(s.id))];
+ return out}
 function sortedGenoRows(){const rows=tsFilter('genotypes',visibleSamples().flatMap(genoRows),genoRaw);return sortRows(rows,currentSort('genotypes'),(id,r)=>genoCell(id,r,0))}
 function renderSamples(){
  const grid=$('samplesGrid');grid.replaceChildren();const cols=sampleColumns();const t=tableHead('samples',cols);
@@ -662,6 +664,22 @@ function fillDown(){
  if(rows.length<2)return message(T('fillDownHint'));
  const get=s=>key.startsWith('ud.')?(s.ud||{})[key.slice(3)]||'':(s[key]||'');const v=get(rows[0]);
  for(const s of rows.slice(1))setField(s,key,v);render()}
+// Edit > Clear (Delete) empties the text column last clicked in the selected rows; Edit > Paste (Ctrl+V) writes the clipboard lines into that column,
+// from the first selected row down (a single line goes to every selected row). Drop-down columns take a pasted value only when it names an existing choice.
+function selectedRows(){return sortedSamples().filter(s=>state.selected.has(s.id))}
+function clearCells(){const rows=selectedRows();const key=state.lastField;if(!rows.length||!key)return message(T('clearHint'));
+ if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return}for(const s of rows)setField(s,key,'');render()}
+async function pasteCells(){const rows=selectedRows();const key=state.lastField,col=state.lastCol;if(!rows.length||(!key&&!col))return message(T('pasteHint'));
+ let text='';try{text=await navigator.clipboard.readText()}catch(e){return message(T('pasteDenied'))}
+ const lines=text.replace(/\r/g,'').split('\n');while(lines.length&&lines[lines.length-1]==='')lines.pop();if(!lines.length)return;
+ if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return}
+ const cell=l=>String(l).split('\t')[0].trim();let n=0;
+ rows.forEach((s,i)=>{const l=lines.length===1?lines[0]:lines[i];if(l==null)return;const v=cell(l);
+  if(key){setField(s,key,v);n++;return}
+  if(col==='sizeStandard'&&SIZE_STANDARDS[v]){s.sizeStd=v;n++}
+  else if(col==='analysisMethod'&&Methods.get(v)){s.method=v;n++}
+  else if(col==='panel'){const c=panelChoices().find(x=>x.label===v);if(c){FILL_COLS.panel(s,{panelKey:c.key,panel:c.panel});n++}}});
+ if(col)changedAll(rows);else render();state.lastMessage=T('pasted')+': '+n;renderTitle()}
 // ---------- size standards and Size Match Editor ----------
 const firstSelected=()=>sortedSamples().find(s=>state.selected.has(s.id));
 function editSizeStandard(nm){const name=(typeof nm==='string'&&nm)||firstSelected()?.sizeStd||SizeStd.names()[0];const s=SizeStd.get(name);if(!s)return message(T('arnmStandard'));
@@ -1163,11 +1181,11 @@ function buildChrome(){
    {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',disabled:true},
-   {label:T('clear'),disabled:true},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},{label:T('defineSamplePath'),run:defineSamplePath},'-',
+  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},
+   {label:T('clear'),sc:'Delete',run:clearCells},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},{label:T('defineSamplePath'),run:defineSamplePath},'-',
    {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog}]},
   {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},'-',
-   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{label:T('nonConcordantTop'),disabled:true},'-',
+   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{label:T('nonConcordantTop'),checked:!!state.nonConcTop,run:toggleNonConcordantTop},'-',
    {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},'-',{label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch}]},
   {label:T('view'),items:[{label:T('samples'),sc:'Ctrl+Shift+1',checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),sc:'Ctrl+Shift+2',checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
    {label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',{label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',{label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
@@ -1200,6 +1218,15 @@ function buildAfter(fn){fn();buildChrome();render()}
 
 $('stopBtn').addEventListener('click',()=>{state.stop=true});
 function toggleNavigator(){state.showNavigator=!state.showNavigator;buildChrome();render()}
+// Non-concordant Samples to Top: samples that share a profile ID with samples of another concordance group (ID-X flags them after Profile Concordance).
+async function toggleNonConcordantTop(){if(state.nonConcTop){state.nonConcTop=false;buildChrome();render();return}
+ const items=qcSamples().filter(x=>x.eligible&&x.profileId);if(!items.length)return message(T('pcNothingToCompare'));
+ let r;try{r=await jsonPost('/api/profiles',{action:'compare',mode:'concordance',samples:items.map(x=>({id:x.id,markers:x.markers})),threshold:80,ignore:[]})}catch(e){return message(e.message)}
+ const groupOf=new Map();for(const g of r.groups||[])for(const m of g.members)groupOf.set(m,g.id);
+ const byProfile=new Map();for(const x of items){(byProfile.get(x.profileId)||byProfile.set(x.profileId,[]).get(x.profileId)).push(x)}
+ const bad=new Set();for(const list of byProfile.values()){if(new Set(list.map(x=>groupOf.get(x.id)||x.id)).size>1)for(const x of list)bad.add(x.id)}
+ const ids=new Set(state.project.samples.filter(s=>bad.has(s.file)).map(s=>s.id));state.nonConc=ids;state.nonConcTop=true;state.lowQualityTop=false;
+ state.lastMessage=T('nonConcordantTop')+': '+ids.size;buildChrome();render()}
 function toggleLowQualityTop(){state.lowQualityTop=!state.lowQualityTop;buildChrome();render()}
 // Hot keys follow ID-X (docs: IDX_UI_HOTKEYS.md). Shift variants are separate bindings, never fall through to the plain key.
 document.addEventListener('keydown',e=>{
@@ -1207,13 +1234,14 @@ document.addEventListener('keydown',e=>{
  // Ctrl+D (Fill Down) must never reach the browser (bookmark), also while a table cell editor has the focus
  if(k==='d'&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();if(!e.target.closest('.dlg,.back,textarea'))fillDown();return}
  if(e.target.closest('input,select,textarea'))return;
+ if(e.key==='Delete'&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&!e.target.closest('.dlg,.back')){e.preventDefault();clearCells();return}
  if(e.key==='F1'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();showHelp();return}
  if(!e.ctrlKey&&!e.metaKey)return;
  if(/^F[123]$/.test(e.key)&&!e.shiftKey&&!e.altKey){e.preventDefault();buildAfter(()=>showTab({F1:'info',F2:'raw',F3:'ept'}[e.key]));return}
  if(e.shiftKey){
   const sm={Digit1:()=>buildAfter(()=>showTab('samples')),Digit2:()=>buildAfter(()=>showTab('summary')),Digit3:()=>buildAfter(()=>showTab('genotypes')),KeyR:()=>analyze('all'),KeyN:toggleNavigator};
   if(sm[e.code]){e.preventDefault();sm[e.code]()}return}
- const map={i:fitToContent,u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
+ const map={i:fitToContent,u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,v:pasteCells,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
  if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
