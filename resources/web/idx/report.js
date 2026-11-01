@@ -11,7 +11,11 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 const rowKey=r=>r.file+'\u0001'+r.marker;
 function currentSetting(){return st.setting||ReportSettings.get(ReportSettings.names()[0])}
 function compute(){const o=api();if(!o||!o.report)return null;
- const d=o.report.data(currentSetting(),st.files);st.files=d.files;return d}
+ const set=currentSetting();let d;
+ if(set.steps&&set.steps.some(x=>x.active!==false)){const full=clone(set);full.columns.forEach(c=>c.show=true);d=o.report.data(full,st.files);
+  d.cols.forEach((c,i)=>{c.show=set.columns[i].show});d=ReportSettings.applySteps(set,d)}
+ else d=o.report.data(set,st.files);
+ st.files=d.files;return d}
 function refresh(keepFiles){if(!keepFiles)st.files=null;st.data=compute();st.sel.clear();render()}
 // Current view as a matrix [header,...rows] of plain values (custom cells included).
 function viewMatrix(){const d=st.data;if(!d)return [[]];

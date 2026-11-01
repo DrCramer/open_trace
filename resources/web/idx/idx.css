@@ -360,3 +360,5 @@ table.g td.c{text-align:center}
 .g th.colsel,.g td.colsel{background:#cfe0f5}
 
 .colfilter tr.sel td{background:#316ac5;color:#fff}.colfilter tr.sel td select,.colfilter tr.sel td input{color:#000}
+.stepdlg .rscond{max-height:150px;overflow:auto;background:#fff;border:1px solid #7f9db9;margin-bottom:4px}.stepdlg .rscond input.num{width:60px}.stepdlg .rscond select{max-width:190px}
+.stepdlg .rslist{width:200px;height:110px}.stepspane .stgrid{width:560px;height:220px}.stepspane .note{max-width:560px;color:#555}.stepdlg{max-height:80vh;overflow:auto}
