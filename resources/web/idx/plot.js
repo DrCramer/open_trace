@@ -560,7 +560,7 @@ function build(){
  const DYE_SC={DATA1:'Ctrl+1',DATA2:'Ctrl+2',DATA3:'Ctrl+3',DATA4:'Ctrl+4',DATA105:'Ctrl+5',DATA106:'Ctrl+0'};
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],sc:DYE_SC[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},{label:T('exportWithStutter')+'...',run:()=>{try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(e){message(String(e.message||e))}}},'-',{label:T('pageSetup'),run:plotPageSetup},{label:T('printPreview'),run:()=>printPlots(true)},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},'-',{label:T('closePlot'),run:()=>window.close()}]},
+  {label:T('file'),items:[{label:T('exportTable'),sc:'Ctrl+E',run:exportPlotTable},{label:T('exportWithStutter')+'...',sc:'Ctrl+S',run:()=>{try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(e){message(String(e.message||e))}}},'-',{label:T('pageSetup'),run:plotPageSetup},{label:T('printPreview'),run:()=>printPlots(true)},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},'-',{label:T('closePlot'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',run:undoLast},{label:T('copy'),sc:'Ctrl+C',run:copyPlotTable}]},
   {label:T('view'),items:[{label:T('sampleInfo'),sc:'Ctrl+F1',run:()=>sampleView('info')},{label:T('rawData'),sc:'Ctrl+F2',run:()=>sampleView('raw')},{label:T('eptData'),sc:'Ctrl+F3',run:()=>sampleView('ept')},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
@@ -569,13 +569,14 @@ function build(){
    {label:T('yAxis'),sub:[{label:T('scaleInd'),checked:view.yAxis==='individual',run:()=>{view.yAxis='individual';build();draw()}},{label:T('scaleMaxY'),checked:view.yAxis==='max',run:()=>{view.yAxis='max';build();draw()}},
     {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},
    {label:T('psPlotColors'),sub:[{label:T('psStandardColors'),checked:!view.customColors,run:()=>{view.customColors=false;build();draw()}},{label:T('psCustom'),checked:view.customColors,run:()=>{view.customColors=true;build();draw()}}]},
+   {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
    {label:T('psPeakPositions'),checked:view.peakPositions,run:()=>{view.peakPositions=!view.peakPositions;build();draw()}},
    {label:T('labels'),sub:[{label:T('noLabels'),checked:ck('labels','none'),run:set('labels','none')},{label:T('hLabels'),checked:ck('labels','h'),run:set('labels','h')},{label:T('vLabels'),checked:ck('labels','v'),run:set('labels','v')}]},
    {label:T('dyes'),sub:dyeItems},'-',
    {label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')},'-',
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},{label:T('showBins'),sc:'Ctrl+Shift+B',checked:view.bins,run:set('bins',!view.bins)},'-',
    {label:T('table'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]}]},
-  {label:T('tools'),items:[{label:T('manager'),disabled:true}]},
+  {label:T('tools'),items:[{label:T('manager'),disabled:true},'-',{label:T('psEditor'),sc:'Ctrl+T',run:editSetting}]},
   {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},
    {label:T('deleteMultiple'),sub:[{label:T('deleteAllLabels'),run:()=>deleteLabels(payload?.samples||[],null)},{label:T('deleteInRange')+'...',run:deleteInRangeDialog}]},{label:T('deletePredefined')+'...',run:deletePredefined},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
@@ -620,11 +621,21 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(/^F[123]$/.test(e.key)&&!inField){e.preventDefault();sampleView({F1:'info',F2:'raw',F3:'ept'}[e.key]);return}
  if(k==='j'&&!inField){e.preventDefault();zoomNextMarker();return}
  if(k==='r'&&!inField){e.preventDefault();view.markerRange=!view.markerRange;build();draw();return}
+ if(k==='t'&&!inField){e.preventDefault();editSetting();return}
+ if(k==='k'&&!inField){e.preventDefault();view.markerIndicator=!view.markerIndicator;build();draw();return}
+ if(k==='s'){e.preventDefault();try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(err){message(String(err.message||err))}return}
+ if(e.code==='NumpadAdd'){e.preventDefault();zoom(.5);return}
+ if(e.code==='NumpadSubtract'){e.preventDefault();zoom(2);return}
  if(k==='p'){e.preventDefault();printPlots(false);return}
  if(k==='z'&&!inField){e.preventDefault();undoLast();return}
  if(k==='e'){e.preventDefault();exportPlotTable();return}
  if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}
  if(e.key==='-'){e.preventDefault();zoom(2)}});
+let escBusy=false;document.addEventListener('keydown',e=>{if(e.key==='Escape')escBusy=!!document.querySelector('.dlg,.backdrop,.menu.show')},true);
+document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||e.ctrlKey||e.altKey||e.shiftKey)return;
+ if(escBusy)return;if(e.target.closest('input,textarea,select'))return;
+ if(view.selPeaks&&view.selPeaks.size){view.selPeaks.clear();draw();return}
+ if(window.opener)window.close()});
 window.addEventListener('resize',()=>draw());
 // Follow the project window's selection (Project Options: update plots when the selection changes).
 function refresh(){const sig=p=>JSON.stringify([p?.mode,p?.genoSel,p?.samples?.map(s=>s.id)]);const before=sig(payload);let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}

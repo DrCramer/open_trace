@@ -100,7 +100,7 @@ window.buildMenubar=(bar,spec)=>{
  }
 };
 document.addEventListener('mousedown',e=>{if(!e.target.closest('.menu'))closeMenus()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMenus()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(document.querySelector('.menu.show'))e.preventDefault();closeMenus()}});
 
 // Toolbar button
 window.tbutton=(name,title,run,opts={})=>{const b=document.createElement('button');b.className='tb';b.type='button';b.title=title;
@@ -125,7 +125,7 @@ window.dialog=(title,build,buttons)=>{
   d.style.position='fixed';d.style.margin='0'});
  document.addEventListener('mousemove',e=>{if(drag){d.style.left=e.clientX-dx+'px';d.style.top=e.clientY-dy+'px'}});
  document.addEventListener('mouseup',()=>drag=false);
- back.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+ back.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();close()}});
  return {root:d,body,close};
 };
 window.message=(text,title)=>dialog(title||T('app'),b=>{const p=document.createElement('p');p.style.maxWidth='420px';p.textContent=text;b.append(p)});
