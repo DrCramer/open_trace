@@ -237,24 +237,54 @@ function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw||1)));const
 // ---------- interaction ----------
 let drag=null;
 const peakKey=(s,tag,pk)=>`${s.id}|${tag}|${pk.size_bp.toFixed(3)}`;
-view.selPeaks=view.selPeaks||new Map();
+view.selPeaks=view.selPeaks||new Map();window.__otView=view;
 const nearPeak=(G,x)=>G.peakPts.filter(p=>Math.abs(p.x-x)<=6).sort((a,b)=>Math.abs(a.x-x)-Math.abs(b.x-x))[0];
+// Zones as in ID-X EfChart: the strip above the plot is the X axis, the strip left of it the Y axis (own zoom, double click and menu).
+const zoneAt=(G,x,y)=>y<G.top?'x':(x<G.L&&y<=G.bottom?'y':(x>=G.L&&x<=G.W-G.R&&y<=G.bottom?'plot':null));
+let band=null;
+function bandShow(cv,d,x,y){if(!band){band=el('div',{style:'position:fixed;border:1px dashed #000;background:rgba(0,0,0,.06);pointer-events:none;z-index:50'});document.body.append(band)}
+ const r=cv.getBoundingClientRect(),G=cv._geom;let ax=d.x0,bx=x,ay=d.y0,by=y;
+ if(d.mode==='x'){ay=G.top-14;by=G.bottom}else if(d.mode==='y'){ax=G.L-30;bx=G.W-G.R;ay=d.y0;by=y}else if(d.mode==='h'){ax=G.L;bx=G.W-G.R;by=G.bottom}
+ const l=Math.min(ax,bx),t=Math.min(ay,by);Object.assign(band.style,{left:r.left+l+'px',top:r.top+t+'px',width:Math.abs(bx-ax)+'px',height:Math.abs(by-ay)+'px'})}
+const bandHide=()=>{band?.remove();band=null};
 document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,G=cv._geom;
  const m=G.markers.find(m=>m._hit&&x>=m._hit.x0&&x<=m._hit.x1&&y>=m._hit.y0&&y<=m._hit.y1);
  if(m){view.selMarker=m.name;view.selSample=G.sample.id;renderLower();return}
- if(y<G.top+4){drag={cv,x0:x};e.preventDefault();return}
- if(e.button!==0||y>G.bottom)return;
+ if(e.button!==0)return;const z=zoneAt(G,x,y);
+ if(z==='x'){drag={cv,mode:'x',x0:x,y0:y};e.preventDefault();return}
+ if(z==='y'){drag={cv,mode:'y',x0:x,y0:y};e.preventDefault();return}
+ if(z!=='plot')return;
  const near=nearPeak(G,x);const multi=e.ctrlKey||e.metaKey||e.shiftKey;
- if(!near){if(!multi&&view.selPeaks.size){view.selPeaks.clear();draw()}return}
+ if(!near){drag={cv,mode:e.shiftKey?'sel':'h',x0:x,y0:y,moved:false,multi};e.preventDefault();return}
  const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
  else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw();showPhr()});
+document.addEventListener('mousemove',e=>{if(!drag)return;const r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+ if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved)bandShow(drag.cv,drag,x,y)});
 // Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
 function showPhr(){const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
  if(sel.length!==2){c.textContent='';return}const [a,b]=sel.map(p=>p.peak.height);c.textContent=fmt('phrStatus',(Math.min(a,b)/Math.max(a,b)).toFixed(2),Math.round(a),Math.round(b))}
-document.addEventListener('mouseup',e=>{if(!drag)return;const G=drag.cv._geom,r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left;
- const inv=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0);const a=inv(Math.min(drag.x0,x)),b=inv(Math.max(drag.x0,x));drag=null;
- if(b-a>1){view.x0=a;view.x1=b;view.userZoom=true;draw()}});
-document.addEventListener('dblclick',e=>{if(e.target.closest('canvas')){view.x0=view.x1=null;view.userZoom=false;draw()}});
+document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;bandHide();const G=d.cv._geom,r=d.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+ const invX=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),invY=py=>(G.bottom-py)/(G.bottom-G.top)*G.ymax;
+ if(d.mode==='x'){const a=invX(Math.min(d.x0,x)),b=invX(Math.max(d.x0,x));if(b-a>1&&Math.abs(x-d.x0)>3){view.x0=a;view.x1=b;view.userZoom=true;draw()}return}
+ if(d.mode==='y'){if(Math.abs(y-d.y0)>3){yZoomTo(invY(Math.min(d.y0,y)))}return}
+ if(d.mode==='h'){if(!d.moved||Math.abs(y-d.y0)<=4){if(!d.multi&&view.selPeaks.size){view.selPeaks.clear();draw();showPhr()}return}yZoomTo(invY(Math.min(d.y0,y)));return}
+ if(d.mode==='sel'){const lo=Math.min(d.x0,x),hi=Math.max(d.x0,x);if(!d.moved)return;
+  for(const p of G.peakPts)if(p.x>=lo&&p.x<=hi)view.selPeaks.set(peakKey(p.sample,p.tag,p.peak),p);draw();showPhr()}});
+// Y zoom: all panes take the entered value as the Y maximum (ID-X: Zoom To on the Y axis; Full View returns to individual scaling)
+function yZoomTo(v){if(!(v>1))return;view.yAxis='entered';view.yValue=Math.round(v);build();draw()}
+function yFullView(){view.yAxis='individual';build();draw()}
+function xFullView(){view.x0=view.x1=null;view.userZoom=false;draw()}
+function xZoomToDlg(){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1;const v=prompt(T('zoomToXPrompt'),(+a).toFixed(1)+' - '+(+b).toFixed(1));if(v==null)return;
+ const n=v.match(/-?\d+(?:[.,]\d+)?/g);if(!n||n.length<2)return;const lo=+n[0].replace(',','.'),hi=+n[1].replace(',','.');if(hi>lo){view.x0=lo;view.x1=hi;view.userZoom=true;draw()}}
+function yZoomToDlg(){const v=prompt(T('zoomToYPrompt'),String(view.yValue||''));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));if(n>1)yZoomTo(n)}
+// Double click: X axis = full view (Y too when Y is entered), Y axis = full Y view; elsewhere nothing, as in ID-X.
+document.addEventListener('dblclick',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),z=zoneAt(cv._geom,e.clientX-r.left,e.clientY-r.top);
+ if(z==='x'){xFullView();if(view.yAxis==='entered')yFullView()}else if(z==='y')yFullView()});
+// Right arrow / left arrow: move the selection to the next / previous peak of the pane (Shift adds to the selection), wrapping round, as in ID-X.
+document.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest('input,textarea,select'))return;
+ const last=[...view.selPeaks.keys()].pop();if(!last)return;
+ for(const cv of document.querySelectorAll('canvas')){const pts=(cv._geom?.peakPts||[]).slice().sort((a,b)=>a.x-b.x);const i=pts.findIndex(p=>peakKey(p.sample,p.tag,p.peak)===last);if(i<0)continue;
+  const n=pts[(i+(e.key==='ArrowRight'?1:pts.length-1))%pts.length];e.preventDefault();if(!e.shiftKey)view.selPeaks.clear();view.selPeaks.set(peakKey(n.sample,n.tag,n.peak),n);draw();showPhr();return}});
 document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');if(!cv?._geom)return;const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const xv=G.x0+(x-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),v=(G.bottom-y)/(G.bottom-G.top)*G.ymax;const bp=G.dp?scanToBp(G.curve,xv):xv;
  $('xy').textContent=`[X ${G.dp?Math.round(xv):xv.toFixed(2)}  Y ${Math.round(v)}]`;
@@ -308,6 +338,9 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
  if(head&&head._sample){e.preventDefault();const s=head._sample;if(!s.editable)return;
   ctxMenu(e.clientX,e.clientY,[{label:T('overrideCgq'),run:()=>edit(s,{action:'override_cgq'})}]);return}
  if(!cv?._geom)return;e.preventDefault();const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+ {const z=zoneAt(G,x,y);
+  if(z==='x'){ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:xFullView},{label:T('zoomTo'),run:xZoomToDlg}]);return}
+  if(z==='y'){ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:yFullView},{label:T('zoomTo'),run:yZoomToDlg}]);return}}
  const s=G.sample;if(!s.editable)return;
  const box=G.labelBoxes.find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);
  if(box&&box.artifact){const a=box.artifact;const mk=G.markers.find(m=>m.channel===a.channel&&a.size_bp>=m.min_bp&&a.size_bp<=m.max_bp);
@@ -463,6 +496,13 @@ function printPlots(preview){if(!payload||!payload.samples.length)return message
   window.addEventListener('afterprint',done);setTimeout(()=>window.print(),100)}
  return r}
 window.PP={printPlots,printPages,pageOpts};
+// Zoom To Next Marker (Ctrl+J): the next marker to the right of the current X range, with the marker margin.
+function zoomNextMarker(){const cv=[...document.querySelectorAll('canvas')].find(c=>c._geom);if(!cv)return;const G=cv._geom;
+ const ms=G.markers.filter(m=>m.channel===G.markers[0]?.channel||true).slice().sort((a,b)=>a.min_bp-b.min_bp);if(!ms.length)return;
+ const mid=G.dp?scanToBp(G.curve,(G.x0+G.x1)/2):(G.x0+G.x1)/2;
+ const cur=ms.findIndex(m=>mid>=m.min_bp&&mid<=m.max_bp);const n=ms[(cur<0?ms.findIndex(m=>m.min_bp>mid):cur+1)%ms.length]||ms[0];
+ const mg=setting?.display?.markerMargin??5;let a=n.min_bp-mg,b=n.max_bp+mg;if(G.dp){a=bpToScan(G.curve,a);b=bpToScan(G.curve,b)}
+ view.x0=a;view.x1=b;view.userZoom=true;draw()}
 function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
@@ -511,7 +551,7 @@ function build(){
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',run:undoLast},{label:T('copy'),sc:'Ctrl+C',run:copyPlotTable}]},
   {label:T('view'),items:[{label:T('sampleInfo'),sc:'Ctrl+F1',run:()=>sampleView('info')},{label:T('rawData'),sc:'Ctrl+F2',run:()=>sampleView('raw')},{label:T('eptData'),sc:'Ctrl+F3',run:()=>sampleView('ept')},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
-  {label:T('plots'),items:[{label:T('multipleDyePlot'),run:multipleDyePlot},'-',{label:T('zoom'),sub:[{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('fullView'),sc:'Ctrl+]',run:()=>{view.x0=view.x1=null;draw()}}]},
+  {label:T('plots'),items:[{label:T('multipleDyePlot'),run:multipleDyePlot},'-',{label:T('zoom'),sub:[{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('fullView'),sc:'Ctrl+]',run:()=>{view.x0=view.x1=null;draw()}},{label:T('zoomTo'),run:xZoomToDlg},'-',{label:T('zoomToNextMarker'),sc:'Ctrl+J',run:zoomNextMarker}]},
    {label:T('xAxis'),sub:[{label:T('basepairs'),checked:view.xAxis==='bp',run:()=>{view.xAxis='bp';view.x0=view.x1=null;build();draw()}},{label:T('dataPoints'),checked:view.xAxis==='dp',run:()=>{view.xAxis='dp';view.x0=view.x1=null;build();draw()}}]},
    {label:T('yAxis'),sub:[{label:T('scaleInd'),checked:view.yAxis==='individual',run:()=>{view.yAxis='individual';build();draw()}},{label:T('scaleMaxY'),checked:view.yAxis==='max',run:()=>{view.yAxis='max';build();draw()}},
     {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},
@@ -565,6 +605,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(LAYOUT_BY_DIGIT[e.code]&&!inField){e.preventDefault();view.layout=LAYOUT_BY_DIGIT[e.code];build();draw();return}
  if(e.key===']'&&!inField){e.preventDefault();view.x0=view.x1=null;draw();return}
  if(/^F[123]$/.test(e.key)&&!inField){e.preventDefault();sampleView({F1:'info',F2:'raw',F3:'ept'}[e.key]);return}
+ if(k==='j'&&!inField){e.preventDefault();zoomNextMarker();return}
  if(k==='r'&&!inField){e.preventDefault();view.markerRange=!view.markerRange;build();draw();return}
  if(k==='p'){e.preventDefault();printPlots(false);return}
  if(k==='z'&&!inField){e.preventDefault();undoLast();return}
