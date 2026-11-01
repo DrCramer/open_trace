@@ -173,7 +173,7 @@ function paint(cv,items,x0,x1,onlyMarker){
  // size-standard labels on the reference dye
  if(view.sizeStdLabels){g.textAlign='center';g.font=`${fs}px ${LS.font||'Tahoma'}`;for(const t of traces){if(t.tag!==t.sample.analysis?.sizing?.reference_channel)continue;
   for(const m of t.sample.analysis?.sizing?.matched||[]){const mbp=m.expected_bp??m.bp;if(m.scan==null||mbp==null)continue;const v=dp?m.scan:mbp;if(v<x0||v>x1)continue;
-   g.fillStyle='#000';g.fillText(String(+(+mbp).toFixed(1)),Xc(v),Math.max(top+fs,Y(m.height||0)-4))}}}
+   g.fillStyle='#000';g.fillText(String(+(+mbp).toFixed(1)),Xc(v),Math.max(top+fs,Y((m.height||0)*(t.fk||1))-4))}}}
  g.restore();
  // allele labels in boxes under the axis
  const labelBoxes=[];let noRoom=false;
@@ -199,7 +199,7 @@ function paint(cv,items,x0,x1,onlyMarker){
     if(a.user)labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,artifact:a,sample:t.sample})}}}
  // ID-X "No room for labels": labels that do not fit in the label rows are not drawn
  if(noRoom){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';const tw=g.measureText(T('noRoomLabels')).width;g.fillStyle='rgba(255,255,255,.9)';g.fillRect(W-R-tw-8,H-16,tw+8,15);g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
- const peakPts=[];for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null)continue;const v=pos(pk.size_bp,pk.scan);if(v>=x0&&v<=x1)peakPts.push({x:Xc(v),y:Y(pk.height),peak:pk,tag:t.tag,sample:t.sample})}
+ const peakPts=[];for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null)continue;const v=pos(pk.size_bp,pk.scan);if(v>=x0&&v<=x1)peakPts.push({x:Xc(v),y:Y(pk.height*(t.fk||1)),peak:pk,tag:t.tag,sample:t.sample})}
  // selected peaks (ID-X: "the peak fills in when it is selected")
  for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
   g.save();g.globalAlpha=.35;g.fillStyle=col;g.beginPath();g.moveTo(pp.x-4,bottom);g.lineTo(pp.x,pp.y);g.lineTo(pp.x+4,bottom);g.closePath();g.fill();g.restore();
@@ -207,10 +207,11 @@ function paint(cv,items,x0,x1,onlyMarker){
  cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,dp,curve:cur,noRoom,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }
 // trace points of one pane item in the current coordinate (bp or data points)
+const dyeFactor=tag=>{const n=Object.keys(NAME_DYE).find(k=>NAME_DYE[k]===tag);const v=n&&setting?.display?.dyeScales?.[n];return v>0?v:1};
 function traceData(it,x0,x1){const a=it.sample.analysis,c=curveOf(a),out=[];
  for(const tag of it.dyes){const ch=(a?.channels||[]).find(q=>q.tag===tag);const values=ch?.analyzed_values||ch?.values;if(!values)continue;
-  const pts=[];let max=1;values.forEach((v,i)=>{const x=view.xAxis==='dp'?i:scanToBp(c,i);if(x>=x0&&x<=x1){pts.push([x,v]);if(v>max)max=v}});
-  out.push({tag,pts,max,peaks:ch.peaks||[],sample:it.sample})}
+  const pts=[];let max=1;const fk=dyeFactor(tag);values.forEach((v,i)=>{const x=view.xAxis==='dp'?i:scanToBp(c,i);if(x>=x0&&x<=x1){pts.push([x,v*fk]);if(v*fk>max)max=v*fk}});
+  out.push({tag,pts,max,peaks:ch.peaks||[],sample:it.sample,fk})}
  return out}
 // label lines per the Labels tab: up to four values, stopping at the first "None"
 const PREFIX={alleleCall:'al',size:'sz',height:'ht',area:'ar',dataPoint:'dp',aeReason:'ae'};

@@ -45,7 +45,7 @@ function base(name,description){return {name,description:description||'',
  display:{persistence:'these',panes:2,header:true,markerRange:true,markerIndicator:true,bins:true,peakPositions:false,alleleChanges:true,toolbar:true,offscale:true,
   controlsTop:false,laddersTop:false,sizeStdLabels:true,labels:'v',xAxis:'bp',yAxis:'individual',yValue:8191,
   dyes:Object.fromEntries(DYES.map(d=>[d,true])),allDyes:true,start:0,end:500,table:'genotypes',layout:'separate',printQVD:false,
-  customColors:DEFAULT_COLORS.slice(),markerMargin:5}}}
+  customColors:DEFAULT_COLORS.slice(),markerMargin:5,dyeScales:Object.fromEntries(DYES.map(d=>[d,1]))}}}
 // Factory settings: the plot settings shipped with ID-X (PlotSettingContainer files "Data Interpretation" ... "Mixture
 // Analysis Defaults"), kept as their differences from base() (which carries the shared values of those files).
 const FACTORY=[{"name":"Data Interpretation","sampleHeader":{"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460}},{"name":"Data Interpretation_6Dye","sampleHeader":{"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460}},{"name":"Sizing Data","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SQ":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"AN":false,"BIN":false,"PHR":false,"LPH":false,"MPH":false,"BD":false,"SPK":false,"OS":false,"OVL":false,"CC":false,"GQ":false},"display":{"persistence":"last","alleleChanges":false,"start":75,"end":460,"table":"sizing","layout":"combine"}},{"name":"Traditional Genotype Plot","sampleHeader":{"sampleFileName":false,"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460,"table":"none"}},{"name":"Traditional Genotype Plot_6Dye","sampleHeader":{"sampleFileName":false,"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460,"table":"none"}},{"name":"Overlay LIZ Dye","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":1,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"red":false,"purple":false},"allDyes":false,"start":50,"end":550,"table":"sizing","layout":"overlay"}},{"name":"Overlay ROX Dye","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":1,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"purple":false,"orange":false},"allDyes":false,"start":50,"end":550,"table":"sizing","layout":"overlay"}},{"name":"Check LIZ Size Standard","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"red":false,"purple":false},"allDyes":false,"start":50,"end":550,"table":"none"}},{"name":"Check ROX Size Standard","sampleHeader":{"sampleFileName":false,"panel":false,"SOS":false,"SSPK":false,"MIX":false,"OMR":false,"CGQ":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","panes":4,"alleleChanges":false,"dyes":{"blue":false,"green":false,"yellow":false,"purple":false,"orange":false},"allDyes":false,"start":50,"end":550,"table":"none"}},{"name":"View Label Edits","sampleHeader":{"sampleFileName":false,"panel":false},"genotypeHeader":{"sampleFileName":false,"panel":false,"OVL":false},"display":{"persistence":"last","alleleChanges":false,"dyes":{"orange":false},"allDyes":false,"start":75,"end":460,"table":"lev"}},{"name":"Mixture Analysis Defaults","labels":{"virtualBlack":true},"display":{"persistence":"last","alleleChanges":false,"end":1000,"table":"none"}}];
@@ -64,6 +64,7 @@ function validate(s){
  const D=d.display;D.panes=Math.max(1,Math.min(16,Math.round(D.panes)||1));
  for(const k of ['start','end'])if(!(D[k]>=0&&D[k]<=10000))throw Error(T('psRangeNumbers'));
  if(!D.allDyes&&D.end<=D.start)throw Error(T('psEndGtStart'));
+ for(const dy of DYES){const v=Number(D.dyeScales?.[dy]);if(!(v>=0.1&&v<=100))throw Error(T('psDyeScaleRange'))}
  if(!(D.yValue>0))D.yValue=1000;D.markerMargin=Math.max(0,Math.round(D.markerMargin)||0);
  for(const k of ['size'])if(!(d.labels[k]>=1&&d.labels[k]<=20))throw Error(T('psFontSize'));
  if(!(d.sizingTable.size>=1&&d.sizingTable.size<=20))throw Error(T('psFontSize'));
@@ -110,7 +111,7 @@ function toXml(s){
   t('labelStatus',enc('labels',D.labels))+t('xAxisMode',enc('xAxis',D.xAxis))+t('yAxisScaleMode',enc('yAxis',D.yAxis))+t('yAxisScaleToUseValue',D.yValue)+
   b('dyeAllSelected',D.allDyes)+DYES.map(d=>b('dye'+DYE_XML[d]+'Selected',D.dyes[d])).join('')+t('allDyeStartRange',D.start)+t('allDyeEndRange',D.end)+
   t('tableMode',enc('table',D.table))+t('dyeMode',enc('layout',D.layout))+b('printQualityValueDetails',D.printQVD)+t('customColors',D.customColors.map(colorToXml).join(','))+
-  t('markerMargin',D.markerMargin)+'</plotDisplaySetting></xmlPlotSetting></PlotSettingContainer>\n';
+  t('markerMargin',D.markerMargin)+['blue','green','yellow','red','purple','orange','turquoise','fuchsia'].map(d=>t('dye'+d[0].toUpperCase()+d.slice(1)+'ScaleFactor',D.dyeScales[d]||1)).join('')+'</plotDisplaySetting></xmlPlotSetting></PlotSettingContainer>\n';
  return x}
 function fromXml(text){
  if(text.length>1048576)throw Error('XML > 1 MiB');if(/<!DOCTYPE|<!ENTITY/i.test(text))throw Error('DTD');
@@ -138,7 +139,8 @@ function fromXml(text){
   D.yValue=+(txt(d,'yAxisScaleToUseValue')||D.yValue);for(const dy of DYES)D.dyes[dy]=bool(d,'dye'+DYE_XML[dy]+'Selected',D.dyes[dy]);
   D.start=+(txt(d,'allDyeStartRange')||D.start);D.end=+(txt(d,'allDyeEndRange')||D.end);D.table=dec('table',txt(d,'tableMode'),'genotypes');
   D.layout=dec('layout',txt(d,'dyeMode'),'separate');const cc=txt(d,'customColors');if(cc)D.customColors=cc.split(',').map(colorFromXml).filter(Boolean).concat(D.customColors).slice(0,16);
-  D.markerMargin=+(txt(d,'markerMargin')||D.markerMargin)}
+  D.markerMargin=+(txt(d,'markerMargin')||D.markerMargin);
+  for(const dy of DYES){const v=parseFloat(txt(d,'dye'+dy[0].toUpperCase()+dy.slice(1)+'ScaleFactor'));if(v>0)D.dyeScales[dy]=v}}
  return validate(s)}
 
 // ---------- editor ----------
@@ -195,13 +197,23 @@ function openEditor(source,{title,onSave,restrict}={}){
     field(T('table'),select(D,'table',[['none',T('noTable')],['sizing',T('sizingTable')],['genotypes',T('genotypesTable')],['lev',T('labelEditViewer')]],{id:'psTable'})),
     field(T('psDyeLayout'),select(D,'layout',[['combine',T('combine')],['separate',T('separate')],['overlay',T('overlay')]],{id:'psLayout'})),
     check(D,'printQVD',T('psPrintQvd')),
-    (()=>{const bt=el('button',{class:'btn',type:'button',text:T('psCustomColors')+'...'});bt.disabled=ro;bt.addEventListener('click',()=>customColors(D));return bt})());
+    (()=>{const bt=el('button',{class:'btn',type:'button',text:T('psCustomColors')+'...'});bt.disabled=ro;bt.addEventListener('click',()=>customColors(D));return bt})(),
+    (()=>{const bt=el('button',{class:'btn',type:'button',text:T('psDyeScales')+'...'});bt.disabled=ro;bt.addEventListener('click',()=>dyeScales(D));return bt})());
    page.append(el('div',{class:'field'},el('label',{text:T('psWhenOpening')}),el('span',{},radio(D,'persistence','last',T('psUseLast'),'psp'),radio(D,'persistence','these',T('psUseThese'),'psp'))),
     field(T('panes'),num(D,'panes',{id:'psPanes'})),el('div',{class:'pscols'},el('div',{},sh,lab),el('div',{},ax,sp,
     el('fieldset',{},el('legend',{text:T('psGenotypePlotOnly')}),el('div',{class:'inl'},el('span',{text:T('psMarkerMargin')+' '}),num(D,'markerMargin',{id:'psMargin'}),el('span',{text:' '+T('bp')}))))),
     el('div',{class:'note',text:T('psRetainNote')}))}
   b.append(tabs,page)};
  draw();return d}
+function dyeScales(D){
+ const vals=Object.fromEntries(DYES.map(d=>[d,D.dyeScales?.[d]||1]));
+ dialog(T('psDyeScales'),b=>{b.append(el('p',{text:T('psDyeScaleHint')}));const g=el('div',{class:'pscols'});
+  for(const d of DYES){const inp=el('input',{type:'text',class:'num',size:'7',value:String(vals[d]),'data-dyescale':d});
+   inp.addEventListener('input',()=>{vals[d]=inp.value});inp.addEventListener('blur',()=>{const v=parseFloat(String(inp.value).replace(',','.'));
+    if(!(v>=0.1&&v<=100)){message(T('psDyeScaleRange'));inp.value=String(D.dyeScales?.[d]||1);vals[d]=inp.value}});
+   g.append(el('div',{class:'field'},el('label',{text:T('dye_'+d)}),inp))}b.append(g)},
+  [[T('psFactoryDefaults'),b=>{for(const i of b.querySelectorAll('[data-dyescale]')){i.value='1';vals[i.dataset.dyescale]='1'}return false}],
+   [T('ok'),()=>{const out={};for(const d of DYES){const v=parseFloat(String(vals[d]).replace(',','.'));if(!(v>=0.1&&v<=100)){message(T('psDyeScaleRange'));return false}out[d]=v}D.dyeScales=out;return true},true],[T('cancel'),()=>true]])}
 function customColors(D){
  const cols=D.customColors.slice();
  dialog(T('psDefineColors'),b=>{b.append(el('p',{text:T('psSelectColors')}));const t=el('table',{class:'g'});t.append(el('thead',{},el('tr',{},el('th',{text:T('psTraceNo')}),el('th',{text:T('psColor')}))));
