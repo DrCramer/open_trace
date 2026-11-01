@@ -21,6 +21,10 @@ function open(sample,actions){
  const clearAll=()=>{if(!assign.size)return;snap();assign.clear();pick=null;draw()};
  const autoAdjust=()=>{snap();assign.clear();for(const [k,v] of orig)assign.set(k,v);pick=null;draw()};
  const delPicked=()=>{if(pick==null||!assign.has(pick))return;snap();assign.delete(pick);draw()};
+ const changeLabel=()=>{if(pick==null||!assign.has(pick))return;const v=prompt(T('smChangePrompt'),String(pick));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));
+  if(!expected.includes(n)){message(T('smChangeInvalid'));return}if(n===pick)return;snap();const scan=assign.get(pick);assign.delete(pick);assign.delete(n);assign.set(n,scan);pick=n;draw()};
+ const checkQuality=()=>{const q=sz.sq_override?1:(sz.base_quality||{}).score;message([`SQ: ${q==null?'NA':Number(q).toFixed(3)}`,`${T('smStatus')}: ${sz.sq_override?T('smOverridden'):sz.status}`,`${T('smMatched')}: ${assign.size}/${expected.length}`,...(sz.reasons||[])].join('\n'),T('smCheckQuality'))};
+ const fullView=()=>{const m=window.__smZ;m&&m.delete(ref);draw()};
  const d=dialog(`${T('sizeMatchEditor').replace(/\.+$/,'')} — ${sample.file}`,b=>b.classList.add('smdlg'),[
   [T('smOverride'),async()=>{const anchors=[...assign.entries()].map(([bp,scan])=>[scan,bp]).sort((x,y)=>x[0]-y[0]);
     if(anchors.length<3){message(T('smNeedThree'));return false}
@@ -36,7 +40,7 @@ function open(sample,actions){
    el('span',{text:`SQ: ${q==null?'NA':Number(q).toFixed(3)}`}),
    el('span',{text:`${T('smMatched')}: ${assign.size}/${expected.length}`})));
   {const tb=el('div',{class:'btnrow smtools'});const bt=(txt,fn,id,dis)=>{const x=el('button',{class:'btn small',type:'button',text:txt,id});x.disabled=!!dis;x.addEventListener('click',fn);return x};
-   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'));b.append(tb)}
+   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'),bt(T('smChangeLabel')+' (Ctrl+L)',changeLabel,'smChange',pick==null||!assign.has(pick)),bt(T('smCheckQuality'),checkQuality,'smCheck'),bt(T('fullView')+' (Ctrl+])',fullView,'smFull'));b.append(tb)}
   if((sz.reasons||[]).length)b.append(el('div',{class:'note',text:sz.reasons.join('; ')}));
   if(sz.sq_override)b.append(el('div',{class:'note',text:`${T('smOverrideReason')}: ${sz.sq_override.reason||'—'}`}));
   // electropherogram of the standard dye
@@ -95,7 +99,8 @@ function open(sample,actions){
   if(!ctrl)return;const code=e.code;
   if(code==='KeyZ'&&!e.shiftKey){e.preventDefault();undo()}
   else if(code==='KeyO'&&e.shiftKey){e.preventDefault();d.body.closest('.dlg')?.querySelector('.foot .btn')?.click()}
-  else if(e.key===']'){e.preventDefault();const m=window.__smZ;m&&m.delete(ref);draw()}};
+  else if(e.key===']'){e.preventDefault();fullView()}
+  else if(code==='KeyL'){e.preventDefault();changeLabel()}};
  document.addEventListener('keydown',keys);
  draw();return d}
 function askReason(){return new Promise(res=>{dialog(T('smOverride'),b=>b.append(el('div',{class:'field'},el('label',{text:T('reasonForChange')}),el('input',{type:'text',id:'smReason'}))),
