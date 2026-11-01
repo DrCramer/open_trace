@@ -14,15 +14,26 @@ function open(sample,actions){
  const assign=new Map();
  const src=sz.sq_override?sz.sq_override.anchors.map(([scan,bp])=>({scan,expected_bp:bp})):(sz.matched||[]);
  for(const m of src)if(m.expected_bp!=null&&m.scan!=null)assign.set(Number(m.expected_bp),Number(m.scan));
- let pick=null;
+ let pick=null,selPk=null;
  const orig=new Map(assign);const hist=[];
  const snap=()=>{hist.push(new Map(assign));if(hist.length>50)hist.shift()};
  const undo=()=>{if(!hist.length)return;const h=hist.pop();assign.clear();for(const [k,v] of h)assign.set(k,v);draw()};
  const clearAll=()=>{if(!assign.size)return;snap();assign.clear();pick=null;draw()};
  const autoAdjust=()=>{snap();assign.clear();for(const [k,v] of orig)assign.set(k,v);pick=null;draw()};
  const delPicked=()=>{if(pick==null||!assign.has(pick))return;snap();assign.delete(pick);draw()};
- const changeLabel=()=>{if(pick==null||!assign.has(pick))return;const v=prompt(T('smChangePrompt'),String(pick));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));
-  if(!expected.includes(n)){message(T('smChangeInvalid'));return}if(n===pick)return;snap();const scan=assign.get(pick);assign.delete(pick);assign.delete(n);assign.set(n,scan);pick=n;draw()};
+ const scanLabel=sc=>{for(const [k,v] of assign)if(v===sc)return k;return null};
+ const sizePicker=(title,cur,cb)=>dialog(title,body=>{const sel=el('select',{id:'smSizeSel'});
+   for(const bp of expected)sel.append(new Option(String(bp)+(assign.has(bp)&&bp!==cur?' ('+T('smAssigned')+')':''),String(bp)));sel.value=String(cur??'');body.append(el('div',{class:'field'},el('label',{text:T('smPickSize')}),sel))},
+  [[T('ok'),b=>{const n=parseFloat(b.querySelector('#smSizeSel').value);cb(n);return true},true],[T('cancel'),()=>true]]);
+ const addLabel=()=>{if(selPk==null||scanLabel(selPk)!=null)return;const first=expected.find(x=>!assign.has(x));
+  sizePicker(T('smAddLabel').replace(/\.+$/,''),first,n=>{snap();assign.delete(n);assign.set(n,selPk);selPk=null;draw()})};
+ const changeLabel=()=>{const sc=selPk!=null&&scanLabel(selPk)!=null?selPk:(pick!=null&&assign.has(pick)?assign.get(pick):null);if(sc==null)return;const cur=scanLabel(sc);
+  sizePicker(T('smChangeLabel').replace(/\.+$/,''),cur,n=>{if(n===cur)return;snap();assign.delete(cur);assign.delete(n);assign.set(n,sc);pick=n;draw()})};
+ const yMax=mode=>{const z={...(ZM0().get(ref)||{})};const vals=ref.analyzed_values||ref.values||[];
+  if(mode==='max'){delete z.maxY;z.yMode='max'}
+  else{let v=null;for(;;){const t=prompt(T('smEnterYMax'),String(Math.round(z.maxY||0)||''));if(t==null)return;const n=parseFloat(String(t).replace(',','.'));if(n>0){v=n;break}}z.maxY=v;z.yMode='custom'}
+  ZM0().set(ref,z);draw()};
+ const ZM0=()=>window.__smZ=window.__smZ||new WeakMap();
  const checkQuality=()=>{const q=sz.sq_override?1:(sz.base_quality||{}).score;message([`SQ: ${q==null?'NA':Number(q).toFixed(3)}`,`${T('smStatus')}: ${sz.sq_override?T('smOverridden'):sz.status}`,`${T('smMatched')}: ${assign.size}/${expected.length}`,...(sz.reasons||[])].join('\n'),T('smCheckQuality'))};
  const fullView=()=>{const m=window.__smZ;m&&m.delete(ref);draw()};
  const d=dialog(`${T('sizeMatchEditor').replace(/\.+$/,'')} — ${sample.file}`,b=>b.classList.add('smdlg'),[
@@ -40,7 +51,7 @@ function open(sample,actions){
    el('span',{text:`SQ: ${q==null?'NA':Number(q).toFixed(3)}`}),
    el('span',{text:`${T('smMatched')}: ${assign.size}/${expected.length}`})));
   {const tb=el('div',{class:'btnrow smtools'});const bt=(txt,fn,id,dis)=>{const x=el('button',{class:'btn small',type:'button',text:txt,id});x.disabled=!!dis;x.addEventListener('click',fn);return x};
-   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'),bt(T('smChangeLabel')+' (Ctrl+L)',changeLabel,'smChange',pick==null||!assign.has(pick)),bt(T('smCheckQuality'),checkQuality,'smCheck'),bt(T('fullView')+' (Ctrl+])',fullView,'smFull'));b.append(tb)}
+   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'),bt(T('smAddLabel'),addLabel,'smAdd',selPk==null||scanLabel(selPk)!=null),bt(T('smChangeLabel')+' (Ctrl+L)',changeLabel,'smChange',!(selPk!=null&&scanLabel(selPk)!=null)&&!(pick!=null&&assign.has(pick))),bt(T('smCheckQuality'),checkQuality,'smCheck'),bt(T('fullView')+' (Ctrl+])',fullView,'smFull'),bt(T('scaleMaxY'),()=>yMax('max'),'smYMax'),bt(T('smScaleTo'),()=>yMax('custom'),'smYCustom'));b.append(tb)}
   if((sz.reasons||[]).length)b.append(el('div',{class:'note',text:sz.reasons.join('; ')}));
   if(sz.sq_override)b.append(el('div',{class:'note',text:`${T('smOverrideReason')}: ${sz.sq_override.reason||'—'}`}));
   // electropherogram of the standard dye
@@ -50,7 +61,7 @@ function open(sample,actions){
   const lo=zs.lo??(peaks.length?Math.max(0,peaks[0].scan-300):0),hi=zs.hi??(peaks.length?Math.min(vals.length-1,peaks[peaks.length-1].scan+300):vals.length-1);
   // Scale to the matched fragments, as the primer peak would flatten the standard.
   const matchedH=peaks.filter(p=>[...assign.values()].includes(p.scan)).map(p=>vals[Math.round(p.scan)]??p.height);
-  const maxY=zs.maxY??Math.max(1,...(matchedH.length?matchedH.map(h=>h*1.25):peaks.map(p=>p.height)));
+  const maxY=zs.maxY??(zs.yMode==='max'?Math.max(1,...vals.slice(Math.max(0,Math.floor(lo)),Math.ceil(hi)+1).map(v=>v||0))*1.05:null)??Math.max(1,...(matchedH.length?matchedH.map(h=>h*1.25):peaks.map(p=>p.height)));
   const X=s=>(s-lo)/(hi-lo||1)*W,Y=v=>H-20-Math.max(0,Math.min(1.1,v/maxY))*(H-50);
   const svg=sv('svg',{width:W,height:H,class:'smsvg'});
   let path='';const step=Math.max(1,Math.floor((hi-lo)/W));
@@ -59,10 +70,10 @@ function open(sample,actions){
   const byScan=new Map([...assign.entries()].map(([bp,scan])=>[scan,bp]));
   for(const p of peaks){const x=X(p.scan),y=Y(vals[Math.round(p.scan)]??p.height);const bp=byScan.get(p.scan);
    const g=sv('g',{class:'smpk'+(bp!=null?' on':'')});
-   g.append(sv('line',{x1:x,x2:x,y1:y,y2:H-20,stroke:'transparent','stroke-width':8}),sv('circle',{cx:x,cy:y,r:bp!=null?4:3,fill:bp!=null?'#e67e22':'#bbb',stroke:'#555'}));
+   g.append(sv('line',{x1:x,x2:x,y1:y,y2:H-20,stroke:'transparent','stroke-width':8}),sv('circle',{cx:x,cy:y,r:bp!=null?4:3,fill:bp!=null?'#e67e22':'#bbb',stroke:selPk===p.scan?'#d00':'#555','stroke-width':selPk===p.scan?3:1}));
    if(bp!=null)g.append(sv('text',{x,y:y-8,'text-anchor':'middle','font-size':10},String(bp)));
    g.append(sv('title',{},`scan ${p.scan}, ${Math.round(p.height)} RFU`));
-   g.addEventListener('click',()=>{if(pick==null)return;snap();for(const [k,v] of assign)if(v===p.scan)assign.delete(k);assign.set(pick,p.scan);
+   g.addEventListener('click',()=>{if(pick==null){selPk=selPk===p.scan?null:p.scan;draw();return}selPk=null;snap();for(const [k,v] of assign)if(v===p.scan)assign.delete(k);assign.set(pick,p.scan);
     const i=expected.indexOf(pick);pick=expected.slice(i+1).find(x=>!assign.has(x))??null;draw()});
    svg.append(g)}
   svg.append(sv('line',{x1:0,x2:W,y1:H-20,y2:H-20,stroke:'#555'}));
