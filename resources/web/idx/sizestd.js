@@ -64,7 +64,8 @@ function openEditor(source,{title,onSave,restrict=null}={}){
   sizes.addEventListener('input',()=>{s.sizes=sizes.value.split(/[\s,;]+/).filter(Boolean).map(Number)});
   b.append(el('div',{class:'field'},el('label',{text:T('amName')}),name),el('div',{class:'field'},el('label',{text:T('amDescription')}),desc),
    el('div',{class:'field'},el('label',{text:T('stdDye')}),dye),el('div',{class:'field'},el('label',{text:T('stdSizes')}),sizes))},
-  [[T('ok'),async()=>{try{if(restrict){message(T('scReadOnly'));return false}s.name=s.name.trim();if(s.name!==previous&&get(s.name)){message(fmt('methodNameExists',s.name));return false}
+  [...(!restrict&&previous&&get(previous)?[[T('stdDuplicate'),()=>{try{const c=clone(s);let n=`${previous} - dup`,i=2;while(get(n))n=`${previous} - dup ${i++}`;c.name=n;validate(c);put(c,null);message(fmt('stdDuplicated',n));return false}catch(e){message(e.message);return false}}]]:[]),
+  [T('ok'),async()=>{try{if(restrict){message(T('scReadOnly'));return false}s.name=s.name.trim();if(s.name!==previous&&get(s.name)){message(fmt('methodNameExists',s.name));return false}
     validate(s);const isNew=!(previous&&get(previous));const ch=window.Sec?await Sec.change({map:'SizeStandard',attribute:isNew?'created':'modified',instance:s.name,old:isNew?'':previous,new:s.name,
      event:isNew?'Add Size Standard':'Modify Size Standard',esig:{group:'GM_SIZE_STANDARD',action:isNew?'CREATE_SIZE_STANDARD':'MODIFY_SIZE_STANDARD'}}):{commit(){}};
     if(!ch)return false;onSave(s,previous);ch.commit();return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]]);
