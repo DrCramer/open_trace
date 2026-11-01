@@ -460,8 +460,8 @@ function closeWin(){if(ui.dirty)confirmBox(T('confirmClose'),()=>{ui.dirty=false
 function buildChrome(){
  document.documentElement.lang=I18N.lang;document.title=T('panelMgrTitle')+' — OpenTrace';
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('newKit'),sc:'Ctrl+N',run:newKit},{label:T('duplicateKit'),run:duplicateKit},{label:T('newPanel'),run:newPanel},{label:T('duplicatePanel'),run:duplicatePanel},{label:T('newMarker'),run:newMarker},'-',{label:T('importPanels'),sc:'Ctrl+M',run:importPanels},{label:T('importBinSet'),sc:'Ctrl+Shift+B',run:importBins},{label:T('importStutter'),sc:'Ctrl+Shift+M',run:importStutter},'-',
-   {label:T('exportPanels'),sc:'Ctrl+E',run:exportPanels},{label:T('exportBinSet'),sc:'Ctrl+Shift+E',run:exportBinSet},{label:T('exportStutter'),sc:'Ctrl+Shift+X',run:exportStutter},{label:T('exportAllKits'),sc:'Ctrl+K',run:exportAll},'-',
+  {label:T('file'),items:[{label:T('newKit'),sc:'Ctrl+N',run:newKit},{label:T('newPanel'),run:newPanel},{label:T('duplicatePanel'),run:duplicatePanel},{label:T('duplicateKit'),run:duplicateKit},{label:T('newMarker'),run:newMarker},'-',{label:T('importPanels'),sc:'Ctrl+M',run:importPanels},{label:T('importBinSet'),sc:'Ctrl+Shift+B',run:importBins},{label:T('importStutter'),sc:'Ctrl+Shift+M',run:importStutter},'-',
+   {label:T('exportPanels'),sc:'Ctrl+E',run:exportPanels},{label:T('exportBinSet'),sc:'Ctrl+Shift+E',run:exportBinSet},{label:T('exportAllKits'),sc:'Ctrl+K',run:exportAll},{label:T('exportStutter'),sc:'Ctrl+Shift+X',run:exportStutter},'-',
    {label:T('print'),run:()=>window.print()},'-',{label:T('closeWin'),run:closeWin}]},
   {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!undoStack.length,run:undo},'-',{label:T('copy'),sc:'Ctrl+C',run:copySel},{label:T('paste'),sc:'Ctrl+V',run:pasteSel},'-',{label:T('deleteItem'),sc:'Delete',run:deleteNode}]},
   {label:T('binsMenu'),items:[{label:T('newBinSet'),run:newBinSet},{label:T('deleteBinSet'),run:deleteBinSet},'-',{label:T('addBin'),sc:'Ctrl+B',run:()=>binDialog(null)},
