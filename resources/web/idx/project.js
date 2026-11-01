@@ -229,7 +229,7 @@ const changedAll=list=>{for(const x of list)if(x.status==='analyzed')x.status='c
 // Inline text cell (Sample ID, Comment, Profile ID, UD1-UD9): edits mark the project dirty.
 function setField(s,key,v){if(!Sec.can('UPDATE_PROJECT')){Sec.denied();render();return}if(key.startsWith('ud.')){s.ud=s.ud||{};s.ud[key.slice(3)]=v}else s[key]=v;state.project.dirty=true}
 function textEdit(s,key,value){const i=el('input',{type:'text',value:String(value),'data-field':key});
- i.addEventListener('mousedown',e=>e.stopPropagation());i.addEventListener('focus',()=>{state.lastField=key});
+ i.addEventListener('mousedown',e=>e.stopPropagation());i.addEventListener('focus',()=>{state.lastField=key;state.lastCol=null});
  i.addEventListener('change',()=>{setField(s,key,i.value);renderTitle()});return {value,node:i}}
 // Returns {value, node?, cls?, title?} for one Samples-table cell.
 function sampleCell(id,s,flags){
@@ -432,7 +432,7 @@ function renderSamples(){
  const tb=el('tbody');const list=sortedSamples();
  list.forEach((s,i)=>{const flags=sampleFlags(s);
   const tr=el('tr',{class:state.selected.has(s.id)?'sel':''});tr.dataset.id=s.id;tr.append(el('td',{class:'rh',text:String(i+1)}));
-  for(const c of cols){const v=sampleCell(c.base,s,flags);const td=el('td');fillCell(td,v);if(v.dbl)td.addEventListener('dblclick',e=>{e.stopPropagation();v.dbl()});tr.append(td)}
+  for(const c of cols){const v=sampleCell(c.base,s,flags);const td=el('td');td.dataset.col=c.base;fillCell(td,v);if(v.dbl)td.addEventListener('dblclick',e=>{e.stopPropagation();v.dbl()});tr.append(td)}
   tr.addEventListener('mousedown',e=>selectRow(e,s.id,list.map(x=>x.id)));
   tr.addEventListener('dblclick',()=>displayPlots());tb.append(tr)});
  t.append(tb);grid.append(t);
@@ -637,8 +637,26 @@ function rememberProject(name){try{localStorage.setItem('opentrace.lastProject',
 async function closeProject(){if(!(await confirmDiscard()))return;
  Object.assign(state.project,{name:null,savedAs:null,comment:'',runFolders:[],samples:[],reports:[],binOffsets:[],dirty:false});state.selected.clear();state.lastMessage=null;render()}
 // ---------- copy / fill down ----------
-function fillDown(){const key=state.lastField;if(!key)return message(T('fillDownHint'));
- const rows=sortedSamples().filter(s=>state.selected.has(s.id));if(rows.length<2)return message(T('fillDownHint'));
+// Drop-down columns Fill Down can copy (value of the first selected row to the others).
+const FILL_COLS={
+ analysisMethod:(d,v)=>{d.method=v.method},
+ panel:(d,v)=>{d.panelKey=v.panelKey;d.panel=v.panel;if(v.panelKey)d.sizeStd=fitStandard(v.panelKey,d.sizeStd)},
+ sizeStandard:(d,v)=>{d.sizeStd=v.sizeStd},
+ sampleType:(d,v)=>{d.type=v.type;d.typeAuto=false},
+ matrix:(d,v)=>{if(d.inst?.is310)d.matrix=v.matrix},
+ customControl:(d,v)=>{d.customControl=v.customControl},
+ specimenCategory:(d,v)=>{d.specimenCategory=v.specimenCategory}};
+// The column of the last clicked cell (any cell, including drop-downs) is the one Fill Down copies.
+document.addEventListener('mousedown',e=>{const td=e.target.closest&&e.target.closest('#page-samples tbody td[data-col]');if(!td)return;
+ const col=td.dataset.col;state.lastCol=FILL_COLS[col]?col:null;if(FILL_COLS[col])state.lastField=null},true);
+function fillDown(){
+ const rows=sortedSamples().filter(s=>state.selected.has(s.id));
+ const col=state.lastCol;
+ if(col&&FILL_COLS[col]){if(rows.length<2)return message(T('fillDownHint'));
+  if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return}
+  const src=rows[0];const l=rows.slice(1);for(const d of l)FILL_COLS[col](d,src);changedAll(l);return}
+ const key=state.lastField;if(!key)return message(T('fillDownHint'));
+ if(rows.length<2)return message(T('fillDownHint'));
  const get=s=>key.startsWith('ud.')?(s.ud||{})[key.slice(3)]||'':(s[key]||'');const v=get(rows[0]);
  for(const s of rows.slice(1))setField(s,key,v);render()}
 // ---------- size standards and Size Match Editor ----------
