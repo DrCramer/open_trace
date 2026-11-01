@@ -67,6 +67,13 @@ window.pqv=(state,edited)=>{
  return `<span class="q" title="${state}" style="${edited?'filter:grayscale(1);opacity:.75':''}">${s}</span>`;
 };
 
+// flat PQV symbols for printouts: square = pass, triangle = check, octagon = fail; grey when the PQV is stale
+window.pqvFlat=(state,stale)=>{
+ if(state==null||state==='na')return '<span class="q-na">NA</span>';
+ const c=stale?'#a0a0a0':state==='check'?'#f2d400':state==='low'?'#ff0000':'#00e000';
+ const sh=state==='check'?'<path d="M7 1l6.5 12h-13z"':state==='low'?'<path d="M4.4 .8h5.2l3.6 3.6v5.2l-3.6 3.6H4.4L.8 9.6V4.4z"':'<rect x="1" y="1" width="12" height="12"';
+ return `<svg class="qf" width="11" height="11" viewBox="0 0 14 14">${sh} fill="${c}"/></svg>`};
+
 // Menus: spec = [{label, items:[{label,sc,run,disabled,checked,sub:[...]}|'-']}]
 let openTop=null;
 function closeMenus(){document.querySelectorAll('.menu.show').forEach(m=>m.classList.remove('show'));

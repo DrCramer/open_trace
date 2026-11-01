@@ -119,11 +119,13 @@ function draw(){
  renderLower()}
 
 function paint(cv,items,x0,x1,onlyMarker){
- const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.height;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
+ const P=!!view.printing;const dpr=P?3:(window.devicePixelRatio||1),W=cv.clientWidth,H=cv.height;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
  const g=cv.getContext('2d');g.scale(dpr,dpr);g.fillStyle='#fff';g.fillRect(0,0,W,H);g.font='11px Tahoma,Arial';
  const LS=setting?.labels||PlotSettings.base('').labels;const fs=LS.size||11;const lineH=fs+5;
  const maxLines=Math.max(1,...['assigned','custom','ladder','artifact'].map(k=>{const i=LS[k].indexOf('none');return i<0?4:Math.max(1,i)}));const labelH=maxLines*lineH+3;
- const L=56,R=14,top=view.markerRange?40:18,bottom=H-(view.labels==='none'?16:10+2*(labelH+2));
+ let L=56,R=14,top=view.markerRange?40:18,bottom=H-(view.labels==='none'?16:10+2*(labelH+2));
+ // ID-X print geometry: plot frame starts at 22% of the pane image and is 29% high, 8% left margin
+ if(P){L=Math.round(W*.0813);R=Math.round(W*.015);top=Math.round(H*.223);bottom=Math.round(H*.51)}
  const s=items[0].sample;const cur=curveOf(s.analysis);const dp=view.xAxis==='dp';
  const pos=(bp,scan)=>dp?(scan??bpToScan(cur,bp)):bp;   // plot coordinate of a peak / bin edge
  const Xc=v=>L+(v-x0)/(x1-x0)*(W-L-R);const X=bp=>Xc(dp?bpToScan(cur,bp):bp);
@@ -133,10 +135,10 @@ function paint(cv,items,x0,x1,onlyMarker){
  for(const m of markers.filter(m=>dyes.includes(m.channel))){
   const row=(s.markers||[]).find(r=>r.marker===m.name);const xa=X(m.min_bp),xb=X(m.max_bp);
   // marker header colour = GQ; grey when its allele labels were edited
-  if(view.markerRange){const col=row?.edited?GQ_FILL.na:GQ_FILL[row?.gqCat||'na'];const hy=3,hh=16;
+  if(view.markerRange){const col=row?.edited?GQ_FILL.na:GQ_FILL[row?.gqCat||'na'];const hy=P?Math.round(H*.012):3,hh=16;
    // ID-X 1.4 prints filled headers like the screen; the ID-X 1.6 help describes unfilled headers outlined in colour (Page Setup choice)
    if(view.printing&&view.headerStyle==='outline'){g.fillStyle='#fff';g.fillRect(xa,hy,xb-xa,hh);g.lineWidth=2;g.strokeStyle=col;g.strokeRect(xa+1,hy+1,xb-xa-2,hh-2);g.lineWidth=1}
-   else{g.fillStyle=col;g.fillRect(xa,hy,xb-xa,hh);g.strokeStyle='#000';g.strokeRect(xa+.5,hy+.5,xb-xa-1,hh-1)}
+   else{g.fillStyle=col;g.fillRect(xa,hy,xb-xa,hh);g.strokeStyle=P?'#555':'#000';g.strokeRect(xa+.5,hy+.5,xb-xa-1,hh-1)}
    g.save();g.font='12px Arial,Helvetica,sans-serif';g.textAlign='center';g.fillStyle='#000';const name=(row?.pli?'** ':'')+m.name;
    g.fillText(g.measureText(name).width<=xb-xa-4?name:'...',(xa+xb)/2,hy+hh-4);g.restore();
    m._hit={x0:xa,x1:xb,y0:hy,y1:hy+hh}}
@@ -145,9 +147,9 @@ function paint(cv,items,x0,x1,onlyMarker){
     g.fillStyle=b.virtual?VBIN_FILL:BIN_FILL;g.fillRect(ba,top,Math.max(1,bb-ba),bottom-top)}}}
  // axes
  g.strokeStyle='#000';g.strokeRect(L+.5,top+.5,W-L-R-1,bottom-top);
- const step=niceStep((x1-x0)/7);g.fillStyle='#000';g.textAlign='center';g.font='12px Arial,Helvetica,sans-serif';
- for(let v=Math.ceil(x0/step)*step;v<=x1;v+=step){const x=Xc(v);g.fillText(String(+v.toFixed(1)),x,top-5);g.beginPath();g.moveTo(x,top-3);g.lineTo(x,top+4);g.stroke()}
- for(let v=Math.ceil(x0/step*2)*step/2;v<=x1;v+=step/2){const x=Xc(v);g.beginPath();g.moveTo(x,top);g.lineTo(x,top+2);g.stroke()}
+ const step=P&&!dp?Math.max(10,Math.ceil((x1-x0)/6/10)*10):niceStep((x1-x0)/7);g.fillStyle='#000';g.textAlign='center';g.font='12px Arial,Helvetica,sans-serif';
+ for(let v=P&&!dp?x0:Math.ceil(x0/step)*step;v<=x1+1e-9;v+=step){const x=Xc(v);g.fillText(String(+v.toFixed(1)),x,top-5);g.beginPath();g.moveTo(x,top-3);g.lineTo(x,top+4);g.stroke()}
+ for(let v=(P&&!dp?x0+step/2:Math.ceil(x0/step*2)*step/2);v<=x1;v+=step/2){const x=Xc(v);g.beginPath();g.moveTo(x,top);g.lineTo(x,top+2);g.stroke()}
  g.font='11px Tahoma,Arial';
  // traces
  let ymax=1;const traces=[];
@@ -156,8 +158,9 @@ function paint(cv,items,x0,x1,onlyMarker){
  // Y axis: scale individually, to the maximum Y of all panes, or to the entered value
  ymax=view.yAxis==='entered'?view.yValue:view.yAxis==='max'&&view.yGlobal?view.yGlobal*1.08:ymax*1.08;const Y=v=>bottom-(Math.min(v,ymax*1.2)/ymax)*(bottom-top);
  g.textAlign='right';g.font='12px Arial,Helvetica,sans-serif';const ys=niceStep(ymax/2.2);
- for(let v=0;v<=ymax;v+=ys){const y=Y(v);g.fillText(String(Math.round(v)),L-6,y+4);g.beginPath();g.moveTo(L-5,y);g.lineTo(L,y);g.stroke()}
- for(let v=ys/2;v<=ymax;v+=ys){const y=Y(v);g.beginPath();g.moveTo(L-3,y);g.lineTo(L,y);g.stroke()}
+ if(P){for(const v of [0,+(ymax*.6).toPrecision(2)]){const y=Y(v);g.fillText(String(Math.round(v)),L-6,y+4);g.beginPath();g.moveTo(L-5,y);g.lineTo(L,y);g.stroke()}}
+ else for(let v=0;v<=ymax;v+=ys){const y=Y(v);g.fillText(String(Math.round(v)),L-6,y+4);g.beginPath();g.moveTo(L-5,y);g.lineTo(L,y);g.stroke()}
+ if(!P)for(let v=ys/2;v<=ymax;v+=ys){const y=Y(v);g.beginPath();g.moveTo(L-3,y);g.lineTo(L,y);g.stroke()}
  g.font='11px Tahoma,Arial';
  g.save();g.beginPath();g.rect(L,top,W-L-R,bottom-top);g.clip();
  // off-scale data: pink band (Display Settings "Off-scale data")
@@ -185,7 +188,7 @@ function paint(cv,items,x0,x1,onlyMarker){
    for(const c of calls){const x=Xc(pos(c.size_bp,c.scan));const lines=labelLines(c,t.sample);
     const w=Math.max(18,...lines.map(l=>g.measureText(l).width+8));let row=0;while(placed.some(p=>p.row===row&&Math.abs(p.x-x)<(p.w+w)/2+2))row++;if(row>1){noRoom=true;continue}placed.push({x,row,w});
     const y=bottom+6+row*(labelH+2);const h=lines.length*lineH+2;
-    const border=(c.flags||[]).length?'#e040a0':LS.color==='bw'?'#000':dyeCol;g.strokeStyle=border;g.fillStyle='#fff';g.fillRect(x-w/2,y,w,h);g.strokeRect(x-w/2+.5,y+.5,w-1,h-1);
+    const border=(c.flags||[]).length?'#e040a0':LS.color==='bw'?'#000':dyeCol;g.strokeStyle=border;g.fillStyle='#fff';g.fillRect(x-w/2,y,w,h);if(P)g.lineWidth=.7;g.strokeRect(x-w/2+.5,y+.5,w-1,h-1);g.lineWidth=1;
     g.fillStyle=view.alleleChanges&&c.user_edited?'#b00060':LS.color==='dyeAll'?dyeCol:'#000';lines.forEach((l,i)=>g.fillText(l,x,y+lineH*(i+1)-2));
     g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle=LS.color==='bw'?'#999':dyeCol;g.stroke();
     labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+h,call:c,sample:t.sample})}
@@ -199,7 +202,7 @@ function paint(cv,items,x0,x1,onlyMarker){
     g.fillStyle='#b0006a';g.fillText(a.label,x,y+11);g.beginPath();g.moveTo(x,bottom);g.lineTo(x,y);g.strokeStyle='#e040a0';g.stroke();
     if(a.user)labelBoxes.push({x0:x-w/2,x1:x+w/2,y0:y,y1:y+14,artifact:a,sample:t.sample})}}}
  // ID-X "No room for labels": labels that do not fit in the label rows are not drawn
- if(noRoom){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';const tw=g.measureText(T('noRoomLabels')).width;g.fillStyle='rgba(255,255,255,.9)';g.fillRect(W-R-tw-8,H-16,tw+8,15);g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
+ if(noRoom&&!P){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';const tw=g.measureText(T('noRoomLabels')).width;g.fillStyle='rgba(255,255,255,.9)';g.fillRect(W-R-tw-8,H-16,tw+8,15);g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null)continue;const v=pos(pk.size_bp,pk.scan);if(v>=x0&&v<=x1)peakPts.push({x:Xc(v),y:Y(pk.height*(t.fk||1)),peak:pk,tag:t.tag,sample:t.sample})}
  // selected peaks (ID-X: "the peak fills in when it is selected")
  for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
@@ -469,21 +472,20 @@ function printColumns(){const H=setting?.sampleHeader||{};const on=k=>H[k]!==fal
  const cols=[];if(on('sampleFileName'))cols.push(['file',T('colSampleFile')]);if(on('sampleName'))cols.push(['name',T('colSampleName')]);if(on('panel'))cols.push(['panel',T('colPanel')]);
  for(const k of PQV_KEYS.filter(on))cols.push(['pqv:'+k,k]);return cols}
 function printPages(o){
- const [w,h]=SIZES[o.paper];const [pw,ph]=o.orientation==='portrait'?[w,h]:[h,w];const PX=3.78;   // px per mm at 96 dpi
- const usableW=pw-20,headH=o.header?20:0,colH=6,footH=9,rowH=5.5;
- const usableH=ph-20-headH-colH-footH;
- const per=o.plot==='honor'?panesPerPage(o):Math.max(1,Math.floor(usableH/({small:40,medium:60,large:90}[o.plot])));
- const paneH=usableH/per;const imgH=paneH-rowH-3;const panes=paneList();const [d0,d1]=domain();
+ const MM=72/25.4,[w,h]=SIZES[o.paper];const [pw,ph]=o.orientation==='portrait'?[w*MM,h*MM]:[h*MM,w*MM];const PX=4/3;   // page in pt (ID-X geometry), 1pt = 1.333 css px
+ const mx=35,top=81,bot=41.5,gap=9.5,rowH=9.5,area=ph-top-bot,paneW=pw-mx-25;
+ const per=o.plot==='honor'?panesPerPage(o):Math.max(1,Math.floor((area+gap)/({small:113,medium:170,large:255}[o.plot]+gap)));
+ const paneH=(area-gap*(per-1))/per;const imgH=paneH-rowH-1.5;const panes=paneList();const [d0,d1]=domain();
  const host=el('div',{style:'position:absolute;left:-20000px;top:0'});document.body.append(host);const imgs=[];
  view.printing=true;view.headerStyle=o.headerStyle;
  for(const p of panes){const items=p.overlay?p.items:[p];const s=items[0].sample;
   let x0=view.x0??d0,x1=view.x1??d1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);x0=p.marker.min_bp-mg;x1=p.marker.max_bp+mg;if(view.xAxis==='dp'){x0=bpToScan(c,x0);x1=bpToScan(c,x1)}}
-  const cv=el('canvas',{style:`width:${Math.round((usableW-2)*PX)}px`});cv.height=Math.round(imgH*PX);host.append(cv);
+  const cv=el('canvas',{style:`width:${Math.round((paneW-1.5)*PX)}px`});cv.height=Math.round(imgH*PX);host.append(cv);
   paint(cv,items,x0,x1,p.marker);
   imgs.push({src:cv.toDataURL('image/png'),sample:p.overlay?null:s,marker:p.marker||null,overlay:!!p.overlay})}
  view.printing=false;host.remove();
  const pages=[];for(let i=0;i<imgs.length;i+=per)pages.push(imgs.slice(i,i+per));
- return {pages,pw,ph,usableW,paneH,imgH,headH,colH,footH,rowH}}
+ return {pages,pw,ph,mx,top,bot,gap,paneW,paneH,imgH,rowH}}
 function printDate(){const d=new Date(),loc=I18N.lang==='ru'?'ru-RU':'en-US';
  const wd=d.toLocaleDateString(loc,{weekday:'short'}),mo=d.toLocaleDateString(loc,{month:'short'}).replace('.','');
  const tm=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}).replace(' ','');
@@ -493,27 +495,28 @@ function printUser(){try{return window.opener?.Sec?.user?.name||window.opener?.S
 function printPlots(preview){if(!payload||!payload.samples.length)return message(T('selectSamplesFirst'));
  const o=pageOpts();const r=printPages(o);const cols=printColumns();
  let area=document.getElementById('plotPrint');if(area)area.remove();area=el('div',{id:'plotPrint',class:preview?'ppreview':''});
- const st=el('style',{id:'plotPrintStyle'});st.textContent=`@page{size:${o.paper.toLowerCase()} ${o.orientation};margin:10mm}`;document.getElementById('plotPrintStyle')?.remove();document.head.append(st);
+ const st=el('style',{id:'plotPrintStyle'});st.textContent=`@page{size:${o.paper.toLowerCase()} ${o.orientation};margin:0}`;document.getElementById('plotPrintStyle')?.remove();document.head.append(st);
  if(preview){const bar=el('div',{class:'ppbar noprint'});const bt=(txt,fn,id)=>{const b=el('button',{class:'btn',type:'button',text:txt,id});b.addEventListener('click',fn);return b};
   bar.append(bt(T('print'),()=>{window.print()},'ppPrint'),bt(T('closeWin'),()=>area.remove(),'ppClose'),el('span',{text:' '+fmt('ppPages',r.pages.length,o.paper,T(o.orientation==='portrait'?'psPortrait':'psLandscape'))}));area.append(bar)}
  const proj=payload.project||T('untitled');const date=printDate(),user=printUser();
  const ver=(payload.samples.map(s=>s.analysis?.analysis_version).find(Boolean)||'OpenTrace').replace('/',' ').replace(/\.0$/,'');
  // column widths: the name column takes a fifth of the width, PQV columns share the rest (as in ID-X)
  const nNames=cols.filter(c=>!c[0].startsWith('pqv:')).length,nQ=cols.length-nNames;
- const colW=c=>c[0].startsWith('pqv:')?`${(100-22*nNames)/Math.max(1,nQ)}%`:'22%';
+ const colW=c=>c[0].startsWith('pqv:')?`${(100-19.3*nNames)/Math.max(1,nQ)}%`:'19.3%';
  const colgroup=()=>el('colgroup',{},...cols.map(c=>el('col',{style:`width:${colW(c)}`})));
  const headRow=(it)=>{const t=el('table',{class:'pprow'});t.append(colgroup());const tr=el('tr');const s=it.sample;
   for(const [k] of cols){const td=el('td');
    if(!s){if(k==='name'||k==='file')td.textContent=it.overlay&&k===cols[0][0]?T('overlay'):''}
    else if(k==='file')td.textContent=s.file;else if(k==='name')td.textContent=s.name+(it.marker?'   '+it.marker.name:'');else if(k==='panel')td.textContent=s.kit?.panel||s.kit?.name||'';
-   else{td.className='pq';const q=k.slice(4);td.innerHTML=pqv(s.pqv?.[q],q!=='SQ'&&sampleEdited(s))}
+   else{td.className='pq';const q=k.slice(4);td.innerHTML=pqvFlat(s.pqv?.[q],q!=='SQ'&&sampleEdited(s))}
    tr.append(td)}
   t.append(tr);return t};
- r.pages.forEach((pg,i)=>{const page=el('div',{class:'ppage',style:`width:${r.pw-20}mm;height:${r.ph-20}mm`});
-  if(o.header)page.append(el('div',{class:'pphead',style:`height:${r.headH-2}mm`},el('div',{class:'ppapp'},el('b',{text:'OpenTrace'}),el('span',{text:ver})),
-   el('div',{class:'ppproj',text:`Project: ${proj}`+(payload.printComment?` — ${payload.printComment}`:'')}),el('div')));
-  const ch=el('table',{class:'ppcols'});ch.append(colgroup(),el('tr',{},...cols.map(c=>el('th',{text:c[1]}))));page.append(ch);
-  for(const im of pg)page.append(el('div',{class:'ppane',style:`height:${r.paneH-2}mm`},headRow(im),el('img',{src:im.src,style:`width:${r.usableW-2}mm;height:${r.imgH}mm`})));
+ r.pages.forEach((pg,i)=>{const page=el('div',{class:'ppage',style:`width:${r.pw}pt;height:${r.ph}pt`});
+  page.append(el('div',{class:'ppframe'}));
+  if(o.header)page.append(el('div',{class:'pphead'},el('div',{class:'ppapp'},el('b',{text:'OpenTrace'}),el('span',{text:ver})),
+   el('div',{class:'ppproj',text:`Project: ${proj}`+(payload.printComment?` — ${payload.printComment}`:'')})));
+  const ch=el('table',{class:'ppcols',style:`left:${r.mx}pt;width:${r.paneW}pt;top:${r.top-11.5}pt`});ch.append(colgroup(),el('tr',{},...cols.map(c=>el('th',{text:c[1]}))));page.append(ch);
+  pg.forEach((im,k)=>page.append(el('div',{class:'ppane',style:`left:${r.mx}pt;width:${r.paneW}pt;top:${r.top+k*(r.paneH+r.gap)}pt;height:${r.paneH}pt`},headRow(im),el('img',{src:im.src,style:`width:${r.paneW-2}pt;height:${r.imgH}pt`}))));
   page.append(el('div',{class:'ppfoot'},el('span',{text:date}),el('span',{text:`Printed by: ${user}`}),el('span',{text:`Page ${i+1} of ${r.pages.length}`})));
   area.append(page)});
  document.body.append(area);

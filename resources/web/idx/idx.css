@@ -322,17 +322,17 @@ table.g td.c{text-align:center}
 #plotPrint{display:none}
 #plotPrint.ppreview{display:block;position:fixed;inset:0;z-index:50;overflow:auto;background:#808080;padding:8px 0}
 #plotPrint .ppbar{position:sticky;top:0;z-index:2;background:var(--face);border-bottom:1px solid var(--shadow);padding:4px 8px;display:flex;gap:6px;align-items:center;margin:-8px 0 8px}
-#plotPrint .ppage{background:#fff;margin:0 auto 10px;padding:0;box-shadow:0 1px 6px rgba(0,0,0,.5);box-sizing:border-box;overflow:hidden;font:11px Tahoma,Arial,sans-serif}
-#plotPrint .ppage{position:relative;font:11px Arial,Helvetica,sans-serif}
-#plotPrint .pphead{display:grid;grid-template-columns:1fr 2fr 1fr;align-items:start;margin-bottom:2mm}
-#plotPrint .ppapp{display:flex;flex-direction:column;line-height:1.2}#plotPrint .ppapp b{font-size:20px;color:#1f4fb4;letter-spacing:.3px}#plotPrint .ppapp span{font-size:12px}
-#plotPrint .ppproj{text-align:center;font-size:13px;padding-top:3mm}
+#plotPrint .ppage{background:#fff;margin:0 auto 10px;padding:0;box-shadow:0 1px 6px rgba(0,0,0,.5);box-sizing:border-box;overflow:hidden;position:relative;font:8.5pt Arial,Helvetica,sans-serif;color:#000}
+#plotPrint .ppframe{position:absolute;left:18pt;right:17.8pt;top:17.5pt;bottom:17.4pt;border:1pt solid #000}
+#plotPrint .pphead{position:absolute;left:0;right:0;top:0;height:70pt}
+#plotPrint .ppapp{position:absolute;left:25pt;top:22pt;display:flex;flex-direction:column;line-height:1.15}#plotPrint .ppapp b{font-size:18pt;color:#1f4fb4}#plotPrint .ppapp span{font-size:9pt}
+#plotPrint .ppproj{position:absolute;left:0;right:0;top:27pt;text-align:center;font-size:9.5pt}
 #plotPrint table.ppcols,#plotPrint table.pprow{width:100%;border-collapse:collapse;table-layout:fixed}
-#plotPrint table.ppcols{border:2px solid #000;margin-bottom:1mm}#plotPrint table.ppcols th{font-weight:normal;text-align:left;padding:1px 4px;font-size:11px;height:5mm}
-#plotPrint .ppane{border:1px solid #000;margin-bottom:1mm;box-sizing:border-box;overflow:hidden}
-#plotPrint table.pprow{border-bottom:2px solid #000}#plotPrint table.pprow td{padding:0 4px;height:5mm;font-size:11px;white-space:nowrap;overflow:hidden}
-#plotPrint table.pprow td.pq{text-align:center}
-#plotPrint .ppfoot{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;font-size:11px;border-bottom:1px solid #000;padding-bottom:1mm}
+#plotPrint table.ppcols{position:absolute;border:1pt solid #000;height:10pt}#plotPrint table.ppcols th{font-weight:normal;text-align:left;padding:0 3pt;font-size:8pt;line-height:9pt;border:0}
+#plotPrint .ppane{position:absolute;border:1pt solid #000;box-sizing:border-box;overflow:hidden}
+#plotPrint table.pprow{border-bottom:1pt solid #000;border-top:1pt solid #000;margin-top:-.5pt}#plotPrint table.pprow td{padding:0 3pt;height:9pt;line-height:9pt;font-size:8pt;white-space:nowrap;overflow:hidden}
+#plotPrint table.pprow td.pq{text-align:center}#plotPrint svg.qf{vertical-align:middle}
+#plotPrint .ppfoot{position:absolute;left:35pt;right:35pt;bottom:23pt;display:flex;justify-content:space-between;font-size:8.5pt}
 #plotPrint .pplabel{font-size:10px;height:4mm;overflow:hidden;white-space:nowrap}
 #plotPrint img{display:block}
 @media print{
