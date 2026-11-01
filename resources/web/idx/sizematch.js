@@ -15,6 +15,12 @@ function open(sample,actions){
  const src=sz.sq_override?sz.sq_override.anchors.map(([scan,bp])=>({scan,expected_bp:bp})):(sz.matched||[]);
  for(const m of src)if(m.expected_bp!=null&&m.scan!=null)assign.set(Number(m.expected_bp),Number(m.scan));
  let pick=null;
+ const orig=new Map(assign);const hist=[];
+ const snap=()=>{hist.push(new Map(assign));if(hist.length>50)hist.shift()};
+ const undo=()=>{if(!hist.length)return;const h=hist.pop();assign.clear();for(const [k,v] of h)assign.set(k,v);draw()};
+ const clearAll=()=>{if(!assign.size)return;snap();assign.clear();pick=null;draw()};
+ const autoAdjust=()=>{snap();assign.clear();for(const [k,v] of orig)assign.set(k,v);pick=null;draw()};
+ const delPicked=()=>{if(pick==null||!assign.has(pick))return;snap();assign.delete(pick);draw()};
  const d=dialog(`${T('sizeMatchEditor').replace(/\.+$/,'')} — ${sample.file}`,b=>b.classList.add('smdlg'),[
   [T('smOverride'),async()=>{const anchors=[...assign.entries()].map(([bp,scan])=>[scan,bp]).sort((x,y)=>x[0]-y[0]);
     if(anchors.length<3){message(T('smNeedThree'));return false}
@@ -29,6 +35,8 @@ function open(sample,actions){
    el('span',{text:`${T('smStatus')}: ${sz.sq_override?T('smOverridden'):sz.status}`}),
    el('span',{text:`SQ: ${q==null?'NA':Number(q).toFixed(3)}`}),
    el('span',{text:`${T('smMatched')}: ${assign.size}/${expected.length}`})));
+  {const tb=el('div',{class:'btnrow smtools'});const bt=(txt,fn,id,dis)=>{const x=el('button',{class:'btn small',type:'button',text:txt,id});x.disabled=!!dis;x.addEventListener('click',fn);return x};
+   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'));b.append(tb)}
   if((sz.reasons||[]).length)b.append(el('div',{class:'note',text:sz.reasons.join('; ')}));
   if(sz.sq_override)b.append(el('div',{class:'note',text:`${T('smOverrideReason')}: ${sz.sq_override.reason||'—'}`}));
   // electropherogram of the standard dye
@@ -50,7 +58,7 @@ function open(sample,actions){
    g.append(sv('line',{x1:x,x2:x,y1:y,y2:H-20,stroke:'transparent','stroke-width':8}),sv('circle',{cx:x,cy:y,r:bp!=null?4:3,fill:bp!=null?'#e67e22':'#bbb',stroke:'#555'}));
    if(bp!=null)g.append(sv('text',{x,y:y-8,'text-anchor':'middle','font-size':10},String(bp)));
    g.append(sv('title',{},`scan ${p.scan}, ${Math.round(p.height)} RFU`));
-   g.addEventListener('click',()=>{if(pick==null)return;for(const [k,v] of assign)if(v===p.scan)assign.delete(k);assign.set(pick,p.scan);
+   g.addEventListener('click',()=>{if(pick==null)return;snap();for(const [k,v] of assign)if(v===p.scan)assign.delete(k);assign.set(pick,p.scan);
     const i=expected.indexOf(pick);pick=expected.slice(i+1).find(x=>!assign.has(x))??null;draw()});
    svg.append(g)}
   svg.append(sv('line',{x1:0,x2:W,y1:H-20,y2:H-20,stroke:'#555'}));
@@ -69,7 +77,7 @@ function open(sample,actions){
    const tr=el('tr',{class:pick===bp?'sel':''},el('td',{class:'num',text:String(bp)}),el('td',{class:'num',text:scan!=null?String(scan):'—'}),
     el('td',{class:'num',text:p?String(Math.round(p.height)):''}));
    const un=el('button',{class:'btn small',type:'button',text:T('smUnassign')});un.disabled=scan==null;
-   un.addEventListener('mousedown',e=>e.stopPropagation());un.addEventListener('click',e=>{e.stopPropagation();assign.delete(bp);draw()});tr.append(el('td',{},un));
+   un.addEventListener('mousedown',e=>e.stopPropagation());un.addEventListener('click',e=>{e.stopPropagation();snap();assign.delete(bp);draw()});tr.append(el('td',{},un));
    tr.addEventListener('mousedown',()=>{pick=bp;draw()});tb.append(tr)}
   t.append(tb);
   const pts=[...assign.entries()].map(([bp,scan])=>[scan,bp]).sort((x,y)=>x[0]-y[0]);
@@ -80,6 +88,15 @@ function open(sample,actions){
    for(const p of pts)C.append(sv('circle',{cx:cx(p[0]),cy:cy(p[1]),r:3,fill:'#e67e22'}));
    C.append(sv('text',{x:20,y:236,'font-size':10},`${x0}–${x1} scan`),sv('text',{x:4,y:12,'font-size':10},`${y0}–${y1} bp`))}
   b.append(el('div',{class:'smcols'},el('div',{class:'grid smgrid'},t),el('div',{},el('div',{class:'cap',text:T('smCurve')}),C)))};
+ // ID-X Size Match Editor keys: Delete = Delete Size Label, Ctrl+Delete = Delete All Size Labels, Ctrl+Z = Undo, Ctrl+Shift+O = Override All SQ, Ctrl+] = Full View
+ const keys=e=>{if(!document.body.contains(d.body)){document.removeEventListener('keydown',keys);return}if(e.target.closest('input,textarea,select'))return;
+  const ctrl=e.ctrlKey||e.metaKey;
+  if(e.key==='Delete'){e.preventDefault();ctrl?clearAll():delPicked();return}
+  if(!ctrl)return;const code=e.code;
+  if(code==='KeyZ'&&!e.shiftKey){e.preventDefault();undo()}
+  else if(code==='KeyO'&&e.shiftKey){e.preventDefault();d.body.closest('.dlg')?.querySelector('.foot .btn')?.click()}
+  else if(e.key===']'){e.preventDefault();const m=window.__smZ;m&&m.delete(ref);draw()}};
+ document.addEventListener('keydown',keys);
  draw();return d}
 function askReason(){return new Promise(res=>{dialog(T('smOverride'),b=>b.append(el('div',{class:'field'},el('label',{text:T('reasonForChange')}),el('input',{type:'text',id:'smReason'}))),
  [[T('ok'),b=>{const v=b.querySelector('#smReason').value.trim();if(!v){message(T('reasonRequired'));return false}res(v);return true},true],[T('cancel'),()=>{res(null);return true}]])})}

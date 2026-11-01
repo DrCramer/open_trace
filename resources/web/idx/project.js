@@ -1234,7 +1234,7 @@ document.addEventListener('keydown',e=>{
  // Ctrl+D (Fill Down) must never reach the browser (bookmark), also while a table cell editor has the focus
  if(k==='d'&&(e.ctrlKey||e.metaKey)&&!e.shiftKey&&!e.altKey){e.preventDefault();if(!e.target.closest('.dlg,.back,textarea'))fillDown();return}
  if(e.target.closest('input,select,textarea'))return;
- if(e.key==='Delete'&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&!e.target.closest('.dlg,.back')){e.preventDefault();clearCells();return}
+ if(e.key==='Delete'&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&!e.target.closest('.dlg,.back')&&!document.querySelector('.dlg')){e.preventDefault();clearCells();return}
  if(e.key==='F1'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();showHelp();return}
  if(!e.ctrlKey&&!e.metaKey)return;
  if(/^F[123]$/.test(e.key)&&!e.shiftKey&&!e.altKey){e.preventDefault();buildAfter(()=>showTab({F1:'info',F2:'raw',F3:'ept'}[e.key]));return}
