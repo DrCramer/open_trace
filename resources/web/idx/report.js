@@ -46,10 +46,36 @@ function render(){
 function headerClick(e,j){const d=st.data;if(!d)return;const editable=!st.flip&&!st.byMarker;
  if(e.ctrlKey||e.metaKey){const c=editable?d.cols[j]:null;message(`${d.heads[editable?j:0]??''}${c?' — '+T('rsCat'+c.cat):''}`);return}
  if(e.shiftKey){if(!editable)return;st.sortDir=st.sortCol===j?-st.sortDir:1;st.sortCol=j;const c=d.cols[j];
-  const val=r=>c.cat==='Custom'?(st.custom[rowKey(r)]?.[c.id]??''):r.values[j];
-  d.rows.sort((a,b)=>{const x=val(a),y=val(b);const r=(typeof x==='number'&&typeof y==='number')?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true});return r*st.sortDir});
-  st.sel=new Set();st.anchor=null;render();return}
+  sortBy(j,st.sortDir);return}
  st.selCol=j;st.sel=new Set(Array.from({length:d.rows.length},(_,k)=>k));render()}
+// Edit > Find / Sort / Delete Row(s) / Cut / Paste / Clear, View Default Table (ID-X ReportManager).
+function sortBy(j,dir){const d=st.data;if(!d||st.flip||st.byMarker)return;st.sortCol=j;st.sortDir=dir;const c=d.cols[j];
+ const val=r=>c.cat==='Custom'?(st.custom[rowKey(r)]?.[c.id]??''):r.values[j];
+ d.rows.sort((a,b)=>{const x=val(a),y=val(b);const r=(typeof x==='number'&&typeof y==='number')?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true});return r*dir});
+ st.sel=new Set();st.anchor=null;render()}
+function sortDialog(){const d=st.data;if(!d||st.flip||st.byMarker)return message(T('rpSortHint'));
+ dialog(T('sort').replace(/\.+$/,''),b=>{const col=el('select',{id:'rpSortCol'});d.heads.forEach((h,j)=>col.append(new Option(h,String(j))));col.value=String(st.sortCol??0);
+  const dir=el('select',{id:'rpSortDir'},new Option(T('ascending'),'1'),new Option(T('descending'),'-1'));dir.value=String(st.sortDir??1);
+  b.append(el('div',{class:'field'},el('label',{text:T('colName')}),col),el('div',{class:'field'},el('label',{text:T('sortOrder')}),dir))},
+  [[T('ok'),bd=>{sortBy(+bd.querySelector('#rpSortCol').value,+bd.querySelector('#rpSortDir').value);return true},true],[T('cancel'),()=>true]])}
+function findDialog(){const d=st.data;if(!d)return;
+ dialog(T('find').replace(/\.+$/,''),b=>b.append(el('div',{class:'field'},el('label',{text:T('findText')}),el('input',{type:'text',id:'rpFindText',value:st.findText||''}))),
+  [[T('findNext'),bd=>{const t=bd.querySelector('#rpFindText').value.trim().toLowerCase();st.findText=t;if(!t)return false;
+    const m=viewMatrix().slice(1);const start=(st.findAt??-1)+1;
+    for(let k=0;k<m.length;k++){const i=(start+k)%m.length;if(m[i].some(v=>String(v??'').toLowerCase().includes(t))){st.findAt=i;st.sel=new Set([i]);st.anchor=i;render();
+      document.querySelector(`#reportGrid tr[data-i="${i}"]`)?.scrollIntoView({block:'center'});return false}}
+    message(T('findNone'));return false}],[T('closeWin'),()=>true,true]])}
+function defaultTable(){st.flip=false;st.byMarker=false;render()}
+function deleteRows(){const d=st.data;if(!d||st.flip||st.byMarker||!st.sel.size)return message(T('selectRow'));
+ d.rows=d.rows.filter((_,i)=>!st.sel.has(i));st.sel=new Set();st.anchor=null;st.dirty=true;render()}
+const custCol=()=>{const f=st.focus;return f&&st.data?.cols.find(c=>c.id===f.col&&c.cat==='Custom')?f.col:null};
+function clearCells(cut){const col=custCol();if(!col||!st.sel.size)return message(T('rpClearHint'));
+ const rows=[...st.sel].sort((a,b)=>a-b);if(cut)navigator.clipboard?.writeText(rows.map(i=>st.custom[rowKey(st.data.rows[i])]?.[col]??'').join('\n'));
+ for(const i of rows){const k=rowKey(st.data.rows[i]);st.custom[k]={...(st.custom[k]||{}),[col]:''}}st.dirty=true;render()}
+async function pasteCells(){const col=custCol();if(!col||!st.sel.size)return message(T('rpClearHint'));let text='';try{text=await navigator.clipboard.readText()}catch(e){return message(T('pasteDenied'))}
+ const lines=text.replace(/\r/g,'').split('\n');while(lines.length&&lines[lines.length-1]==='')lines.pop();if(!lines.length)return;
+ [...st.sel].sort((a,b)=>a-b).forEach((i,n)=>{const l=lines.length===1?lines[0]:lines[n];if(l==null)return;const k=rowKey(st.data.rows[i]);st.custom[k]={...(st.custom[k]||{}),[col]:String(l).split('\t')[0]}});
+ st.dirty=true;render()}
 function fillDown(){const f=st.focus;if(!f||!st.data)return message(T('rpFillHint'));const d=st.data;
  const v=st.custom[rowKey(d.rows[f.i])]?.[f.col]??'';for(let i=f.i+1;i<d.rows.length;i++){const k=rowKey(d.rows[i]);st.custom[k]={...(st.custom[k]||{}),[f.col]:v}}
  st.dirty=true;render()}
@@ -73,7 +99,7 @@ function exportDialog(){if(!st.data)return;let type='txt',fmtMode='apply',sep='g
     message(T('ecFilesCreated')+'\n'+names.join('\n'));return true},true],[T('cancel'),()=>true]])}
 function askName(def){return new Promise(res=>{dialog(T('rpSave'),b=>b.append(el('div',{class:'field'},el('label',{text:T('rpReportName')}),el('input',{type:'text',id:'rpSaveName',value:def||''}))),
  [[T('ok'),b=>{const v=b.querySelector('#rpSaveName').value.trim();if(!v||v.length>120){message(T('enterName'));return false}res(v);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
-async function saveReport(){const o=api();if(!o||!st.data)return;const name=await askName(st.name||currentSetting().name);if(!name)return;
+async function saveReport(asNew){const o=api();if(!o||!st.data)return;const name=(asNew!==true&&st.name)||await askName(st.name||currentSetting().name);if(!name)return;
  o.report.save({name,setting:clone(currentSetting()),files:st.files,custom:st.custom,flip:st.flip,byMarker:st.byMarker});st.name=name;st.dirty=false;render();$('statusText').textContent=T('rpSaved')+': '+name}
 function openReport(){const o=api();if(!o)return;let sel=null;
  const d=dialog(T('rpOpen'),()=>{},[[T('open'),()=>{const r=sel&&o.report.get(sel);if(!r){message(T('selectRow'));return false}
@@ -95,10 +121,12 @@ function printPreview(){const w=window.open('/idx/print.html','opentrace-print-r
 function printNow(){window.open('/idx/print.html#print','opentrace-print-report','width=1000,height=760')}
 function buildChrome(){
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('rpOpen'),sc:'Ctrl+O',run:openReport},{label:T('rpSave'),sc:'Ctrl+S',run:saveReport},'-',{label:T('rpExport'),sc:'Ctrl+E',run:exportDialog},'-',
+  {label:T('file'),items:[{label:T('rpOpen'),sc:'Ctrl+O',run:openReport},{label:T('rpSave'),sc:'Ctrl+S',run:()=>saveReport()},{label:T('saveAs'),run:()=>saveReport(true)},'-',{label:T('rpExport'),sc:'Ctrl+E',run:exportDialog},'-',
    {label:T('rpByMarker'),checked:st.byMarker,run:()=>{st.byMarker=!st.byMarker;if(st.byMarker)st.flip=false;render()}},'-',
    {label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',{label:T('closeWin'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('copy'),sc:'Ctrl+C',run:copy},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{label:T('selectAll'),sc:'Ctrl+A',run:()=>{st.sel=new Set((st.data?.rows||[]).map((_,i)=>i));render()}}]},
+  {label:T('edit'),items:[{label:T('cut'),sc:'Ctrl+X',run:()=>clearCells(true)},{label:T('copy'),sc:'Ctrl+C',run:copy},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},{label:T('clear'),sc:'Delete',run:()=>clearCells(false)},'-',
+   {label:T('selectAll'),sc:'Ctrl+A',run:()=>{st.sel=new Set((st.data?.rows||[]).map((_,i)=>i));render()}},'-',{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{label:T('rpDefaultTable'),run:defaultTable},'-',
+   {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog},'-',{label:T('deleteRows'),run:deleteRows}]},
   {label:T('view'),items:[{label:T('rpRefresh'),sc:'F5',run:()=>refresh(false)},{label:T('rpFlip'),checked:st.flip,run:()=>{st.flip=!st.flip;if(st.flip)st.byMarker=false;render()}},
    {label:T('rpByMarker'),checked:st.byMarker,run:()=>{st.byMarker=!st.byMarker;if(st.byMarker)st.flip=false;render()}},'-',{label:T('displayPlots'),sc:'Ctrl+L',run:plots}]},
   {label:T('tools'),items:[{label:T('reportSettingsEditor'),run:editSetting}]}]);
@@ -111,9 +139,10 @@ function buildChrome(){
   tbutton('exportTable',T('rpExport'),exportDialog,{id:'rpExportBtn'}),tbutton('printPreview',T('printPreview'),printPreview,{id:'rpPreview'}),tbutton('print',T('print'),printNow,{id:'rpPrint'}))}
 document.addEventListener('keydown',e=>{
  if(e.key==='F5'){e.preventDefault();refresh(false);return}
+ if(e.key==='Delete'&&!e.ctrlKey&&!e.metaKey&&!e.target.closest('input,textarea,select,.dlg')){e.preventDefault();clearCells(false);return}
  if(!(e.ctrlKey||e.metaKey))return;const k=hotKey(e);
  if(e.target.closest('input')&&k!=='d')return;
- const map={o:openReport,s:saveReport,e:exportDialog,c:copy,d:fillDown,p:printNow,l:plots};if(map[k]){e.preventDefault();map[k]()}});
+ const map={o:openReport,s:()=>saveReport(),e:exportDialog,c:copy,x:()=>clearCells(true),v:pasteCells,f:findDialog,g:sortDialog,d:fillDown,p:printNow,l:plots,a:()=>{st.sel=new Set((st.data?.rows||[]).map((_,i)=>i));render()}};if(map[k]){e.preventDefault();map[k]()}});
 window.addEventListener('storage',e=>{if(e.key===ReportSettings.KEY){if(st.setting)st.setting=ReportSettings.get(st.setting.name)||st.setting;refresh(true)}});
 window.addEventListener('beforeunload',e=>{if(st.dirty){e.preventDefault();e.returnValue=''}});
 refresh(false);
