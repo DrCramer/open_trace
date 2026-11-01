@@ -292,7 +292,7 @@ optPullupCalls:'Pull-up peaks',optPullupCallsText:'Do not call peaks classified 
  scStateTip_on:'Causes Reason For Change dialog to appear after user changes auditable data',scStateTip_off:'No auditing occurs',
  scStateTip_silent:'Audit record is created without displaying Reason for Change dialog',scInherit:'(inherit)',scAllow:'Allow',scDeny:'Deny',scDate:'Date',scInstance:'Instance',
  scEvent:'Event',scTimeZone:'Time Zone',scVerification:'Verification',
- tabInfo:'Info',tabRaw:'Raw Data',tabEpt:'EPT Data',tfShow:'Show',tfColumn:'Column',tfFiltering:'Filtering',tfContent:'Content',tf_ShowAllRecords:'Show All Records',
+ tabInfo:'Info',tabRaw:'Raw Data',tabEpt:'EPT Data',tfBtnShow:'Show',tfBtnHide:'Hide',tfBtnShowAll:'Show All',tfBtnHideAll:'Hide All',tfBtnShow:'Показать',tfBtnHide:'Скрыть',tfBtnShowAll:'Показать все',tfBtnHideAll:'Скрыть все',tfShow:'Show',tfColumn:'Column',tfFiltering:'Filtering',tfContent:'Content',tf_ShowAllRecords:'Show All Records',
  tf_ShowRecordsContaining:'Show Records Containing:',tf_ShowOverride:'Show Override',tf_ShowPass:'Show Pass',tf_ShowCheck:'Show Check',tf_ShowLowQuality:'Show Low Quality',
  tf_Analyzed:'Analyzed',tf_Unanalyzed:'Unanalyzed',tf_AnalysisSettingChanged:'Analysis Setting Changed',tf_Sample:'Sample',tf_PositiveControl:'Positive Control',
  tf_AllelicLadder:'Allelic Ladder',tf_NegativeControl:'Negative Control',tf_Yes:'Yes',tf_No:'No',tf_Found:'Found',tf_NotFound:'Not Found',

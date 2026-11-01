@@ -358,3 +358,5 @@ table.g td.c{text-align:center}
 .mgrdlg .dtabs .tab{white-space:nowrap}.mgrdlg{min-width:820px}
 
 .g th.colsel,.g td.colsel{background:#cfe0f5}
+
+.colfilter tr.sel td{background:#316ac5;color:#fff}.colfilter tr.sel td select,.colfilter tr.sel td input{color:#000}

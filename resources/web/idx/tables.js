@@ -132,7 +132,7 @@ function toXml(s){
 // ---------- editor ----------
 const colTitle=(kind,c)=>{const k='colT_'+c.id;const t=T(k);return t===k?c.head:t};
 function openEditor(source,{title,onSave}={}){
- const s=clone(source);const previous=source.name;let tab='samples';
+ const s=clone(source);const previous=source.name;let tab='samples';const sel0={};
  const d=dialog(title||T('tableSettingEditor').replace(/\.+$/,''),b=>{b.classList.add('tsdlg')},
   [[T('ok'),()=>{try{s.name=(s.name||'').trim();if(s.name!==previous&&get(s.name)){message(fmt('methodNameExists',s.name));return false}
     validate(s);onSave(s,previous);return true}catch(e){message(e.message);return false}},true],[T('cancel'),()=>true]]);
@@ -144,6 +144,9 @@ function openEditor(source,{title,onSave}={}){
   t.filters=t.filters||{};
   const grid=el('table',{class:'g colfilter'});grid.append(el('thead',{},el('tr',{},...['tfShow','tfColumn','tfFiltering','tfContent'].map(k=>el('th',{text:T(k)})))));
   const gb=el('tbody');grid.append(gb);
+  // Row selection (click, Ctrl+click, Shift+click) for the Show / Hide buttons of the ID-X editor
+  const selRows=sel0[tab]||(sel0[tab]=new Set());let anchor=null;const order=CATALOG[tab].map(x=>x.id);
+  const setVis=(ids,on)=>{const set=new Set(t.visible);for(const id of ids)on?set.add(id):set.delete(id);t.visible=order.filter(x=>set.has(x));draw()};
   for(const c of CATALOG[tab]){const cb=el('input',{type:'checkbox','data-col':c.id});cb.checked=vis.has(c.id);
    cb.addEventListener('change',()=>{const order=CATALOG[tab].map(x=>x.id);const set=new Set(t.visible);cb.checked?set.add(c.id):set.delete(c.id);t.visible=order.filter(x=>set.has(x))});
    const sp=filterSpec(tab,c.id);const f=t.filters[c.id]||{op:0,text:''};
@@ -151,13 +154,22 @@ function openEditor(source,{title,onSave}={}){
    const txt=el('input',{type:'text','data-filter-text':c.id,value:f.text||''});txt.disabled=sp.type!=='contains'||sel.value==='0';
    const upd=()=>{const op=Number(sel.value);txt.disabled=sp.type!=='contains'||!op;if(!op)delete t.filters[c.id];else t.filters[c.id]=sp.type==='contains'?{op,text:txt.value}:{op}};
    sel.addEventListener('change',upd);txt.addEventListener('input',upd);
-   gb.append(el('tr',{},el('td',{class:'c'},cb),el('td',{title:colTitle(tab,c),text:c.head+(colTitle(tab,c)!==c.head?' — '+colTitle(tab,c):'')}),el('td',{},sel),el('td',{},txt)))}
+   const tr0=el('tr',{class:selRows.has(c.id)?'sel':''},el('td',{class:'c'},cb),el('td',{title:colTitle(tab,c),text:c.head+(colTitle(tab,c)!==c.head?' — '+colTitle(tab,c):'')}),el('td',{},sel),el('td',{},txt));
+   tr0.addEventListener('mousedown',e=>{if(e.target.closest('input,select'))return;const i=order.indexOf(c.id);
+    if(e.shiftKey&&anchor!=null){if(!e.ctrlKey)selRows.clear();const a=order.indexOf(anchor);for(let k=Math.min(a,i);k<=Math.max(a,i);k++)selRows.add(order[k])}
+    else if(e.ctrlKey||e.metaKey){selRows.has(c.id)?selRows.delete(c.id):selRows.add(c.id);anchor=c.id}else{selRows.clear();selRows.add(c.id);anchor=c.id}
+    gb.querySelectorAll('tr').forEach((r,k)=>r.classList.toggle('sel',selRows.has(order[k])))});
+   gb.append(tr0)}
   const sortBox=el('fieldset',{},el('legend',{text:T('sortBy')}));
   for(let i=0;i<3;i++){const sel=el('select',{'data-sort':String(i)});sel.append(new Option(T('sortNone'),''));for(const c of CATALOG[tab])sel.append(new Option(c.head,c.id));
    const cur=t.sort[i];sel.value=cur?cur.col:'';const dir=el('select');dir.append(new Option(T('ascending'),'0'),new Option(T('descending'),'1'));dir.value=cur&&cur.desc?'1':'0';
    const upd=()=>{const rows=[...sortBox.querySelectorAll('[data-sort]')].map(x=>({col:x.value,desc:x.nextSibling.value==='1'})).filter(x=>x.col);t.sort=rows};
    sel.addEventListener('change',upd);dir.addEventListener('change',upd);sortBox.append(el('div',{class:'field'},el('label',{text:T(i?'thenBy':'sortFirst')}),el('span',{class:'inl'},sel,dir)))}
-  page.append(el('fieldset',{},el('legend',{text:T('showColumns')}),el('div',{class:'grid tfgrid'},grid)),sortBox);
+  const bt=(key,fn)=>{const x=el('button',{class:'btn',type:'button',text:T(key)});x.addEventListener('click',fn);return x};
+  const btns=el('div',{class:'btnrow'},bt('tfBtnShow',()=>setVis([...selRows],true)),bt('tfBtnHide',()=>setVis([...selRows],false)),bt('tfBtnShowAll',()=>setVis(order,true)),bt('tfBtnHideAll',()=>setVis(order,false)));
+  const gridWrap=el('div',{class:'grid tfgrid',tabindex:'0'},grid);
+  gridWrap.addEventListener('keydown',e=>{if(e.key==='Home'||e.key==='End'){e.preventDefault();gridWrap.scrollTop=e.key==='Home'?0:gridWrap.scrollHeight;if(e.ctrlKey)gridWrap.scrollLeft=e.key==='Home'?0:gridWrap.scrollWidth}});
+  page.append(el('fieldset',{},el('legend',{text:T('showColumns')}),gridWrap,btns),sortBox);
   if(tab==='genotypes'){const n=el('input',{type:'text',class:'num',id:'tsAlleles',value:String(t.numAlleles)});n.addEventListener('change',()=>{t.numAlleles=Number(n.value)});
    page.append(el('div',{class:'field'},el('label',{text:T('numAlleles')}),n))}
   b.append(el('div',{class:'field'},el('label',{text:T('amName')}),name),tabs,page)};
