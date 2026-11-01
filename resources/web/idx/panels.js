@@ -22,7 +22,36 @@ const selMarker=()=>{const p=selPanel();return p&&ui.sel.marker?p.markers.find(m
 const curSet=()=>{const k=selKit();if(!k)return null;return k.binSets.find(s=>s.name===ui.binSet)||k.binSets[0]||null};
 const markerBins=(set,panel,marker)=>set?.panels?.[panel]?.[marker]||null;
 const stutterOf=(kit,panel,marker)=>kit.stutter?.panels?.[panel]?.[marker]||[];
-function touch(){ui.dirty=true;$('applyBtn').disabled=false}
+// Edit > Undo (Ctrl+Z): every change goes through touch(), which keeps the state before it.
+const undoStack=[];let lastSnap=JSON.stringify(work);
+function touch(){if(lastSnap!==null)undoStack.push(lastSnap);if(undoStack.length>50)undoStack.shift();lastSnap=JSON.stringify(work);ui.dirty=true;$('applyBtn').disabled=false}
+function undo(){if(!undoStack.length)return;const prev=undoStack.pop();work=JSON.parse(prev);lastSnap=prev;ui.dirty=undoStack.length>0||ui.dirty;ui.editCell=null;
+ const k=ui.sel.kit&&kitOf(ui.sel.kit);if(!k)ui.sel={type:'root'};else if(ui.sel.panel&&!k.panels.some(x=>x.name===ui.sel.panel))ui.sel={type:'kit',kit:k.name};
+ else if(ui.sel.marker&&!k.panels.find(x=>x.name===ui.sel.panel).markers.some(m=>m.name===ui.sel.marker))ui.sel={type:'panel',kit:k.name,panel:ui.sel.panel};ui.selBin=null;render()}
+// Edit > Copy / Paste of a marker: Ctrl+C on a marker, then Ctrl+V with another panel selected (same as dragging the marker onto the panel).
+let clip=null;
+function copySel(){const k=selKit(),p=selPanel(),m=selMarker();if(!m)return message(T('selectMarkerFirst'));clip={k,p,m}}
+function pasteSel(){const k=selKit(),p=selPanel();if(!clip||!p||clip.k!==k)return message(T('pasteMarkerHint'));if(clip.p===p)return message(T('pasteMarkerSame'));copyMarker(k,clip.p,clip.m,p)}
+// Bins > Add Multiple Bins (Ctrl+G): ID-X AutoCreateBinsDialog replaces the marker's bins with evenly spaced ones.
+function addMultipleBins(){const k=selKit(),p=selPanel(),m=selMarker(),set=curSet();
+ if(!set)return message(T('selectBinSetFirst'));if(!m)return message(T('selectMarkerFirst'));
+ const old=set.panels[p.name]?.[m.name]||[];
+ dialog(T('addMultipleBinsTitle'),b=>{
+  const f=(id,label,v)=>el('div',{class:'field'},el('label',{text:label,for:id}),el('input',{type:'text',id,value:String(v)}));
+  const sch=el('select',{id:'mbName'},new Option(T('mbNumber'),'number'),new Option(T('mbRounded'),'rounded'),new Option(T('mbLetter'),'letter'));
+  b.append(f('mbStart',T('startingSize'),+(m.min_bp+0.5).toFixed(2)),f('mbEnd',T('endSize'),m.max_bp),f('mbLeft',T('leftOffset'),0.5),f('mbRight',T('rightOffset'),0.5),f('mbSpace',T('binSpacing'),m.repeat||1),
+   el('div',{class:'field'},el('label',{text:T('namingScheme')}),sch))},
+  [[T('ok'),body=>{const v=id=>body.querySelector('#'+id).value.trim();const st=+v('mbStart'),en=+v('mbEnd'),l=+v('mbLeft'),r=+v('mbRight'),sp=+v('mbSpace');
+   if([st,en,l,r,sp].some(x=>!isFinite(x))||['mbStart','mbEnd','mbLeft','mbRight','mbSpace'].some(i=>v(i)==='')){message(T('numeric'));return false}
+   if(l<0||r<0||sp<=0||en<st){message(T('badLocation'));return false}
+   if(st-l<m.min_bp||en>m.max_bp){message(T('binsOutsideRange'));return false}
+   if(sp<l+r){message(T('binOverlap'));return false}
+   const list=[];let c=st;while(c+r<=en+1e-9){list.push({center_bp:+c.toFixed(2),left_bp:l,right_bp:r,virtual:false});c+=sp}
+   const scheme=v('mbName');const letter=i=>{let t='';i++;while(i>0){const q=(i-1)%26;t=String.fromCharCode(65+q)+t;i=Math.floor((i-1)/26)}return t};
+   list.forEach((x,i)=>{x.label=scheme==='letter'?letter(i):scheme==='rounded'?String(Math.round(x.center_bp)):String(i+1)});
+   if(new Set(list.map(x=>x.label)).size!==list.length){message(T('dupBinName'));return false}
+   const go=()=>{set.panels[p.name]=set.panels[p.name]||{};set.panels[p.name][m.name]=list;m.ladder_alleles=m.ladder_alleles.filter(a=>list.some(x=>x.label===a));ui.selBin=null;touch();render()};
+   if(old.length){confirmBox(T('allBinsReplaced'),go)}else go();return true},true],[T('cancel'),()=>true]])}
 
 async function jsonPost(url,data){
  const r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':window.Sec?Sec.ticket():'','Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -431,13 +460,13 @@ function closeWin(){if(ui.dirty)confirmBox(T('confirmClose'),()=>{ui.dirty=false
 function buildChrome(){
  document.documentElement.lang=I18N.lang;document.title=T('panelMgrTitle')+' — OpenTrace';
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('newKit'),run:newKit},{label:T('duplicateKit'),run:duplicateKit},{label:T('newPanel'),run:newPanel},{label:T('duplicatePanel'),run:duplicatePanel},{label:T('newMarker'),run:newMarker},'-',{label:T('importPanels'),run:importPanels},{label:T('importBinSet'),run:importBins},{label:T('importStutter'),run:importStutter},'-',
-   {label:T('exportPanels'),run:exportPanels},{label:T('exportBinSet'),run:exportBinSet},{label:T('exportStutter'),run:exportStutter},{label:T('exportAllKits'),run:exportAll},'-',
+  {label:T('file'),items:[{label:T('newKit'),sc:'Ctrl+N',run:newKit},{label:T('duplicateKit'),run:duplicateKit},{label:T('newPanel'),run:newPanel},{label:T('duplicatePanel'),run:duplicatePanel},{label:T('newMarker'),run:newMarker},'-',{label:T('importPanels'),sc:'Ctrl+M',run:importPanels},{label:T('importBinSet'),sc:'Ctrl+Shift+B',run:importBins},{label:T('importStutter'),sc:'Ctrl+Shift+M',run:importStutter},'-',
+   {label:T('exportPanels'),sc:'Ctrl+E',run:exportPanels},{label:T('exportBinSet'),sc:'Ctrl+Shift+E',run:exportBinSet},{label:T('exportStutter'),sc:'Ctrl+Shift+X',run:exportStutter},{label:T('exportAllKits'),sc:'Ctrl+K',run:exportAll},'-',
    {label:T('print'),run:()=>window.print()},'-',{label:T('closeWin'),run:closeWin}]},
-  {label:T('edit'),items:[{label:T('undo'),disabled:true},'-',{label:T('deleteItem'),run:deleteNode}]},
-  {label:T('binsMenu'),items:[{label:T('newBinSet'),run:newBinSet},{label:T('deleteBinSet'),run:deleteBinSet},'-',{label:T('addBin'),run:()=>binDialog(null)},
-   {label:T('editBin'),run:editBin},{label:T('deleteBin'),run:deleteBin},'-',{label:T('autoBin'),disabled:true},{label:T('addReferenceData'),disabled:true}]},
-  {label:T('view'),items:[{label:T('showNavigator'),checked:!ui.hideNav,run:()=>{ui.hideNav=!ui.hideNav;buildChrome();render()}},{label:T('fullView'),run:()=>{ui.view=null;render()}},'-',
+  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!undoStack.length,run:undo},'-',{label:T('copy'),sc:'Ctrl+C',run:copySel},{label:T('paste'),sc:'Ctrl+V',run:pasteSel},'-',{label:T('deleteItem'),sc:'Delete',run:deleteNode}]},
+  {label:T('binsMenu'),items:[{label:T('newBinSet'),run:newBinSet},{label:T('deleteBinSet'),run:deleteBinSet},'-',{label:T('addBin'),sc:'Ctrl+B',run:()=>binDialog(null)},
+   {label:T('editBin'),sc:'Ctrl+H',run:editBin},{label:T('deleteBin'),sc:'Ctrl+D',run:deleteBin},{label:T('addMultipleBins'),sc:'Ctrl+G',run:addMultipleBins},'-',{label:T('autoBin'),disabled:true},{label:T('addReferenceData'),disabled:true}]},
+  {label:T('view'),items:[{label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:!ui.hideNav,run:()=>{ui.hideNav=!ui.hideNav;buildChrome();render()}},{label:T('fullView'),sc:'Ctrl+]',run:()=>{ui.view=null;render()}},'-',
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');buildChrome();render()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');buildChrome();render()}}]}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('panelHint'),T('panelMgrTitle'))}]}]);
  const tb=$('toolbar');tb.replaceChildren(
@@ -455,9 +484,20 @@ $('okBtn').addEventListener('click',async()=>{if(ui.dirty&&!(await apply()))retu
 $('cancelBtn').addEventListener('click',closeWin);
 window.addEventListener('beforeunload',e=>{if(ui.dirty){e.preventDefault();e.returnValue=''}});
 window.addEventListener('resize',()=>renderContent());
-document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea'))return;
- if(e.key==='Delete'&&ui.selBin){deleteBin()}});
-window.addEventListener('storage',e=>{if(e.key===KitStore.KEY&&!ui.dirty){saved=KitStore.load();work=KitStore.clone(saved);render()}});
+// Hot keys follow ID-X PanelManager (docs: IDX_UI_HOTKEYS.md) and the physical key, so they work with a Russian layout.
+const hk=e=>/^Key[A-Z]$/.test(e.code||'')?e.code.slice(3).toLowerCase():String(e.key||'').toLowerCase();
+document.addEventListener('keydown',e=>{const inField=!!e.target.closest('input,select,textarea');const open=!!document.querySelector('.dlg');
+ const ctrl=e.ctrlKey||e.metaKey;const k=hk(e);
+ if(ctrl&&!e.altKey&&k==='d'){e.preventDefault();if(!inField&&!open)deleteBin();return}
+ if(inField||open)return;
+ if(e.key==='Delete'&&!ctrl&&!e.shiftKey&&!e.altKey){if(ui.selBin)deleteBin();else deleteNode();return}
+ if(e.key==='Escape'){closeWin();return}
+ if(!ctrl||e.altKey)return;
+ const sh={n:()=>{ui.hideNav=!ui.hideNav;buildChrome();render()},b:importBins,m:importStutter,e:exportBinSet,x:exportStutter};
+ const pl={n:newKit,m:importPanels,e:exportPanels,k:exportAll,z:undo,c:copySel,v:pasteSel,b:()=>binDialog(null),h:editBin,g:addMultipleBins};
+ const f=(e.shiftKey?sh:pl)[k];if(f){e.preventDefault();f();return}
+ if(e.key===']'&&!e.shiftKey){e.preventDefault();ui.view=null;render()}});
+window.addEventListener('storage',e=>{if(e.key===KitStore.KEY&&!ui.dirty){saved=KitStore.load();work=KitStore.clone(saved);lastSnap=JSON.stringify(work);undoStack.length=0;render()}});
 window.PM={state:ui,go,get work(){return work}};
 buildChrome();render();
 })();
