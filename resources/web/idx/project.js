@@ -223,6 +223,9 @@ function sampleFlags(s){const q=samplePqv(s);
  return {...q,SE:s.report?(activeEdits(s).length?'check':'pass'):'na',SQO:s.analysis?.sizing?.sq_override?'check':'na',MNF:mnfFlag(s),SFNF:(s.blob||s.method===EXAMPLE_METHOD)?'pass':'low',SNF:(SIZE_STANDARDS[s.sizeStd]||s.method===EXAMPLE_METHOD)?'pass':'low',
   ARNM:arnmReasons(s).length?'low':'pass'}}
 const changed=s=>{if(s.status==='analyzed')s.status='changed';state.project.dirty=true;render()};
+// ID-X: a value picked in a drop-down applies to every selected row when the edited row is part of the selection.
+const peers=s=>state.selected.has(s.id)&&state.selected.size>1?state.project.samples.filter(x=>state.selected.has(x.id)):[s];
+const changedAll=list=>{for(const x of list)if(x.status==='analyzed')x.status='changed';state.project.dirty=true;render()};
 // Inline text cell (Sample ID, Comment, Profile ID, UD1-UD9): edits mark the project dirty.
 function setField(s,key,v){if(!Sec.can('UPDATE_PROJECT')){Sec.denied();render();return}if(key.startsWith('ud.')){s.ud=s.ud||{};s.ud[key.slice(3)]=v}else s[key]=v;state.project.dirty=true}
 function textEdit(s,key,value){const i=el('input',{type:'text',value:String(value),'data-field':key});
@@ -238,16 +241,16 @@ function sampleCell(id,s,flags){
   case 'sampleID':return textEdit(s,'sampleId',s.sampleId||'');
   case 'comments':return textEdit(s,'comment',s.comment??info.comment??'');
   case 'sampleType':{const sel=el('select');for(const k of ['sample','ladder','positive','negative'])sel.append(new Option(T(TYPE_KEYS[k]),k));sel.value=s.type;
-   sel.addEventListener('change',()=>{s.type=sel.value;s.typeAuto=false;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:T(TYPE_KEYS[s.type]),node:sel}}
-  case 'analysisMethod':{const sel=methodSelect(s.method,v=>{s.method=v;try{localStorage.setItem('opentrace.lastMethod',v)}catch(e){}changed(s)});
+   sel.addEventListener('change',()=>{const l=peers(s);for(const x of l){x.type=sel.value;x.typeAuto=false}changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:T(TYPE_KEYS[s.type]),node:sel}}
+  case 'analysisMethod':{const sel=methodSelect(s.method,v=>{const l=peers(s);for(const x of l)x.method=v;try{localStorage.setItem('opentrace.lastMethod',v)}catch(e){}changedAll(l)});
    return {value:s.method,node:sel,dbl:()=>{if(s.method!==EXAMPLE_METHOD)editMethod(s.method)}}}
-  case 'panel':{const sel=panelSelect(s.panelKey,v=>{s.panelKey=v;s.panel=v?v.split('\u0001')[1]:'';if(v)s.sizeStd=fitStandard(v,s.sizeStd);changed(s)});
+  case 'panel':{const sel=panelSelect(s.panelKey,v=>{const l=peers(s);for(const x of l){x.panelKey=v;x.panel=v?v.split('\u0001')[1]:'';if(v)x.sizeStd=fitStandard(v,x.sizeStd)}changedAll(l)});
    return {value:s.panel||'',node:sel}}
   case 'sizeStandard':{const sel=el('select');for(const k of Object.keys(SIZE_STANDARDS))sel.append(new Option(k,k));sel.value=s.sizeStd;
-   sel.addEventListener('change',()=>{s.sizeStd=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.sizeStd,node:sel}}
+   sel.addEventListener('change',()=>{const l=peers(s);for(const x of l)x.sizeStd=sel.value;changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.sizeStd,node:sel}}
   case 'matrix':{if(!s.inst?.is310)return {value:''};const sel=el('select');sel.append(new Option('',''));
    for(const n of Matrices.names())sel.append(new Option(n,n));if(s.matrix&&!Matrices.get(s.matrix))sel.append(new Option(s.matrix,s.matrix));sel.value=s.matrix||'';
-   sel.addEventListener('change',()=>{s.matrix=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.matrix||'',node:sel}}
+   sel.addEventListener('change',()=>{const l=peers(s).filter(x=>x===s||x.inst?.is310);for(const x of l)x.matrix=sel.value;changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.matrix||'',node:sel}}
   case 'runName':return {value:info.run_name||''};
   case 'instrumentType':return {value:info.instrument_type||''};
   case 'instrumentID':return {value:info.instrument_id||''};
@@ -259,7 +262,7 @@ function sampleCell(id,s,flags){
   case 'ssNormFactor':{const n=s.analysis?.normalization;return {value:n?(n.sample_file==='Yes'&&n.factor!=null?String(n.factor):n.sample_file==='N/A'?'':'N/A'):'',cls:'num'}}
   case 'customControl':{const sel=el('select');sel.append(new Option('',''));for(const p of Profiles.customControls())sel.append(new Option(p.id,p.id));
    if(s.customControl&&!Profiles.getProfile(s.customControl))sel.append(new Option(s.customControl,s.customControl));sel.value=s.customControl||'';
-   sel.addEventListener('change',()=>{s.customControl=sel.value;changed(s)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.customControl||'',node:sel}}
+   sel.addEventListener('change',()=>{const l=peers(s);for(const x of l)x.customControl=sel.value;changedAll(l)});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:s.customControl||'',node:sel}}
   case 'specimenCategory':{const sel=el('select');const types=Profiles.specimenTypes();for(const v of types)sel.append(new Option(v,v));
    const cur=s.specimenCategory||'No Export';if(!types.includes(cur))sel.append(new Option(cur,cur));sel.value=cur;
    sel.addEventListener('change',()=>{s.specimenCategory=sel.value;state.project.dirty=true;render()});sel.addEventListener('mousedown',e=>e.stopPropagation());return {value:cur,node:sel}}
