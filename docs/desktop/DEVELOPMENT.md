@@ -1,0 +1,99 @@
+# Разработка: Desktop, Server, ядро
+
+## Рабочая копия и ветки
+
+* Ветка: `feature/desktop-server-platform`, ответвлена от `origin/feature/per-marker-gate-min-call-height` @ `102f71a`. Исходная ветка и `main` не изменяются; синхронизация с исходной веткой — только отдельным осознанным merge после проверки тестов.
+* Рекомендуемая изоляция — отдельный worktree рядом с основной копией:
+
+```bash
+git fetch origin
+git worktree add ../open_trace_desktop feature/desktop-server-platform
+cd ../open_trace_desktop
+git branch --unset-upstream 2>/dev/null; git config push.default current   # чтобы `git push` не ушёл в исходную ветку
+```
+
+## Три независимых Cargo workspace
+
+| Каталог | Что | Команды |
+|---|---|---|
+| `core/` | ядро + `opentrace` (Docker-образ, `--locked`) | `cargo test --release --manifest-path core/opentrace-core/Cargo.toml` |
+| `server/opentrace-server/` | OpenTrace Server | `cargo test --manifest-path server/opentrace-server/Cargo.toml` |
+| `desktop/opentrace-desktop/src-tauri/` | OpenTrace Desktop | `cargo test --manifest-path desktop/opentrace-desktop/src-tauri/Cargo.toml` |
+
+Отдельные workspace сделаны намеренно: GUI-зависимости (Tauri, WebKitGTK) и axum не попадают в `core/Cargo.lock`, который использует Docker-сборка прежнего сервиса.
+
+## Ядро: правила
+
+* Математику не копировать; desktop и server вызывают `opentrace_core` (`server::App::handle`, `server_analyze::analyze`, …).
+* Все трансцендентные функции — через `core/opentrace-core/src/cmath.rs`. Не использовать `f64::ln/exp/powf/sin` напрямую: это обходит единую точку и ломает переносимость.
+* Любое изменение, влияющее на числа, должно проходить golden-тесты на Linux побитово. Опция `portable-math` экспериментальная (расходится с эталоном в 6 корпусах), в сборки не включать.
+* Время и пути — `localtime.rs`, `paths.rs` (никаких `libc::localtime_r`, `HOME`, `/dev/urandom` напрямую).
+
+## Desktop
+
+Запуск в режиме разработки (UI берётся из `resources/web` дерева исходников):
+
+```bash
+cargo run --manifest-path desktop/opentrace-desktop/src-tauri/Cargo.toml
+```
+
+Переменные окружения:
+
+| Переменная | Назначение |
+|---|---|
+| `OPENTRACE_DESKTOP_DATA_DIR` | каталог данных вместо `%LOCALAPPDATA%`/`~/.local/share` (изолированный профиль) |
+| `OPENTRACE_DESKTOP_SELFTEST=<file.json>` | самотест в реальном webview, отчёт в файл, выход с кодом 0/1 |
+| `OPENTRACE_RESOURCES` | каталог `web/` + `data/` (иначе ресурсы пакета или дерево исходников) |
+
+Самотест на Linux без дисплея:
+
+```bash
+OPENTRACE_DESKTOP_SELFTEST=$PWD/selftest.json xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
+cat selftest.json   # "pass": true
+```
+
+Что проверяет самотест: загрузка `/idx/` по схеме `opentrace`, `window.OT`, `localStorage`, `/api/health`, **анализ синтетического ABIF ядром** (`/api/analyze`, бинарное тело, статус 200, каналы и пики), загрузка примера проекта, `OT.displayPlots()` → нативное окно `plot-N` через `window.open`, в нём `window.opener.OT.plotPayload()` и непустой canvas, состояние очереди синхронизации.
+
+Отладка webview: в debug-сборке доступны инструменты разработчика (ПКМ → Inspect / F12 в WebView2).
+
+Файлы десктопа:
+
+| Файл | Роль |
+|---|---|
+| `src/bridge.rs` | схема `opentrace://`: ядро и `/desktop/api/*` |
+| `src/windows.rs` | главное окно, `window.open` → нативные окна, навигация, загрузки |
+| `src/remote.rs` | клиент API v1 (TLS ОС, токен в хранилище ОС) |
+| `src/sync.rs` | кэш FSA и фоновая отправка |
+| `src/pool.rs` | пул потоков анализа |
+| `ui/shim.js` | внедряется во все окна: синхронизация после анализа, статус, закрытие |
+| `ui/connection.*` | страница «Сервер организации» |
+| `ui/selftest.js` | сценарий самотеста |
+
+## Server
+
+```bash
+cargo run --manifest-path server/opentrace-server/Cargo.toml -- serve       # 127.0.0.1:8770, transport=proxy
+OPENTRACE_SERVER_DATA_DIR=/tmp/ots OPENTRACE_NEW_PASSWORD='secret-pw-1' \
+  cargo run --manifest-path server/opentrace-server/Cargo.toml -- set-password Administrator
+```
+
+Тесты (`cargo test`): модульные (конфигурация, миграции и неизменяемость, lease: гонка 8 соединений, истечение, fencing, принудительный сброс, перезапуск; хранилище FSA; стандарты и профили) и интеграционные через настоящий маршрутизатор (`tests/api.rs`): вход/выход/лимит, два редактора, конфликт ревизий, отказ WEB-записи при чужой lease, принудительный сброс администратором, FSA-дедупликация и проверка хеша, привязка FSA и `save_sample` по `fsa_sha256`, жизненный цикл стандартов и профилей, provenance, перезапуск с сохранением lease, резервная копия и восстановление.
+
+Ручная проверка API:
+
+```bash
+T=$(curl -s -X POST localhost:8770/api/v1/auth/login -H 'content-type: application/json' \
+     -d '{"username":"Administrator","password":"secret-pw-1"}' | jq -r .token)
+curl -s localhost:8770/api/v1/me -H "authorization: Bearer $T"
+curl -s -X POST localhost:8770/api/v1/projects/Demo/lease -H "authorization: Bearer $T"
+SHA=$(sha256sum sample.fsa | cut -d' ' -f1)
+curl -s -X PUT --data-binary @sample.fsa localhost:8770/api/v1/fsa/$SHA -H "authorization: Bearer $T"
+```
+
+## Проверки, выполненные при создании ветки
+
+См. раздел «Состояние» в `ROADMAP.md` — там перечислено, какие команды реально запускались, на какой платформе и с каким результатом.
+
+## Данные и Git
+
+Не добавлять в репозиторий реальные FSA, проекты, базы, резервные копии, токены, сертификаты, каталоги `runtime/`, `fsa-cache/`, `target/`. Тесты используют только синтетический ABIF (`opentrace_core::demo::demo_bytes`) и временные каталоги.

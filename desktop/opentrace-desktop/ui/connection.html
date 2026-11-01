@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenTrace — сервер организации</title>
+<link rel="stylesheet" href="/idx/idx.css">
+<style>
+ body{padding:0;overflow:auto}
+ main{padding:12px 16px;max-width:720px}
+ h1{font-size:15px;margin:4px 0 10px}
+ h2{font-size:13px;margin:16px 0 6px;border-bottom:1px solid #c8c8c8;padding-bottom:3px}
+ .row{display:flex;gap:8px;align-items:center;margin:5px 0;flex-wrap:wrap}
+ .row label{min-width:150px}
+ .row input[type=text],.row input[type=url],.row input[type=password]{flex:1;min-width:220px}
+ .warn{background:#fff3cd;border:1px solid #e0b000;padding:6px 8px;margin:6px 0;display:none}
+ .err{color:#b00000;white-space:pre-wrap}
+ .ok{color:#0a6b0a}
+ .note{color:#555;font-size:12px}
+ table.g{width:100%}
+ #ro{background:#eef4fb;border:1px solid #9bb7d6;padding:6px 8px;margin:8px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Сервер организации OpenTrace</h1>
+<div id="ro">Исследовательское ПО: не валидировано для диагностики и судебно-экспертной работы. Анализ FSA выполняется локально на этом компьютере; сервер хранит исходные файлы, проекты, утверждённые стандарты и журнал.</div>
+
+<h2>Подключение</h2>
+<div class="row"><label for="url">Адрес сервера</label><input id="url" type="url" placeholder="https://opentrace.lab.local"></div>
+<div class="row"><label></label><label style="min-width:0"><input id="http" type="checkbox"> Разрешить HTTP без шифрования (только доверенная изолированная сеть)</label></div>
+<div class="warn" id="httpWarn">HTTP не шифрует пароли, сеансы, генетические данные и FSA-файлы. Используйте только в сегментированной доверенной сети; рекомендуется HTTPS через внутренний CA или обратный прокси.</div>
+<div class="row"><label for="ca">Сертификат CA (PEM)</label><input id="ca" type="text" placeholder="необязательно: путь к сертификату внутреннего CA"></div>
+<div class="row"><label></label><label style="min-width:0"><input id="syncFsa" type="checkbox" checked> Отправлять исходные FSA на сервер в фоне</label></div>
+<div class="row"><label></label><button class="btn" id="save">Сохранить</button><button class="btn" id="check">Проверить соединение</button></div>
+<div id="checkOut" class="note"></div>
+
+<h2>Учётная запись</h2>
+<div id="who" class="note"></div>
+<div id="loginBox">
+ <div class="row"><label for="user">Пользователь</label><input id="user" type="text" autocomplete="username"></div>
+ <div class="row"><label for="pw">Пароль</label><input id="pw" type="password" autocomplete="current-password"></div>
+ <div class="row"><label></label><button class="btn" id="login">Войти</button></div>
+</div>
+<div class="row" id="logoutBox" hidden><label></label><button class="btn" id="logout">Выйти</button></div>
+<div id="authOut"></div>
+
+<h2>Синхронизация FSA</h2>
+<div id="sync" class="note"></div>
+<div class="row"><button class="btn" id="retry">Повторить неудачные</button></div>
+
+<h2>Проекты на сервере (просмотр)</h2>
+<div class="grid"><table class="g" id="projects"><thead><tr><th>Проект</th><th>Ревизия</th><th>Редактирует</th></tr></thead><tbody></tbody></table></div>
+
+<h2>Утверждённые лабораторные профили</h2>
+<div class="grid"><table class="g" id="profiles"><thead><tr><th>Профиль</th><th>Версия</th><th>Утвердил</th><th>SHA-256</th></tr></thead><tbody></tbody></table></div>
+</main>
+<script src="/desktop/connection.js"></script>
+</body>
+</html>

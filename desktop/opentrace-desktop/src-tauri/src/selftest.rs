@@ -1,0 +1,72 @@
+//! Desktop self-test (`OPENTRACE_DESKTOP_SELFTEST=<report.json>`): drives the real UI in the real webview — core
+//! analysis of a synthetic FSA through the scheme, the example project, a Samples Plot window opened with
+//! `window.open` that must reach `window.opener.OT` and draw on its canvas — then writes a JSON report and exits.
+//! Used by CI and for manual checks on Windows/Linux; inactive in normal runs.
+use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::AppHandle;
+
+pub const SELFTEST_JS: &str = include_str!("../../ui/selftest.js");
+
+pub struct SelfTest {
+    pub out: PathBuf,
+    started: std::time::Instant,
+    reports: Mutex<Vec<(String, Value)>>,
+}
+
+impl SelfTest {
+    pub fn from_env() -> Option<SelfTest> {
+        let p = std::env::var_os("OPENTRACE_DESKTOP_SELFTEST").filter(|v| !v.is_empty())?;
+        Some(SelfTest { out: PathBuf::from(p), started: std::time::Instant::now(), reports: Mutex::new(Vec::new()) })
+    }
+
+    pub fn record(&self, app: &AppHandle, label: &str, v: Value) {
+        let mut g = self.reports.lock().unwrap_or_else(|e| e.into_inner());
+        g.push((label.to_string(), v));
+        let have_main = g.iter().any(|(_, v)| v["window"] == "main");
+        let have_plot = g.iter().any(|(_, v)| v["window"] == "plot");
+        if have_main && have_plot {
+            self.finish(app, &g);
+        }
+    }
+
+    pub fn finish(&self, app: &AppHandle, reports: &[(String, Value)]) {
+        let main = reports.iter().find(|(_, v)| v["window"] == "main").map(|r| r.1["checks"].clone()).unwrap_or(Value::Null);
+        let plot = reports.iter().find(|(_, v)| v["window"] == "plot").map(|r| r.1["checks"].clone()).unwrap_or(Value::Null);
+        let pass = main["ot_loaded"] == true
+            && main["health"] == true
+            && main["analyze_status"] == 200
+            && main["analyze_channels"].as_u64().unwrap_or(0) > 0
+            && main["plot_opened"] == true
+            && plot["opener_ot"] == true
+            && plot["canvas"] == true
+            && plot["colored_pixels"].as_u64().unwrap_or(0) > 100
+            && plot["samples_in_payload"].as_u64().unwrap_or(0) >= 1;
+        let report = json!({
+            "pass": pass,
+            "platform": std::env::consts::OS,
+            "app_version": env!("CARGO_PKG_VERSION"),
+            "analysis_version": opentrace_core::server_analyze::analysis_version(),
+            "math_backend": opentrace_core::cmath::BACKEND,
+            "elapsed_ms": self.started.elapsed().as_millis() as u64,
+            "main": main,
+            "plot": plot,
+            "windows": reports.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>(),
+        });
+        let _ = std::fs::write(&self.out, serde_json::to_vec_pretty(&report).unwrap());
+        eprintln!("[selftest] {} -> {}", if pass { "PASS" } else { "FAIL" }, self.out.display());
+        app.exit(if pass { 0 } else { 1 });
+    }
+
+    /// Writes a failure report if the UI never reported back.
+    pub fn watchdog(self: std::sync::Arc<Self>, app: AppHandle, secs: u64) {
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(secs));
+            let g = self.reports.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let mut v = g.clone();
+            v.push(("watchdog".into(), json!({"window": "watchdog", "timeout_s": secs})));
+            self.finish(&app, &v);
+        });
+    }
+}

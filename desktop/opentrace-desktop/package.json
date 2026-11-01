@@ -1,0 +1,14 @@
+{
+  "name": "opentrace-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Build tooling only (Tauri CLI). The UI is the existing OpenTrace web interface in resources/web.",
+  "scripts": {
+    "tauri": "tauri",
+    "build": "tauri build",
+    "build:debug": "tauri build --debug"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}
