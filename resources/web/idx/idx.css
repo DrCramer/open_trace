@@ -355,3 +355,5 @@ table.g td.c{text-align:center}
 .mxres td{border:1px solid #d4d0c8;padding:0}.mxres td input{border:0;width:70px}
 .pexdlg label.chk,.pimdlg label.chk{display:block;margin:4px 0}.pexdlg .note,.pimdlg .note{max-width:460px}
 .mgrdlg .dtabs .tab{white-space:nowrap}.mgrdlg{min-width:820px}
+
+.g th.colsel,.g td.colsel{background:#cfe0f5}

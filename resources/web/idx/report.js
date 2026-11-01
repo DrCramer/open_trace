@@ -27,7 +27,7 @@ function render(){
  $('rptitle').textContent=d?`${d.project} — ${currentSetting()?.name||''}${st.flip?' — '+T('rpFlip'):''}${st.byMarker?' — '+T('rpByMarker'):''}`:T('rpNoProject');
  if(!d){$('statusText').textContent=T('rpNoProject');return}
  const t=el('table',{class:'g'});const m=viewMatrix();
- t.append(el('thead',{},el('tr',{},el('th',{class:'rh'}),...m[0].map(h=>el('th',{text:String(h)})))));
+ t.append(el('thead',{},el('tr',{},el('th',{class:'rh'}),...m[0].map((h,j)=>{const th=el('th',{text:String(h)+(!st.flip&&!st.byMarker&&st.sortCol===j?(st.sortDir>0?' ▲':' ▼'):''),title:T('rpHeaderHint')});th.addEventListener('click',e=>headerClick(e,j));return th}))));
  const tb=el('tbody');const editable=!st.flip&&!st.byMarker;
  m.slice(1).forEach((row,i)=>{const tr=el('tr',{class:st.sel.has(i)?'sel':''});tr.dataset.i=String(i);tr.append(el('td',{class:'rh',text:String(i+1)}));
   row.forEach((v,j)=>{const c=editable?d.cols[j]:null;
@@ -40,8 +40,16 @@ function render(){
    else if(e.ctrlKey||e.metaKey){st.sel.has(i)?st.sel.delete(i):st.sel.add(i);st.anchor=i}else{st.sel=new Set([i]);st.anchor=i}
    tb.querySelectorAll('tr').forEach(x=>x.classList.toggle('sel',st.sel.has(Number(x.dataset.i))))});
   tb.append(tr)});
- t.append(tb);g.append(t);
+ t.append(tb);g.append(t);if(st.selCol!=null&&st.selCol<(m[0]||[]).length){t.querySelectorAll('thead th').forEach((x,k)=>x.classList.toggle('colsel',k===st.selCol+1));t.querySelectorAll('tbody tr').forEach(tr=>tr.children[st.selCol+1]?.classList.add('colsel'))}
  $('statusText').textContent=`${m.length-1} ${T('rpRows')}; ${d.files.length} ${T('samples').toLowerCase()}`}
+// Column header, as in ID-X ReportManagerPanel: click selects the column, Shift+click sorts by it (again: reverses), Ctrl+click shows what the column is.
+function headerClick(e,j){const d=st.data;if(!d)return;const editable=!st.flip&&!st.byMarker;
+ if(e.ctrlKey||e.metaKey){const c=editable?d.cols[j]:null;message(`${d.heads[editable?j:0]??''}${c?' — '+T('rsCat'+c.cat):''}`);return}
+ if(e.shiftKey){if(!editable)return;st.sortDir=st.sortCol===j?-st.sortDir:1;st.sortCol=j;const c=d.cols[j];
+  const val=r=>c.cat==='Custom'?(st.custom[rowKey(r)]?.[c.id]??''):r.values[j];
+  d.rows.sort((a,b)=>{const x=val(a),y=val(b);const r=(typeof x==='number'&&typeof y==='number')?x-y:String(x??'').localeCompare(String(y??''),undefined,{numeric:true});return r*st.sortDir});
+  st.sel=new Set();st.anchor=null;render();return}
+ st.selCol=j;st.sel=new Set(Array.from({length:d.rows.length},(_,k)=>k));render()}
 function fillDown(){const f=st.focus;if(!f||!st.data)return message(T('rpFillHint'));const d=st.data;
  const v=st.custom[rowKey(d.rows[f.i])]?.[f.col]??'';for(let i=f.i+1;i<d.rows.length;i++){const k=rowKey(d.rows[i]);st.custom[k]={...(st.custom[k]||{}),[f.col]:v}}
  st.dirty=true;render()}

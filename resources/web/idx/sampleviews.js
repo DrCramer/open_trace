@@ -84,10 +84,19 @@ async function renderEpt(page,list){
  const minutes=dur?dur.split(':').reduce((a,b)=>a*60+Number(b),0)/60:null;
  for(const k of keys){const e=r.ept[k];const row=el('div',{class:'eptrow'});holder.append(row);
   row.append(el('div',{class:'eptlab',style:`color:${EPT_COLORS[k]}`,text:`${T('siEpt_'+k)} (${e.tag}) · ${T('siMin')} ${e.min} · ${T('siMax')} ${e.max}`}));
-  const h=el('div');row.append(h);const {g,W,H}=makeCanvas(h,Math.max(90,Math.floor((page.clientHeight-60)/keys.length)-26));
-  const n=e.values.length,L=46,B=16;const span=minutes?minutes:n-1;
-  axes(g,W,H,L,B,0,span,Math.min(0,e.min),e.max*1.1||1,minutes?T('siMinutes'):T('siPoint'));
-  trace(g,e.values,0,n-1,Math.min(0,e.min),e.max*1.1||1,W,H,L,B,EPT_COLORS[k])}
+  const h=el('div');row.append(h);const hh=Math.max(90,Math.floor((page.clientHeight-60)/keys.length)-26);
+  const n=e.values.length,L=46,B=16;const span=minutes?minutes:n-1;const v={f0:0,f1:1,ya:null,yb:null};
+  // same zones as the sample plots (ID-X EptDataPlot): drag along an axis zooms it, double click on an axis restores it
+  const draw=()=>{h.replaceChildren();const {c,g,W,H}=makeCanvas(h,hh);const lo=Math.min(0,e.min),hi=e.max*1.1||1;const ymin=v.ya??lo,ymax=v.yb??hi;
+   axes(g,W,H,L,B,v.f0*span,v.f1*span,ymin,ymax,minutes?T('siMinutes'):T('siPoint'));
+   trace(g,e.values,v.f0*(n-1),v.f1*(n-1),ymin,ymax,W,H,L,B,EPT_COLORS[k]);
+   const zone=(x,y)=>y>=H-B?'x':x<L?'y':'plot';let d=null;
+   c.addEventListener('mousedown',ev=>{d={z:zone(ev.offsetX,ev.offsetY),x:ev.offsetX,y:ev.offsetY}});
+   c.addEventListener('mouseup',ev=>{if(!d)return;const q=d;d=null;
+    if(q.z==='y'){if(Math.abs(ev.offsetY-q.y)>3){const iy=py=>ymin+(H-B-py)/(H-B-8)*(ymax-ymin);const a=iy(Math.max(q.y,ev.offsetY)),b=iy(Math.min(q.y,ev.offsetY));if(b>a){v.ya=a;v.yb=b;draw()}}return}
+    const ix=px=>v.f0+(px-L)/(W-6-L)*(v.f1-v.f0);const a=ix(Math.min(q.x,ev.offsetX)),b=ix(Math.max(q.x,ev.offsetX));if(Math.abs(ev.offsetX-q.x)>3&&b>a){v.f0=Math.max(0,a);v.f1=Math.min(1,b);draw()}});
+   c.addEventListener('dblclick',ev=>{const z=zone(ev.offsetX,ev.offsetY);if(z==='x'){v.f0=0;v.f1=1;draw()}else if(z==='y'){v.ya=v.yb=null;draw()}})};
+  draw()}
  holder.append(el('div',{class:'note',text:T('siEptNote')}))}
 
 function render(tab){const page=$('page-'+tab);if(!page||!ctx)return;const list=ctx.samples();

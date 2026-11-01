@@ -279,7 +279,12 @@ function xZoomToDlg(){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1;c
 function yZoomToDlg(){const v=prompt(T('zoomToYPrompt'),String(view.yValue||''));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));if(n>1)yZoomTo(n)}
 // Double click: X axis = full view (Y too when Y is entered), Y axis = full Y view; elsewhere nothing, as in ID-X.
 document.addEventListener('dblclick',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),z=zoneAt(cv._geom,e.clientX-r.left,e.clientY-r.top);
- if(z==='x'){xFullView();if(view.yAxis==='entered')yFullView()}else if(z==='y')yFullView()});
+ if(z==='x'){xFullView();if(view.yAxis==='entered')yFullView()}else if(z==='y')yFullView();
+ else if(z==='plot'){const G=cv._geom,x=e.clientX-r.left,near=nearPeak(G,x);if(!near||!near.sample.editable)return;const bp=near.peak.size_bp;
+  const labeled=(near.sample.report?.calls||[]).some(c=>c.channel===near.tag&&Math.abs(c.size_bp-bp)<0.05)||(near.sample.report?.artifacts||[]).some(a=>a.channel===near.tag&&Math.abs(a.size_bp-bp)<0.05);
+  const marker=G.markers.find(m=>m.channel===near.tag&&bp>=m.min_bp&&bp<=m.max_bp);if(labeled||!marker)return;
+  const peak={scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag};
+  ctxMenu(e.clientX,e.clientY,[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak})}])}});
 // Right arrow / left arrow: move the selection to the next / previous peak of the pane (Shift adds to the selection), wrapping round, as in ID-X.
 document.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest('input,textarea,select'))return;
  const last=[...view.selPeaks.keys()].pop();if(!last)return;
