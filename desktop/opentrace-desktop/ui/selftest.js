@@ -49,7 +49,18 @@
         window.OT.displayPlots();
         c.plot_opened = await wait(function () { return window.OT.state.plotWin && !window.OT.state.plotWin.closed; }, 15000);
         await sleep(300);
-        c.sync = await (await fetch('/desktop/api/sync/status')).json();
+        if (window.__OT_SELFTEST_SERVER__) {
+          // The analysed FSA must reach the server in the background (HEAD/PUT by SHA-256).
+          var t1 = Date.now();
+          while (Date.now() - t1 < 30000) {
+            c.sync = await (await fetch('/desktop/api/sync/status')).json();
+            if (c.sync.done >= 1 || c.sync.failed) break;
+            await sleep(250);
+          }
+          c.sync_ms = Date.now() - t1;
+        } else {
+          c.sync = await (await fetch('/desktop/api/sync/status')).json();
+        }
       } catch (e) {
         c.error = String((e && e.stack) || e);
       }

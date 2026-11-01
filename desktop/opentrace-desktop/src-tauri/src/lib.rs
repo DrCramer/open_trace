@@ -72,6 +72,24 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
             Err(e) => eprintln!("[desktop] session not resumed: {}", e.to_json()["error"]),
         });
     }
+    // Self-test against a real server (CI / manual E2E): log in before the UI runs, so the FSA analysed by the UI
+    // must reach the server through the background queue.
+    if selftest.is_some() {
+        if let (Ok(url), Ok(user), Ok(pw)) = (
+            std::env::var("OPENTRACE_SELFTEST_SERVER_URL"),
+            std::env::var("OPENTRACE_SELFTEST_USER"),
+            std::env::var("OPENTRACE_SELFTEST_PASSWORD"),
+        ) {
+            let url = config::normalize_server_url(&url, true)?;
+            st.update_config(|c| {
+                c.server_url = Some(url.clone());
+                c.allow_insecure_http = url.starts_with("http://");
+                c.username = Some(user.clone());
+            });
+            remote.login(&url, None, &user, &pw).map_err(|e| e.to_json()["error"].to_string())?;
+            sync.resume();
+        }
+    }
     windows::create_main(app.handle())?;
     if let Some(t) = selftest {
         t.watchdog(app.handle().clone(), 120);

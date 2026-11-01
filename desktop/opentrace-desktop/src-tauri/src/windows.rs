@@ -55,6 +55,9 @@ fn init_script(st: &DesktopState) -> String {
     let mut s = String::from(crate::bridge::SHIM_JS);
     if st.selftest.is_some() {
         s.push_str("\nwindow.__OT_SELFTEST__ = true;\n");
+        if std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_some() {
+            s.push_str("window.__OT_SELFTEST_SERVER__ = true;\n");
+        }
         s.push_str(crate::selftest::SELFTEST_JS);
     }
     s

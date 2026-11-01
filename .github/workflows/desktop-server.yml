@@ -92,6 +92,23 @@ jobs:
         run: |
           OPENTRACE_DESKTOP_SELFTEST=$PWD/selftest.json timeout 180 xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
           cat selftest.json
+      - name: End-to-end with a real OpenTrace Server (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release --locked --manifest-path server/opentrace-server/Cargo.toml
+          BIN=server/opentrace-server/target/release/opentrace-server
+          export OPENTRACE_SERVER_DATA_DIR=$RUNNER_TEMP/ots OPENTRACE_SERVER_TRANSPORT=http OPENTRACE_SERVER_LISTEN=127.0.0.1:18770
+          OPENTRACE_NEW_PASSWORD=e2e-secret-1 $BIN set-password "Casework Analyst"
+          $BIN serve > $RUNNER_TEMP/server.log 2>&1 &
+          for i in $(seq 1 50); do curl -fs http://127.0.0.1:18770/api/v1/health && break; sleep 0.5; done
+          for run in 1 2; do
+            OPENTRACE_DESKTOP_SELFTEST=$PWD/e2e$run.json OPENTRACE_SELFTEST_SERVER_URL=http://127.0.0.1:18770 \
+              OPENTRACE_SELFTEST_USER="Casework Analyst" OPENTRACE_SELFTEST_PASSWORD=e2e-secret-1 \
+              timeout 180 xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
+          done
+          # first client uploads, second one is deduplicated by SHA-256: exactly one stored file
+          test "$(find $RUNNER_TEMP/ots/fsa -type f | wc -l)" = 1
+          grep -q '"deduplicated": 1' e2e2.json
       - name: Self-test in a real webview (Windows, WebView2)
         if: runner.os == 'Windows'
         shell: pwsh
