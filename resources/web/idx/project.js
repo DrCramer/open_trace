@@ -654,7 +654,18 @@ const FILL_COLS={
 // The column of the last clicked cell (any cell, including drop-downs) is the one Fill Down copies.
 document.addEventListener('mousedown',e=>{const td=e.target.closest&&e.target.closest('#page-samples tbody td[data-col]');if(!td)return;
  const col=td.dataset.col;state.lastCol=FILL_COLS[col]?col:null;if(FILL_COLS[col])state.lastField=null},true);
-function fillDown(){
+// Project Edit > Undo/Redo: snapshots of the sample table fields taken before Fill Down / Clear / Paste.
+const histU=[],histR=[];
+const snapTable=()=>state.project.samples.map(s=>{const c={...s};c.ud=s.ud?{...s.ud}:s.ud;return c});
+function restoreTable(snap){const by=new Map(state.project.samples.map(s=>[s.id,s]));
+ for(const c of snap){const s=by.get(c.id);if(!s)continue;for(const k of Object.keys(s))if(!(k in c))delete s[k];Object.assign(s,c,{ud:c.ud?{...c.ud}:c.ud,rev:(s.rev||0)+1})}
+ state.project.dirty=true;SampleViews?.invalidate?.();render();buildChrome()}
+function withUndo(fn){const snap=snapTable();const r=fn();if(r instanceof Promise)return r;histU.push(snap);if(histU.length>30)histU.shift();histR.length=0;buildChrome();return r}
+function undoProject(){if(!histU.length)return;histR.push(snapTable());restoreTable(histU.pop());state.project.dirty=true;buildChrome()}
+window.__otProject={state,get fillDown(){return fillDown},undoProject:()=>undoProject(),redoProject:()=>redoProject()};
+function redoProject(){if(!histR.length)return;histU.push(snapTable());restoreTable(histR.pop());buildChrome()}
+function fillDown(){return withUndo(fillDown0)}
+function fillDown0(){
  const rows=sortedSamples().filter(s=>state.selected.has(s.id));
  const col=state.lastCol;
  if(col&&FILL_COLS[col]){if(rows.length<2)return message(T('fillDownHint'));
@@ -667,9 +678,11 @@ function fillDown(){
 // Edit > Clear (Delete) empties the text column last clicked in the selected rows; Edit > Paste (Ctrl+V) writes the clipboard lines into that column,
 // from the first selected row down (a single line goes to every selected row). Drop-down columns take a pasted value only when it names an existing choice.
 function selectedRows(){return sortedSamples().filter(s=>state.selected.has(s.id))}
-function clearCells(){const rows=selectedRows();const key=state.lastField;if(!rows.length||!key)return message(T('clearHint'));
+function clearCells(){return withUndo(clearCells0)}
+function clearCells0(){const rows=selectedRows();const key=state.lastField;if(!rows.length||!key)return message(T('clearHint'));
  if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return}for(const s of rows)setField(s,key,'');render()}
-async function pasteCells(){const rows=selectedRows();const key=state.lastField,col=state.lastCol;if(!rows.length||(!key&&!col))return message(T('pasteHint'));
+async function pasteCells(){const snap=snapTable();const r=await pasteCells0();histU.push(snap);if(histU.length>30)histU.shift();histR.length=0;buildChrome();return r}
+async function pasteCells0(){const rows=selectedRows();const key=state.lastField,col=state.lastCol;if(!rows.length||(!key&&!col))return message(T('pasteHint'));
  let text='';try{text=await navigator.clipboard.readText()}catch(e){return message(T('pasteDenied'))}
  const lines=text.replace(/\r/g,'').split('\n');while(lines.length&&lines[lines.length-1]==='')lines.pop();if(!lines.length)return;
  if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return}
@@ -1193,7 +1206,7 @@ function buildChrome(){
    {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)},{label:T('exportCombined'),run:exportCombined},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},'-',
    {label:T('projectOptions'),run:projectOptions},'-',{label:T('pageSetup'),run:pageSetupDialog},{label:T('printPreview'),run:printPreview},{label:T('print'),sc:'Ctrl+P',run:printNow},'-',
    {label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password},{label:T('exit'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:true},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:true},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},
+  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!histU.length,run:undoProject},{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:!histR.length,run:redoProject},'-',{label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},
    {label:T('clear'),sc:'Delete',run:clearCells},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},'-',{label:T('deleteFromProject'),run:deleteFromProject},{label:T('defineSamplePath'),run:defineSamplePath},'-',
    {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog}]},
   {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},'-',
@@ -1251,10 +1264,10 @@ document.addEventListener('keydown',e=>{
  if(!e.ctrlKey&&!e.metaKey)return;
  if(/^F[123]$/.test(e.key)&&!e.shiftKey&&!e.altKey){e.preventDefault();buildAfter(()=>showTab({F1:'info',F2:'raw',F3:'ept'}[e.key]));return}
  if(e.shiftKey){
-  const sm={Digit1:()=>buildAfter(()=>showTab('samples')),Digit2:()=>buildAfter(()=>showTab('summary')),Digit3:()=>buildAfter(()=>showTab('genotypes')),KeyR:()=>analyze('all'),KeyN:toggleNavigator};
+  const sm={Digit1:()=>buildAfter(()=>showTab('samples')),Digit2:()=>buildAfter(()=>showTab('summary')),Digit3:()=>buildAfter(()=>showTab('genotypes')),KeyR:()=>analyze('all'),KeyN:toggleNavigator,KeyZ:redoProject};
   if(sm[e.code]){e.preventDefault();sm[e.code]()}return}
- const map={i:fitToContent,u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,v:pasteCells,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
- if(map[k]){e.preventDefault();map[k]()}});
+ const map={z:undoProject,i:fitToContent,u:()=>Mixture.open(),y:()=>Mixture.manager(),o:openProject,s:saveProject,d:fillDown,c:copyRows,v:pasteCells,t:editTableSetting,f:findDialog,g:sortDialog,m:()=>Methods.openManager(),j:openPanelManager,n:newProject,k:addSamples,e:exportTable,l:displayPlots,q:openReportManager,p:printNow,r:()=>analyze('pending'),a:selectAll,b:toggleLowQualityTop};
+ if(map[k]&&!(k==='z'&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))){e.preventDefault();map[k]()}});
 window.addEventListener('beforeunload',e=>{if(state.project.dirty&&state.project.samples.length){e.preventDefault();e.returnValue=''}});
 
 function qcSamples(){return state.project.samples.map(s=>{const eff=s.report?effective(s):null;const markers={},dye={};
