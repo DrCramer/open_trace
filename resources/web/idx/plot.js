@@ -26,13 +26,14 @@ const NAME_DYE={blue:'DATA1',green:'DATA2',yellow:'DATA3',red:'DATA4',purple:'DA
 let setting=null;
 function settingNames(){return PlotSettings.list().map(r=>r.setting.name).filter(n=>!window.Sec||!Sec.items||Sec.items.can('plots',n,'read'))}
 function activeName(){let n='';try{n=localStorage.getItem(PS_ACTIVE)||''}catch(e){}const names=settingNames();return names.includes(n)?n:(names.includes('Data Interpretation')?'Data Interpretation':names[0])}
-function applySetting(name){setting=PlotSettings.get(name)||PlotSettings.factory()[0];try{localStorage.setItem(PS_ACTIVE,setting.name)}catch(e){}
+function applySetting(name){const keep=view.retainX?{x0:view.x0,x1:view.x1,userZoom:view.userZoom}:null;setting=PlotSettings.get(name)||PlotSettings.factory()[0];try{localStorage.setItem(PS_ACTIVE,setting.name)}catch(e){}
  const D=setting.display.persistence==='last'&&setting.lastView?{...setting.display,...setting.lastView}:setting.display;
  Object.assign(view,{panes:D.panes,layout:D.layout,labels:D.labels,bins:D.bins,header:D.header,markerRange:D.markerRange,table:D.table==='lev'?'none':D.table,
   xAxis:D.xAxis,yAxis:D.yAxis,yValue:D.yValue,peakPositions:D.peakPositions,offscale:D.offscale,toolbar:D.toolbar,alleleChanges:D.alleleChanges,
   sizeStdLabels:D.sizeStdLabels,controlsTop:D.controlsTop,laddersTop:D.laddersTop,markerIndicator:D.markerIndicator!==false,x0:null,x1:null});
  view.dyes=new Set(Object.entries(D.dyes).filter(([,on])=>on).map(([d])=>NAME_DYE[d]));
  view.userZoom=false;if(!D.allDyes&&D.xAxis==='bp'&&D.end>D.start){view.x0=D.start;view.x1=D.end}
+ if(keep)Object.assign(view,keep);
  if(D.table==='lev')setTimeout(()=>{try{window.opener.OT.labelEditViewer()}catch(e){}},0)}
 // "Use the display settings last used for this plot": the interactive state is kept when the window closes.
 window.addEventListener('beforeunload',()=>{if(!setting||setting.display.persistence!=='last')return;
@@ -204,6 +205,10 @@ function paint(cv,items,x0,x1,onlyMarker){
  for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
   g.save();g.globalAlpha=.35;g.fillStyle=col;g.beginPath();g.moveTo(pp.x-4,bottom);g.lineTo(pp.x,pp.y);g.lineTo(pp.x+4,bottom);g.closePath();g.fill();g.restore();
   g.fillStyle=col;g.beginPath();g.arc(pp.x,pp.y,4,0,7);g.fill();g.strokeStyle='#000';g.stroke()}
+ if(view.legend){const names=[...new Set(dyes)];g.font='10px Tahoma,Arial';g.textAlign='left';let ly=top+4;
+  for(const t of names){const txt=`${DYE_NAMES[t]||t}: 0–${Math.round(ymax)}`;const w=g.measureText(txt).width+18;const lx=W-R-w-4;
+   g.fillStyle='rgba(255,255,255,.85)';g.fillRect(lx-2,ly-2,w+2,14);g.fillStyle=DYE_COLORS[t]==='#000000'?'#e5d300':(DYE_COLORS[t]||'#333');g.fillRect(lx,ly,10,10);g.strokeStyle='#333';g.strokeRect(lx,ly,10,10);
+   g.fillStyle='#000';g.fillText(txt,lx+14,ly+9);ly+=15}}
  cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,dp,curve:cur,noRoom,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
 }
 // trace points of one pane item in the current coordinate (bp or data points)
@@ -267,7 +272,8 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
 document.addEventListener('mousemove',e=>{if(!drag)return;const r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved&&drag.mode!=='move')bandShow(drag.cv,drag,x,y)});
 // Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
-function showPhr(){const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
+function showPhr(){if((view.tableFilter||'all')!=='all'&&view.table==='sizing')try{renderLower()}catch(e){}
+ const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
  if(sel.length!==2){c.textContent='';return}const [a,b]=sel.map(p=>p.peak.height);c.textContent=fmt('phrStatus',(Math.min(a,b)/Math.max(a,b)).toFixed(2),Math.round(a),Math.round(b))}
 document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;bandHide();const G=d.cv._geom,r=d.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const invX=px=>G.x0+(px-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),invY=py=>(G.bottom-py)/(G.bottom-G.top)*G.ymax;
@@ -543,6 +549,7 @@ function renderLower(){
  for(const s of payload.samples){
   if(view.table==='sizing'){const letters={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R',DATA105:'O',DATA106:'P'};const nth={};
    for(const c of s.report?.calls||[]){const pk=(s.report.peaks||[]).find(p=>p.id===c.source_peak_id);nth[c.channel]=(nth[c.channel]||0)+1;
+    {const f=view.tableFilter||'all';if(f!=='all'){const on=view.selPeaks.has(`${s.id}|${c.channel}|${c.size_bp.toFixed(3)}`);if((f==='selected')!==on)continue}}
     const val={sampleFileName:s.file,marker:c.marker,dyeSamplePeak:`${letters[c.channel]||'?'},${nth[c.channel]}`,minutes:'',size:c.size_bp.toFixed(2),
      height:String(Math.round(c.height)),area:String(pk?.area??''),dataPoint:String(Math.round(c.scan)),alleleCall:String(c.label)};
     tb.append(el('tr',{},el('td',{text:s.name}),...scols.map(([id])=>el('td',{class:['size','height','area','dataPoint'].includes(id)?'num':'',text:val[id]}))))}continue}
@@ -581,7 +588,7 @@ function build(){
    {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');build();draw()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');build();draw()}}]}]},
   {label:T('plots'),items:[
    {label:T('zoom'),sub:[{label:T('fullView'),sc:'Ctrl+]',run:xFullView},{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('zoomTo'),run:xZoomToDlg},'-',
-    {label:T('pmZoomToMarker'),run:zoomToMarkerDlg},{label:T('zoomToNextMarker'),sc:'Ctrl+J',run:zoomNextMarker}]},
+    {label:T('pmZoomToMarker'),run:zoomToMarkerDlg},{label:T('zoomToNextMarker'),sc:'Ctrl+J',run:zoomNextMarker},{label:T('pmRetainX'),checked:!!view.retainX,run:set('retainX',!view.retainX)}]},
    {label:T('xAxis'),sub:[{label:T('basepairs'),checked:view.xAxis==='bp',run:()=>{view.xAxis='bp';view.x0=view.x1=null;build();draw()}},{label:T('dataPoints'),checked:view.xAxis==='dp',run:()=>{view.xAxis='dp';view.x0=view.x1=null;build();draw()}}]},
    {label:T('yAxis'),sub:[{label:T('scaleInd'),checked:view.yAxis==='individual',run:()=>{view.yAxis='individual';build();draw()}},{label:T('scaleMaxY'),checked:view.yAxis==='max',run:()=>{view.yAxis='max';build();draw()}},
     {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},'-',
@@ -595,11 +602,14 @@ function build(){
    {label:T('pmOffscale'),checked:view.offscale,run:set('offscale',!view.offscale)},'-',
    {label:T('dyes'),sub:[...dyeItems.map((d,i)=>({...d,label:DYE_NAMES[DYE_KEYS[i]]})),'-',{label:T('allDyes'),sc:'Ctrl+6',run:()=>{DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw()}}]},
    {label:T('plots'),sub:[{label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')}]},
+   {label:T('pmTableFilter'),sub:[{label:T('pmShowAllRows'),sc:'Ctrl+F',checked:(view.tableFilter||'all')==='all',run:set('tableFilter','all')},{label:T('pmShowSelRows'),sc:'Ctrl+G',checked:view.tableFilter==='selected',run:set('tableFilter','selected')},
+    {label:T('pmHideSelRows'),sc:'Ctrl+H',checked:view.tableFilter==='hide',run:set('tableFilter','hide')}]},
    {label:T('pmTables'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]},'-',
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},
    {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
    {label:T('pmPqvTrigger'),checked:!!setting?.labels?.pqvTrigger,run:()=>{if(setting?.labels){setting.labels.pqvTrigger=!setting.labels.pqvTrigger;build();draw()}}},
    {label:T('psPlotColors'),sub:[{label:T('psStandardColors'),checked:!view.customColors,run:()=>{view.customColors=false;build();draw()}},{label:T('psCustom'),checked:view.customColors,run:()=>{view.customColors=true;build();draw()}}]},'-',
+   {label:T('pmLegend'),checked:!!view.legend,run:set('legend',!view.legend)},
    {label:T('pmMarkerMargin'),run:markerMarginDlg},'-',
    {label:T('multipleDyePlot'),run:multipleDyePlot}]},
   {label:T('tools'),items:[{label:T('manager'),disabled:true},'-',{label:T('psEditor'),sc:'Ctrl+T',run:editSetting}]},
@@ -653,6 +663,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(k==='s'){e.preventDefault();try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(err){message(String(err.message||err))}return}
  if(e.code==='NumpadAdd'){e.preventDefault();zoom(.5);return}
  if(e.code==='NumpadSubtract'){e.preventDefault();zoom(2);return}
+ if(!inField&&{f:'all',g:'selected',h:'hide'}[k]){e.preventDefault();view.tableFilter={f:'all',g:'selected',h:'hide'}[k];build();draw();return}
  if(k==='p'){e.preventDefault();printPlots(false);return}
  if(k==='z'&&!inField){e.preventDefault();undoLast();return}
  if(k==='e'){e.preventDefault();exportPlotTable();return}
