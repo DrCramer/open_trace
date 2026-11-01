@@ -35,6 +35,10 @@ function open(sample,actions){
   ZM0().set(ref,z);draw()};
  const ZM0=()=>window.__smZ=window.__smZ||new WeakMap();
  const checkQuality=()=>{const q=sz.sq_override?1:(sz.base_quality||{}).score;message([`SQ: ${q==null?'NA':Number(q).toFixed(3)}`,`${T('smStatus')}: ${sz.sq_override?T('smOverridden'):sz.status}`,`${T('smMatched')}: ${assign.size}/${expected.length}`,...(sz.reasons||[])].join('\n'),T('smCheckQuality'))};
+ const printSize=()=>{const body=d.body;const w=window.open('','opentrace-sm-print','width=1000,height=760');if(!w){message(T('plotWindowBlocked'));return}
+  const clone=body.cloneNode(true);clone.querySelectorAll('.smtools,button').forEach(x=>x.remove());
+  w.document.open();w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+T('sizeMatchEditor').replace(/[<&]/g,'')+'</title><link rel="stylesheet" href="/idx/idx.css"><style>body{background:#fff;overflow:auto;padding:12px}</style></head><body><h3>'+String(sample.file).replace(/[<&]/g,'')+'</h3>'+clone.innerHTML+'</body></html>');
+  w.document.close();w.onload=()=>{try{w.focus();w.print()}catch(e){}}};
  const fullView=()=>{const m=window.__smZ;m&&m.delete(ref);draw()};
  const d=dialog(`${T('sizeMatchEditor').replace(/\.+$/,'')} — ${sample.file}`,b=>b.classList.add('smdlg'),[
   [T('smOverride'),async()=>{const anchors=[...assign.entries()].map(([bp,scan])=>[scan,bp]).sort((x,y)=>x[0]-y[0]);
@@ -51,7 +55,7 @@ function open(sample,actions){
    el('span',{text:`SQ: ${q==null?'NA':Number(q).toFixed(3)}`}),
    el('span',{text:`${T('smMatched')}: ${assign.size}/${expected.length}`})));
   {const tb=el('div',{class:'btnrow smtools'});const bt=(txt,fn,id,dis)=>{const x=el('button',{class:'btn small',type:'button',text:txt,id});x.disabled=!!dis;x.addEventListener('click',fn);return x};
-   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'),bt(T('smAddLabel'),addLabel,'smAdd',selPk==null||scanLabel(selPk)!=null),bt(T('smChangeLabel')+' (Ctrl+L)',changeLabel,'smChange',!(selPk!=null&&scanLabel(selPk)!=null)&&!(pick!=null&&assign.has(pick))),bt(T('smCheckQuality'),checkQuality,'smCheck'),bt(T('fullView')+' (Ctrl+])',fullView,'smFull'),bt(T('scaleMaxY'),()=>yMax('max'),'smYMax'),bt(T('smScaleTo'),()=>yMax('custom'),'smYCustom'));b.append(tb)}
+   tb.append(bt(T('smUndo')+' (Ctrl+Z)',undo,'smUndo',!hist.length),bt(T('smDeleteLabel')+' (Del)',delPicked,'smDelLabel',pick==null||!assign.has(pick)),bt(T('smDeleteAll')+' (Ctrl+Del)',clearAll,'smDelAll',!assign.size),bt(T('smAutoAdjust'),autoAdjust,'smAuto'),bt(T('smAddLabel'),addLabel,'smAdd',selPk==null||scanLabel(selPk)!=null),bt(T('smChangeLabel')+' (Ctrl+L)',changeLabel,'smChange',!(selPk!=null&&scanLabel(selPk)!=null)&&!(pick!=null&&assign.has(pick))),bt(T('smCheckQuality'),checkQuality,'smCheck'),bt(T('fullView')+' (Ctrl+])',fullView,'smFull'),bt(T('print'),printSize,'smPrint'),bt(T('scaleMaxY'),()=>yMax('max'),'smYMax'),bt(T('smScaleTo'),()=>yMax('custom'),'smYCustom'));b.append(tb)}
   if((sz.reasons||[]).length)b.append(el('div',{class:'note',text:sz.reasons.join('; ')}));
   if(sz.sq_override)b.append(el('div',{class:'note',text:`${T('smOverrideReason')}: ${sz.sq_override.reason||'—'}`}));
   // electropherogram of the standard dye
