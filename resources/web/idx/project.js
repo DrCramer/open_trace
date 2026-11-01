@@ -725,13 +725,25 @@ function addSamples(){
  let files=[];
  dialog(T('addTitle'),b=>{
   const list=el('div',{class:'filelist'});const input=el('input',{type:'file',multiple:'',accept:'.fsa,.ab1',style:'display:none'});
-  const redraw=()=>{list.replaceChildren(...files.map(f=>el('div',{text:f.webkitRelativePath||f.name})))};
-  input.addEventListener('change',()=>{files=[...files,...input.files];input.value='';redraw()});
+  const sel=new Set();let anchor=-1;
+  const redraw=()=>{for(const f of [...sel])if(!files.includes(f))sel.delete(f);
+   list.replaceChildren(...files.map((f,i)=>{const d=el('div',{text:f.webkitRelativePath||f.name,class:sel.has(f)?'sel':''});
+    d.addEventListener('click',e=>{if(e.shiftKey&&anchor>=0){sel.clear();for(let k=Math.min(anchor,i);k<=Math.max(anchor,i);k++)sel.add(files[k])}
+     else if(e.ctrlKey||e.metaKey){sel.has(f)?sel.delete(f):sel.add(f);anchor=i}else{sel.clear();sel.add(f);anchor=i}redraw()});return d}));
+   cnt.textContent=files.length?T('addCount').replace('{0}',files.length):''};
+  const addFiles=fl=>{const seen=new Set(files.map(f=>(f.webkitRelativePath||f.name)+'|'+f.size));
+   for(const f of fl){if(!/\.(fsa|ab1)$/i.test(f.name))continue;const k=(f.webkitRelativePath||f.name)+'|'+f.size;if(!seen.has(k)){seen.add(k);files.push(f)}}redraw()};
+  const cnt=el('div',{class:'note'});
+  list.tabIndex=0;list.addEventListener('keydown',e=>{const k=e.code;
+   if((e.ctrlKey||e.metaKey)&&k==='KeyA'){e.preventDefault();files.forEach(f=>sel.add(f));redraw()}
+   else if(k==='Delete'||k==='Backspace'){e.preventDefault();files=files.filter(f=>!sel.has(f));sel.clear();redraw()}});
+  list.addEventListener('dragover',e=>e.preventDefault());list.addEventListener('drop',e=>{e.preventDefault();addFiles([...(e.dataTransfer?.files||[])])});
+  input.addEventListener('change',()=>{addFiles(input.files);input.value=''});
   const choose=el('button',{class:'btn',text:T('addChoose'),type:'button'});choose.addEventListener('click',()=>input.click());
   const dirIn=el('input',{type:'file',webkitdirectory:'',directory:'',multiple:'',style:'display:none'});
-  dirIn.addEventListener('change',()=>{files=[...files,...[...dirIn.files].filter(f=>/\.(fsa|ab1)$/i.test(f.name))];dirIn.value='';redraw()});
+  dirIn.addEventListener('change',()=>{addFiles(dirIn.files);dirIn.value=''});
   const chooseDir=el('button',{class:'btn',text:T('addChooseFolder'),type:'button'});chooseDir.addEventListener('click',()=>dirIn.click());
-  const clear=el('button',{class:'btn',text:T('addClear'),type:'button'});clear.addEventListener('click',()=>{files=[];redraw()});
+  const clear=el('button',{class:'btn',text:T('addClear'),type:'button'});clear.addEventListener('click',()=>{if(sel.size){files=files.filter(f=>!sel.has(f));sel.clear()}else files=[];redraw()});
   const ss=el('select',{id:'addStd'});for(const k of Object.keys(SIZE_STANDARDS))ss.append(new Option(k,k));
   const od=ProjectOptions.get().add;if(od.sizeStd&&SIZE_STANDARDS[od.sizeStd])ss.value=od.sizeStd;
   let lastKey='';try{lastKey=od.panelKey||localStorage.getItem('opentrace.lastPanel')||''}catch(e){}
@@ -743,7 +755,7 @@ function addSamples(){
    el('div',{class:'field'},el('label',{text:T('colPanel')}),ps),
    el('div',{class:'field'},el('label',{text:T('colSizeStandard')}),ss));
   if(!panelChoices().length)fs.append(el('div',{class:'note',text:T('noPanelsYet')}));
-  b.append(el('div',{text:T('addFiles')}),list,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,chooseDir,clear,input,dirIn),fs)},
+  b.append(el('div',{text:T('addFiles')}),list,cnt,el('div',{style:'display:flex;gap:6px;margin:6px 0'},choose,chooseDir,clear,input,dirIn),fs)},
   [[T('add'),body=>{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;const meth=body.querySelector('#addMethod').value;
     try{localStorage.setItem('opentrace.lastMethod',meth)}catch(e){}
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}

@@ -126,6 +126,7 @@ fieldset{border:1px solid #d0d0bf;border-radius:3px;margin:6px 0;padding:6px 8px
 legend{color:#0046d5;padding:0 3px}
 .note{color:var(--muted);margin:6px 0}
 .filelist{height:120px;overflow:auto;background:#fff;border:1px solid #7f9db9;padding:2px}
+.filelist div.sel{background:#316ac5;color:#fff}.filelist div{cursor:default;user-select:none}
 
 /* ---- plot window ---- */
 .plotarea{flex:1;overflow-y:auto;overflow-x:hidden;background:#fff;border:1px solid #7f9db9;margin:2px;position:relative}
