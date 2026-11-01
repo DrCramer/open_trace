@@ -71,7 +71,7 @@ function request(db,key,binSetName){
  const usable=kit.binSets.filter(s=>s.panels[panel]);
  const set=usable.find(s=>s.name===binSetName)||usable[0];if(!set)return null;
  return {panels:panelsText(kit),bins:binsText(kit,set),stutter:stutterText(kit),panel,binSet:set.name,
-  binSetSubstituted:!!binSetName&&set.name!==binSetName}}
+  binSetSubstituted:!!binSetName&&set.name!==binSetName&&usable.length>1}}
 
 window.KitStore={KEY,load,save,clone,panelsText,binsText,stutterText,addPanels,addBinSet,setStutter,choices,request};
 })();
