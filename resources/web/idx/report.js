@@ -126,7 +126,7 @@ function printNow(){window.open('/idx/print.html#print','opentrace-print-report'
 function buildChrome(){
  buildMenubar($('menubar'),[
   {label:T('file'),items:[{label:T('rpOpen'),sc:'Ctrl+O',run:openReport},{label:T('rpSave'),sc:'Ctrl+S',run:()=>saveReport()},{label:T('saveAs'),run:()=>saveReport(true)},'-',{label:T('rpExport'),sc:'Ctrl+E',run:exportDialog},'-',
-   {label:T('pageSetup'),run:()=>{try{window.opener.OT.pageSetup();window.opener.focus()}catch(e){message(String(e.message||e))}}},{label:T('print'),sc:'Ctrl+P',run:printNow},{label:T('printPreview'),run:printPreview},'-',{label:T('closeWin'),run:()=>window.close()}]},
+   {label:T('pageSetup'),run:()=>{try{window.opener.OT.pageSetupDialog();window.opener.focus()}catch(e){message(String(e.message||e))}}},{label:T('print'),sc:'Ctrl+P',run:printNow},{label:T('printPreview'),run:printPreview},'-',{label:T('closeWin'),run:()=>window.close()}]},
   {label:T('edit'),items:[{label:T('cut'),sc:'Ctrl+X',run:()=>clearCells(true)},{label:T('copy'),sc:'Ctrl+C',run:copy},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},{label:T('clear'),sc:'Delete',run:()=>clearCells(false)},'-',
    {label:T('selectAll'),sc:'Ctrl+A',run:()=>{st.sel=new Set((st.data?.rows||[]).map((_,i)=>i));render()}},'-',{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{label:T('rpDefaultTable'),run:defaultTable},{label:T('rpFlip'),checked:st.flip,run:()=>{st.flip=!st.flip;if(st.flip)st.byMarker=false;render()}},
    {label:T('rpByMarker'),checked:st.byMarker,run:()=>{st.byMarker=!st.byMarker;if(st.byMarker)st.flip=false;render()}},'-',

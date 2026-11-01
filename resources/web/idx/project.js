@@ -28,7 +28,7 @@ window.OT={state,plotPayload,printPayload:()=>printPayload(),report:null,edit:(i
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];
   e.undone=true;e.undoneAt=new Date().toISOString();s.rev=(s.rev||0)+1;state.project.dirty=true;
   Sec.record([{map:'Allele',attribute:'modified',instance:`${s.file}/${e.marker||''}`,old:e.new||'',new:e.old||'',event:'Undo Edit'}]);render();return {sample:s.name,action:e.action,marker:e.marker||''}},
- exportWithStutter:(ids)=>exportWithStutter(ids),stutterRows:(ids)=>stutterRows(ids),pageSetup:()=>pageSetupDialog(),showSampleView:(id,tab)=>{state.selected=new Set([id]);buildAfter(()=>showTab(tab))},pageSetup:()=>pageSetup(),kitsChanged:()=>{dropCaches();render()}};
+ exportWithStutter:(ids)=>exportWithStutter(ids),stutterRows:(ids)=>stutterRows(ids),pageSetupDialog:()=>pageSetupDialog(),showSampleView:(id,tab)=>{state.selected=new Set([id]);buildAfter(()=>showTab(tab))},pageSetup:()=>pageSetup(),kitsChanged:()=>{dropCaches();render()}};
 window.addEventListener('opentrace-options',()=>render());
 window.addEventListener('opentrace-tables',()=>{state.sort=null;buildChrome();render()});
 window.addEventListener('opentrace-methods',()=>{dropCaches();
