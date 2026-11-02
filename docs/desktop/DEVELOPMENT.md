@@ -26,7 +26,10 @@ git branch --unset-upstream 2>/dev/null; git config push.default current   # ч�
 
 * Математику не копировать; desktop и server вызывают `opentrace_core` (`server::App::handle`, `server_analyze::analyze`, …).
 * Все трансцендентные функции — через `core/opentrace-core/src/cmath.rs`. Не использовать `f64::ln/exp/powf/sin` напрямую: это обходит единую точку и ломает переносимость.
-* Любое изменение, влияющее на числа, должно проходить golden-тесты на Linux побитово. Опция `portable-math` экспериментальная (расходится с эталоном в 6 корпусах), в сборки не включать.
+* Любое изменение, влияющее на числа, должно проходить golden-тесты побитово на Linux **и** Windows. По умолчанию `exp`/`log`/`pow` — `libm_port.rs` (порт glibc 2.39, вариант с FMA, то есть ARM optimized-routines); `expm1`, `sin`, `frexp`, `ldexp` пока из системной libm. Признак `system-libm` возвращает всё к системной libm (только для сравнения), `portable-math` — экспериментальный крейт `libm` (расходится с эталоном в 6 корпусах), в сборки не включать.
+* Проверка порта: `LIBM_PORT_CASES=100000000 cargo test --release --test libm_port` (Linux x86-64 с FMA: побитовое сравнение с glibc; 10⁸ случаев — 0 расхождений) и отпечаток SHA-256 на 10⁶ случаев (`identical_results_on_every_platform`) — один и тот же на Linux и Windows.
+* Таблицы `libm_port_data.rs` сгенерированы из исходников glibc (`sysdeps/ieee754/dbl-64/e_{exp,log,pow}_data.c`) и не редактируются вручную. Места, где GCC сливает умножение и сложение в FMA, взяты из GIMPLE-дампа (`-O2 -mfma -fdump-tree-widening_mul`) и записаны в Rust как `a.mul_add(b, c)`; любое «упрощение» формул ломает побитовое совпадение.
+* Файловые системы без учёта регистра (Windows, macOS): сохранение образца, id которого отличается от существующего только регистром, отклоняется (W7). Golden-корпус `idx_projects` на таких системах пропускает сессии с такими именами (в т.ч. из импортируемых пакетов) и сравнивает остальные побитово; отдельный тест `case_insensitive_fs.rs` проверяет сам отказ.
 * Время и пути — `localtime.rs`, `paths.rs` (никаких `libc::localtime_r`, `HOME`, `/dev/urandom` напрямую).
 
 ## Desktop
@@ -65,9 +68,21 @@ cat selftest.json   # "pass": true
 | `src/remote.rs` | клиент API v1 (TLS ОС, токен в хранилище ОС) |
 | `src/sync.rs` | кэш FSA и фоновая отправка |
 | `src/pool.rs` | пул потоков анализа |
-| `ui/shim.js` | внедряется во все окна: синхронизация после анализа, статус, закрытие |
-| `ui/connection.*` | страница «Сервер организации» |
+| `src/workspace.rs` | проекты на сервере (`project_source = "server"`): lease, heartbeat, только чтение, сохранение с ревизией и fencing-токеном, FSA по `sha256` |
+| `ui/shim.js` | внедряется во все окна: синхронизация после анализа, статус сервера и проекта, баннер «только чтение», закрытие |
+| `ui/connection.*` | страница «Сервер организации» (адрес, вход, источник проектов) |
+| `ui/standards.*` | «Лабораторные стандарты»: список версий, импорт локальных справочников как черновиков, отправка/утверждение, профили |
 | `ui/selftest.js` | сценарий самотеста |
+
+Самотест с сервером (дополнительно: вход, режим «проекты на сервере», сохранение и повторное открытие проекта, совпадение SHA-256 стандарта у клиента и сервера):
+
+```bash
+OPENTRACE_SELFTEST_SERVER_URL=http://127.0.0.1:8770 OPENTRACE_SELFTEST_USER='Casework Analyst' \
+OPENTRACE_SELFTEST_PASSWORD=... OPENTRACE_DESKTOP_SELFTEST=$PWD/selftest.json \
+  xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
+```
+
+В режиме самотеста токен не сохраняется в хранилище учётных данных ОС.
 
 ## Server
 
