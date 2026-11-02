@@ -29,13 +29,13 @@ jobs:
           workspaces: core
       - name: Build opentrace
         run: cargo build --release --locked --manifest-path core/opentrace-core/Cargo.toml --bin opentrace
-      - name: Tests (Linux: must be bit-identical to the Python/glibc reference)
-        if: runner.os == 'Linux'
-        run: cargo test --release --locked --manifest-path core/opentrace-core/Cargo.toml
-      - name: Tests (Windows: known 1-ULP libm differences, see docs/desktop/BASELINE_AUDIT.md W6)
-        if: runner.os == 'Windows'
-        continue-on-error: true
+      - name: Tests (bit-identical to the reference on every OS; libm_port makes exp/log/pow platform-independent)
         run: cargo test --release --locked --no-fail-fast --manifest-path core/opentrace-core/Cargo.toml
+      - name: libm_port against glibc on 1e8 arguments (Linux)
+        if: runner.os == 'Linux'
+        env:
+          LIBM_PORT_CASES: "100000000"
+        run: cargo test --release --locked --manifest-path core/opentrace-core/Cargo.toml --test libm_port
 
   server:
     name: server (${{ matrix.os }})

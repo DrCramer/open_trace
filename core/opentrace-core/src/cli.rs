@@ -167,6 +167,23 @@ fn take(cmd: &str, opt: &O, shown: &str, inline: Option<String>, args: &[String]
 // ------------------------------------------------------------------------------------------------ helpers
 
 fn io_err(e: &std::io::Error, path: &Path) -> String {
+    // Python reports POSIX errno text on every OS ("[Errno 2] No such file or directory"); Windows' own codes and
+    // localised messages would make the CLI output depend on the OS and its language.
+    #[cfg(windows)]
+    {
+        use std::io::ErrorKind::*;
+        let posix = match e.kind() {
+            NotFound => Some((2, "No such file or directory")),
+            PermissionDenied => Some((13, "Permission denied")),
+            AlreadyExists => Some((17, "File exists")),
+            IsADirectory => Some((21, "Is a directory")),
+            NotADirectory => Some((20, "Not a directory")),
+            _ => None,
+        };
+        if let Some((n, t)) = posix {
+            return format!("[Errno {}] {}: {}", n, t, str_repr(&path.to_string_lossy()));
+        }
+    }
     let text = e.to_string();
     let base = text.split(" (os error").next().unwrap_or(&text).to_string();
     match e.raw_os_error() {
