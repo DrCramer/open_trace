@@ -2,6 +2,7 @@
 //! `opentrace-core`, optional organisation features through OpenTrace Server API v1.
 mod bridge;
 pub mod config;
+pub mod labprofile;
 pub mod provenance;
 mod pool;
 pub mod remote;
@@ -14,6 +15,11 @@ pub mod workspace;
 /// Canonical JSON used for standard hashes (re-exported for tests).
 pub fn canonical_json(v: &serde_json::Value) -> String {
     bridge::canonical(v)
+}
+
+/// SHA-256 (hex) of the canonical JSON — the content hash of a laboratory standard on the server.
+pub fn canonical_sha256(v: &serde_json::Value) -> String {
+    provenance::sha256_hex(bridge::canonical(v).as_bytes())
 }
 
 use state::DesktopState;
@@ -82,9 +88,12 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
     sync::start_workers(sync.clone(), remote.clone(), Arc::new(move || st_ca.config().ca_cert_pem), SYNC_WORKERS);
     // Resume a remembered server session in the background (never blocks start-up; offline is fine).
     if let (Some(url), Some(user)) = (cfg.server_url.clone(), cfg.username.clone()) {
-        let (remote, sync, ca) = (remote.clone(), sync.clone(), cfg.ca_cert_pem.clone());
+        let (remote, sync, ca, st2) = (remote.clone(), sync.clone(), cfg.ca_cert_pem.clone(), st.clone());
         std::thread::spawn(move || match remote.resume(&url, &user, ca.as_deref()) {
-            Ok(_) => sync.resume(),
+            Ok(_) => {
+                sync.resume();
+                st2.reload_lab_profile();
+            }
             Err(e) => eprintln!("[desktop] session not resumed: {}", e.to_json()["error"]),
         });
     }

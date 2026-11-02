@@ -137,6 +137,9 @@ pub fn inject_scripts(html: Vec<u8>, selftest: bool) -> Vec<u8> {
         if std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_some() {
             tags.push_str("window.__OT_SELFTEST_SERVER__=true;");
         }
+        if let Some((name, version)) = crate::selftest::profile() {
+            tags.push_str(&format!("window.__OT_SELFTEST_PROFILE__={};", json!({"name": name, "version": version})));
+        }
         if let Some(n) = crate::selftest::batch_size() {
             tags.push_str(&format!("window.__OT_SELFTEST_BATCH__={};", n));
         }
@@ -243,6 +246,7 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
                 Ok(s) => {
                     st.update_config(|c| c.username = Some(user.clone()));
                     st.sync.resume();
+                    st.reload_lab_profile();
                     json_response(200, &json!({"ok": true, "user": s.user, "roles": s.roles, "expires_ms": s.expires_ms}))
                 }
                 Err(e) => remote_err(e),
@@ -284,6 +288,28 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             v["logged_in"] = json!(st.remote.session().is_some());
             v["server"] = json!(st.config().server_url);
             json_response(200, &v)
+        }
+        ("api/lab-profile", false) => json_response(200, &json!({"active": st.workspace.profile_status(), "configured": st.config().lab_profile})),
+        ("api/lab-profile", true) => {
+            // {name, version} activates (after verification), {} clears.
+            let b = body_json(req);
+            let pick = match (b["name"].as_str(), b["version"].as_i64()) {
+                (Some(n), Some(v)) => Some((n.to_string(), v)),
+                _ => None,
+            };
+            if pick.is_some() && st.remote.session().is_none() {
+                return json_response(409, &json!({"error": "Сначала войдите на сервер"}));
+            }
+            let previous = st.config().lab_profile;
+            st.update_config(|c| c.lab_profile = pick.clone());
+            let status = st.reload_lab_profile();
+            if status["verified"] == false {
+                // Not usable: keep the previous choice, report why.
+                st.update_config(|c| c.lab_profile = previous);
+                st.reload_lab_profile();
+                return json_response(409, &json!({"error": status["error"]}));
+            }
+            json_response(200, &json!({"active": status}))
         }
         ("api/workspace/source", true) => {
             let src = body_json(req)["source"].as_str().unwrap_or("").to_string();

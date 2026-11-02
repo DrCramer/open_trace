@@ -30,6 +30,7 @@ fn server() -> Server {
             u["password"] = json!("ws-secret-1");
             store.save_user(&u, &json!(name)).unwrap();
         }
+        store.save_group(&json!({"name": opentrace_server::auth::APPROVER_GROUP, "description": "", "members": ["Lab Director"]}), &json!("")).unwrap();
     }
     let app = opentrace_server::router(st).into_make_service_with_connect_info::<std::net::SocketAddr>();
     rt.spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -173,4 +174,77 @@ fn provenance_of_saved_samples_is_posted_once_and_never_guessed() {
     assert!(rows[0]["lab_profile"].is_null());
     let st = a.status()["provenance"].clone();
     assert_eq!((st["posted"].as_u64(), st["ambiguous"].as_u64(), st["failed"].as_u64()), (Some(1), Some(1), Some(0)), "{}", st);
+}
+
+/// Draft by `author`, submitted, approved by the Lab Director.
+fn approved(author: &Remote, director: &Remote, kind: &str, name: &str, content: Value) {
+    let path = format!("/api/v1/standards/{}/{}", kind, opentrace_desktop_lib::workspace::enc(name));
+    let v = author.post_json(None, &path, &[], &json!({"content": content})).unwrap();
+    let ver = v["version"].as_i64().unwrap();
+    author.post_json(None, &format!("{}/{}/submit", path, ver), &[], &json!({})).unwrap();
+    let a = director.post_json(None, &format!("{}/{}/approve", path, ver), &[], &json!({})).unwrap();
+    assert_eq!(a["status"], "approved", "{}", a);
+}
+
+/// What the web UI sends for a settings object (`analyzeSettings`: strings, objects as JSON).
+fn ui_query(settings: &serde_json::Map<String, Value>) -> String {
+    let enc = |s: &str| opentrace_desktop_lib::workspace::enc(s);
+    let mut q: Vec<String> = settings
+        .iter()
+        .map(|(k, v)| format!("{}={}", enc(k), enc(&match v { Value::String(s) => s.clone(), other => other.to_string() })))
+        .collect();
+    q.push("filename=x.fsa".into());
+    q.join("&")
+}
+
+#[test]
+fn analyses_are_attributed_to_the_lab_profile_only_with_its_exact_settings() {
+    let s = server();
+    let (ra, a) = client(&s, "Casework Analyst");
+    let director = Remote::new(false);
+    director.login(&s.url, None, "Lab Director", "ws-secret-1").unwrap();
+    let shipped: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../resources/data/shipped_methods.json")).unwrap()).unwrap();
+    let method = shipped["methods"][0].clone();
+    approved(&ra, &director, "analysis_method", method["name"].as_str().unwrap(), method.clone());
+    approved(&ra, &director, "size_standard", "CE_G5_HID_GS500", json!({"name": "CE_G5_HID_GS500", "dye": "orange", "sizes": [75, 100, 139, 150, 160, 200, 300, 340, 350, 400, 450], "description": ""}));
+    approved(&ra, &director, "kit", "Kit A", json!({"name": "Kit A", "markers": []}));
+    approved(&ra, &director, "bin_set", "Kit A · Bins", json!({"kit": "Kit A", "name": "Bins"}));
+    let members = json!([
+        {"kind": "analysis_method", "name": method["name"], "version": 1}, {"kind": "size_standard", "name": "CE_G5_HID_GS500", "version": 1},
+        {"kind": "kit", "name": "Kit A", "version": 1}, {"kind": "bin_set", "name": "Kit A · Bins", "version": 1}]);
+    approved(&ra, &director, "lab_profile", "Lab GF", json!({"members": members}));
+
+    let dir = tempfile::tempdir().unwrap();
+    let core = opentrace_core::server::App::new(&opentrace_core::server::Config {
+        projects_dir: Some(dir.path().join("p")), security_dir: Some(dir.path().join("s")), ..Default::default()
+    })
+    .unwrap();
+    // A draft or a missing version cannot be activated.
+    assert!(opentrace_desktop_lib::labprofile::resolve(&ra, None, &core, "Lab GF", 2).is_err());
+    let active = opentrace_desktop_lib::labprofile::resolve(&ra, None, &core, "Lab GF", 1).unwrap();
+    assert_eq!((active.method.as_str(), active.size_standard.as_str()), (method["name"].as_str().unwrap(), "CE_G5_HID_GS500"));
+    assert!(active.expected.contains_key("standard_bp"), "{:?}", active.expected.keys().collect::<Vec<_>>());
+    *a.profile.lock().unwrap() = Ok(Some(active.clone()));
+
+    let f1 = opentrace_core::demo::synthetic_run_fsa(1);
+    let f2 = opentrace_core::demo::synthetic_run_fsa(2);
+    a.ledger.record(Some(&ui_query(&active.expected)), &f1, b"res1");
+    let mut changed = active.expected.clone();
+    changed.insert("threshold".into(), json!(9999)); // manual change: not the profile any more
+    a.ledger.record(Some(&ui_query(&changed)), &f2, b"res2");
+    a.handle(&meta("v1", true)).unwrap();
+    for (id, f) in [("1", &f1), ("2", &f2)] {
+        a.handle(&json!({"action": "save_sample", "name": "Case 1", "id": id, "fsa_b64": opentrace_core::matrix::b64encode(f),
+                         "data": {"analysis": {"source_sha256": opentrace_desktop_lib::provenance::sha256_hex(f)}}}))
+            .unwrap();
+    }
+    let rows = ra.get_json(None, "/api/v1/projects/Case%201/analyses").unwrap()["analyses"].as_array().unwrap().clone();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["lab_profile"], "Lab GF");
+    assert_eq!(rows[0]["lab_profile_version"], 1);
+    assert_eq!(rows[0]["lab_profile_sha256"], active.content_sha256.as_str());
+    assert!(rows[1]["lab_profile"].is_null(), "{}", rows[1]);
+    let st = a.status()["provenance"].clone();
+    assert_eq!(st["profile_mismatch"], 1);
+    assert!(st["last_mismatch"].as_str().unwrap().contains("threshold"), "{}", st);
 }

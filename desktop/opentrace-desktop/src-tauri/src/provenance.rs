@@ -7,8 +7,9 @@
 //! `POST /api/v1/projects/{name}/analyses` under the project lease. The server hashes the settings canonically.
 //!
 //! Honesty rules: a record is only posted when it is unambiguous — if the same FSA was analysed with different
-//! settings in this session, nothing is guessed and the sample is counted as `ambiguous`. A laboratory profile is
-//! never attached here; that needs verification that the settings came from the approved profile (not done yet).
+//! settings in this session, nothing is guessed and the sample is counted as `ambiguous`. The active laboratory profile
+//! is attached only when the sent settings are exactly the ones its approved method and size standard produce
+//! (`labprofile.rs`); otherwise the record goes without a profile and the mismatch is counted with its reason.
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -34,6 +35,8 @@ struct Inner {
     ambiguous: u64,
     failed: u64,
     last_error: Option<String>,
+    profile_mismatch: u64,
+    last_mismatch: Option<String>,
 }
 
 #[derive(Default)]
@@ -124,9 +127,16 @@ impl Ledger {
         }
     }
 
+    pub fn note_profile_mismatch(&self, why: &str) {
+        let mut g = self.lock();
+        g.profile_mismatch += 1;
+        g.last_mismatch = Some(why.to_string());
+    }
+
     pub fn status(&self) -> Value {
         let g = self.lock();
-        json!({"recorded": g.recorded, "posted": g.posted_count, "ambiguous": g.ambiguous, "failed": g.failed, "last_error": g.last_error})
+        json!({"recorded": g.recorded, "posted": g.posted_count, "ambiguous": g.ambiguous, "failed": g.failed, "last_error": g.last_error,
+               "profile_mismatch": g.profile_mismatch, "last_mismatch": g.last_mismatch})
     }
 }
 

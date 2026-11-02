@@ -33,6 +33,71 @@
     } catch (e) { $('who').innerHTML = '<span class="err">' + esc(e.message) + ' — войдите на сервер в окне «Сервер организации».</span>'; return; }
     all = (await v1('GET', '/standards')).standards || [];
     drawList();
+    showActive();
+  }
+
+  // ---------------------------------------------------------------- active lab profile + local copies
+  async function desk(method, path, body) {
+    var r = await fetch('/desktop/api/' + path, body === undefined ? { method: method } : { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var j = {};
+    try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  async function showActive() {
+    var box = $('active');
+    try {
+      var st = await desk('GET', 'lab-profile');
+      var a = st.active;
+      if (!a) { box.innerHTML = 'Активный лабораторный профиль: <b>не выбран</b> — анализы записываются на сервер без ссылки на профиль.'; return; }
+      if (a.verified === false) { box.innerHTML = '<span class="err">Профиль ' + esc((st.configured || []).join(' v')) + ' не используется: ' + esc(a.error) + '</span>'; return; }
+      box.innerHTML = 'Активный лабораторный профиль: <b>' + esc(a.name) + ' v' + a.version + '</b> (метод «' + esc(a.method) + '», стандарт длин «' + esc(a.size_standard) + '», SHA-256 <code>' + esc(String(a.content_sha256).slice(0, 12)) + '</code>). ' +
+        'Анализ получает ссылку на профиль, только если отправленные настройки в точности совпадают с настройками профиля. <button class="btn" id="clearProfile">Отключить</button>';
+      $('clearProfile').addEventListener('click', async function () { await desk('POST', 'lab-profile', {}); showActive(); });
+    } catch (e) { box.innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  }
+  var LOCAL = {
+    analysis_method: { key: 'opentrace.methods.v1', list: 'methods', field: 'method', empty: { schema: 1, methods: [] }, label: 'метод анализа' },
+    size_standard: { key: 'opentrace.sizestd.v1', list: 'standards', field: 'standard', empty: null, label: 'стандарт длин' }
+  };
+  // Writes an approved version into this computer's library (same storage the analysis UI reads). A different local
+  // item with the same name is replaced only after confirmation.
+  function putLocal(kind, content) {
+    var L = LOCAL[kind];
+    var db = ls(L.key);
+    if (!db || !Array.isArray(db[L.list])) {
+      if (!L.empty) throw new Error('Откройте один раз главное окно (библиотека стандартов длин ещё не создана)');
+      db = JSON.parse(JSON.stringify(L.empty));
+    }
+    var i = db[L.list].findIndex(function (r) { return r && r[L.field] && r[L.field].name === content.name; });
+    var canon = function (x) {
+      if (Array.isArray(x)) return '[' + x.map(canon).join(',') + ']';
+      if (x && typeof x === 'object') return '{' + Object.keys(x).sort().map(function (k) { return JSON.stringify(k) + ':' + canon(x[k]); }).join(',') + '}';
+      return JSON.stringify(x);
+    };
+    if (i >= 0 && canon(db[L.list][i][L.field]) !== canon(content)) {
+      if (!window.confirm('На этом компьютере уже есть ' + L.label + ' «' + content.name + '», и он отличается от утверждённой версии. Заменить локальный утверждённым?')) return false;
+    }
+    var row = {}; row[L.field] = content; row.saved = new Date().toISOString();
+    if (i >= 0) db[L.list][i] = row; else db[L.list].push(row);
+    localStorage.setItem(L.key, JSON.stringify(db));
+    return true;
+  }
+  async function useProfile(v) {
+    var out = $('actOut');
+    try {
+      var members = (v.content && v.content.members) || [];
+      for (var k of ['analysis_method', 'size_standard']) {
+        var m = members.find(function (x) { return x.kind === k; });
+        if (!m) throw new Error('в профиле нет ' + LOCAL[k].label);
+        var mv = await v1('GET', '/standards/' + enc(m.kind) + '/' + enc(m.name) + '/' + m.version);
+        if (mv.content_sha256 !== m.content_sha256) throw new Error(m.name + ': SHA-256 не совпадает с закреплённым в профиле');
+        if (!putLocal(k, mv.content)) { out.innerHTML = '<span class="note">Отменено.</span>'; return; }
+      }
+      var r = await desk('POST', 'lab-profile', { name: v.name, version: v.version });
+      out.innerHTML = '<span class="ok">Профиль «' + esc(v.name) + '» v' + v.version + ' активен. Метод «' + esc(r.active.method) + '» и стандарт длин «' + esc(r.active.size_standard) + '» загружены в этот компьютер — выбирайте их в диалоге «Добавить образцы».</span>';
+      showActive();
+    } catch (e) { out.innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
   }
 
   function latestOnly(rows) {
@@ -69,6 +134,8 @@
       if (v.status === 'pending_review') acts.push(['approve', 'Утвердить'], ['reject', 'Отклонить…']);
       if (v.status === 'approved') acts.push(['deprecate', 'Вывести из употребления']);
       if (v.status === 'deprecated') acts.push(['archive', 'В архив']);
+      if (v.status === 'approved' && v.kind === 'lab_profile') acts.push(['use', 'Использовать на этом компьютере']);
+      if (v.status === 'approved' && LOCAL[v.kind]) acts.push(['local', 'Загрузить в этот компьютер']);
       d.innerHTML = '<h3 style="font-size:13px;margin:10px 0 4px">' + esc(KINDS[v.kind] || v.kind) + ' «' + esc(v.name) + '», версия ' + v.version + ' — ' + esc(STATUS[v.status]) + '</h3>' +
         '<div class="note">SHA-256: <code>' + esc(v.content_sha256) + '</code><br>Автор: ' + esc(v.created_by) + (v.submitted_by ? ' · отправил: ' + esc(v.submitted_by) : '') + (v.approved_by ? ' · утвердил: ' + esc(v.approved_by) + ' ' + new Date(v.approved_ms).toLocaleString() : '') + (v.note ? '<br>Примечание: ' + esc(v.note) : '') + '</div>' +
         '<div class="row" id="acts"></div><div id="actOut"></div><pre>' + esc(JSON.stringify(v.content, null, 1).slice(0, 20000)) + '</pre>';
@@ -77,6 +144,12 @@
         b.className = 'btn';
         b.textContent = a[1];
         b.addEventListener('click', async function () {
+          if (a[0] === 'use') return useProfile(v);
+          if (a[0] === 'local') {
+            try { $('actOut').innerHTML = putLocal(v.kind, v.content) ? '<span class="ok">Загружено: ' + esc(v.name) + ' v' + v.version + '</span>' : '<span class="note">Отменено.</span>'; }
+            catch (e) { $('actOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+            return;
+          }
           var body = {};
           if (a[0] === 'reject') { var reason = window.prompt('Причина отклонения'); if (!reason) return; body.reason = reason; }
           try {

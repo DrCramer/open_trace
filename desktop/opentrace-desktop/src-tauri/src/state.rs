@@ -47,6 +47,17 @@ impl DesktopState {
         self.close_ok.lock().unwrap_or_else(|e| e.into_inner()).insert(label.to_string());
     }
 
+    /// Verifies the configured laboratory profile against the server (see `labprofile.rs`) and makes it active.
+    pub fn reload_lab_profile(&self) -> serde_json::Value {
+        let cfg = self.config();
+        let r = match &cfg.lab_profile {
+            None => Ok(None),
+            Some((name, version)) => crate::labprofile::resolve(&self.remote, cfg.ca_cert_pem.as_deref(), &self.core, name, *version).map(Some),
+        };
+        *self.workspace.profile.lock().unwrap_or_else(|e| e.into_inner()) = r;
+        self.workspace.profile_status()
+    }
+
     pub fn take_close_permission(&self, label: &str) -> bool {
         self.close_ok.lock().unwrap_or_else(|e| e.into_inner()).remove(label)
     }

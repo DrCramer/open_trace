@@ -54,6 +54,14 @@ pub fn process_tree_rss_mib() -> Option<u64> {
     None
 }
 
+/// `OPENTRACE_SELFTEST_PROFILE=<name>:<version>` (with a server and a batch): activate this approved lab profile, save
+/// the batch as a server project and require provenance attributed to the profile for every sample.
+pub fn profile() -> Option<(String, i64)> {
+    let v = std::env::var("OPENTRACE_SELFTEST_PROFILE").ok()?;
+    let (n, ver) = v.rsplit_once(':')?;
+    Some((n.to_string(), ver.parse().ok()?))
+}
+
 pub struct SelfTest {
     pub out: PathBuf,
     started: std::time::Instant,
@@ -97,7 +105,11 @@ impl SelfTest {
             && (batch_size().is_none()
                 || (main["batch"]["analyzed"].as_u64() == batch_size()
                     && main["batch"]["sizing_accepted"].as_u64() == batch_size()
-                    && main["batch"]["plot_ready"] == true));
+                    && main["batch"]["plot_ready"] == true
+                    && (profile().is_none()
+                        || (main["batch"]["provenance"]["posted"].as_u64() == batch_size()
+                            && main["batch"]["provenance"]["profile_mismatch"] == 0
+                            && main["batch"]["lab_profile"]["verified"] == true))));
         let report = json!({
             "pass": pass,
             "platform": std::env::consts::OS,

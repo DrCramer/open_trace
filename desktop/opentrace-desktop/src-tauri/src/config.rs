@@ -17,11 +17,13 @@ pub struct DesktopConfig {
     pub sync_fsa: bool,
     /// Where the project library lives: "local" (this computer) or "server" (organisation server, with locks).
     pub project_source: String,
+    /// Approved laboratory profile (name, version) that analyses are checked against for provenance.
+    pub lab_profile: Option<(String, i64)>,
 }
 
 impl Default for DesktopConfig {
     fn default() -> Self {
-        DesktopConfig { server_url: None, allow_insecure_http: false, username: None, ca_cert_pem: None, fsa_cache_max_mib: 4096, sync_fsa: true, project_source: "local".into() }
+        DesktopConfig { server_url: None, allow_insecure_http: false, username: None, ca_cert_pem: None, fsa_cache_max_mib: 4096, sync_fsa: true, project_source: "local".into(), lab_profile: None }
     }
 }
 

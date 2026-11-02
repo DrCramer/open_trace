@@ -38,6 +38,8 @@ pub struct Workspace {
     write: Mutex<()>,
     /// Analyses run in this session, posted as provenance when their sample is saved to a server project.
     pub ledger: crate::provenance::Ledger,
+    /// Active laboratory profile (verified on activation) or why it could not be used.
+    pub profile: Mutex<Result<Option<crate::labprofile::Active>, String>>,
 }
 
 #[derive(Debug)]
@@ -76,7 +78,7 @@ fn code(e: &RemoteError) -> Option<String> {
 
 impl Workspace {
     pub fn new(remote: Arc<Remote>, ca: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>) -> Workspace {
-        Workspace { remote, ca, held: Mutex::new(HashMap::new()), current: Mutex::new(None), write: Mutex::new(()), ledger: Default::default() }
+        Workspace { remote, ca, held: Mutex::new(HashMap::new()), current: Mutex::new(None), write: Mutex::new(()), ledger: Default::default(), profile: Mutex::new(Ok(None)) }
     }
 
     fn ca(&self) -> Option<PathBuf> {
@@ -101,6 +103,7 @@ impl Workspace {
             "revision": h.as_ref().map(|h| h.revision),
             "lease_expires_ms": h.as_ref().map(|h| h.expires_ms),
             "provenance": self.ledger.status(),
+            "lab_profile": self.profile_status(),
         })
     }
 
@@ -301,14 +304,29 @@ impl Workspace {
         if !self.ledger.mark_posted(name, id, &rec.result_sha256) {
             return;
         }
-        let body = json!({"sample_id": id, "fsa_sha256": rec.fsa_sha256, "analysis_version": rec.analysis_version,
-                          "settings": rec.settings, "result_sha256": rec.result_sha256});
+        let mut body = json!({"sample_id": id, "fsa_sha256": rec.fsa_sha256, "analysis_version": rec.analysis_version,
+                              "settings": rec.settings, "result_sha256": rec.result_sha256});
+        if let Ok(Some(p)) = &*self.profile.lock().unwrap_or_else(|e| e.into_inner()) {
+            match crate::labprofile::check(p, &rec.settings) {
+                Ok(()) => body["lab_profile"] = json!({"name": p.name, "version": p.version}),
+                Err(why) => self.ledger.note_profile_mismatch(&format!("образец {}: {}", id, why)),
+            }
+        }
         match self.guarded(name, &format!("/api/v1/projects/{}/analyses", enc(name)), &body) {
             Ok(_) => self.ledger.note(Ok(()), false),
             Err(e) => {
                 self.ledger.unmark_posted(name, id, &rec.result_sha256);
                 self.ledger.note(Err(e.body["error"].as_str().map(String::from).unwrap_or_else(|| e.body.to_string())), false);
             }
+        }
+    }
+
+    pub fn profile_status(&self) -> Value {
+        match &*self.profile.lock().unwrap_or_else(|e| e.into_inner()) {
+            Ok(Some(p)) => json!({"name": p.name, "version": p.version, "content_sha256": p.content_sha256, "method": p.method,
+                                  "size_standard": p.size_standard, "verified": true}),
+            Ok(None) => Value::Null,
+            Err(e) => json!({"verified": false, "error": e}),
         }
     }
 

@@ -42,6 +42,10 @@
     // No panel in a fresh profile: continue past the Analysis Requirements Summary instead of asking (not saved).
     if (window.ProjectOptions) ProjectOptions.get().ars = 'continue';
     OT.state.selected.clear();
+    if (window.__OT_SELFTEST_PROFILE__) {
+      var lp = await fetch('/desktop/api/lab-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.__OT_SELFTEST_PROFILE__) });
+      b.lab_profile_status = lp.status;
+    }
     b.heap_before_mib = heap();
     b.rss_before_mib = await rss();
     t0 = performance.now();
@@ -90,6 +94,17 @@
     } catch (e) { b.plot_canvases = String(e); }
     b.heap_plot_mib = heap();
     b.rss_plot_mib = await rss();
+    if (window.__OT_SELFTEST_SERVER__ && window.__OT_SELFTEST_PROFILE__) {
+      // Save the batch as a server project: provenance for every sample, attributed to the active profile.
+      await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'server' }) });
+      t0 = performance.now();
+      b.saved = await OT.writeProject('Selftest batch ' + Date.now(), { create: true });
+      b.save_ms = Math.round(performance.now() - t0);
+      var ws = await (await fetch('/desktop/api/workspace/status')).json();
+      b.provenance = ws.provenance;
+      b.lab_profile = ws.lab_profile;
+      await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
+    }
     return b;
   };
 
