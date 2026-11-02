@@ -76,6 +76,16 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
     if let Some(rest) = path.strip_prefix("/desktop/") {
         return desktop(app, st, label, rest, &req);
     }
+    if path == "/api/idx-project" && req.method() == tauri::http::Method::POST && st.server_projects() {
+        let body: Value = match serde_json::from_slice(req.body()) {
+            Ok(v) => v,
+            Err(e) => return json_response(400, &json!({"error": e.to_string()})),
+        };
+        return match st.workspace.handle(&body) {
+            Ok(v) => json_response(200, &v),
+            Err(e) => json_response(e.status, &e.body),
+        };
+    }
     let limit = if path == "/api/analyze" || path == "/api/sample-info" { opentrace_core::abif::MAX_FILE_BYTES } else { opentrace_core::server::MAX_JSON_BYTES };
     if req.body().len() > limit {
         return json_response(413, &json!({"error": format!("Request too large: {} bytes (limit {} MiB)", req.body().len(), limit / (1024 * 1024))}));
@@ -144,6 +154,7 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
                 "platform": std::env::consts::OS,
                 "workers": st.pool.size,
                 "data_dir": st.data_dir.display().to_string(),
+                "project_source": cfg.project_source,
                 "server": {"url": cfg.server_url, "allow_insecure_http": cfg.allow_insecure_http, "username": cfg.username,
                            "ca_cert_pem": cfg.ca_cert_pem, "sync_fsa": cfg.sync_fsa,
                            "logged_in": s.is_some(), "user": s.as_ref().map(|s| s.user.clone()), "roles": s.as_ref().map(|s| s.roles.clone())},
@@ -203,6 +214,7 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             }
         }
         ("api/server/logout", true) => {
+            st.workspace.release_all();
             st.remote.logout(st.config().ca_cert_pem.as_deref());
             st.sync.pause(Some("Нет входа на сервер".into()));
             json_response(200, &json!({"ok": true}))
@@ -230,6 +242,27 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             s["server"] = json!(st.config().server_url);
             s["logged_in"] = json!(st.remote.session().is_some());
             json_response(200, &s)
+        }
+        ("api/workspace/status", false) => {
+            let mut v = st.workspace.status();
+            v["source"] = json!(st.config().project_source);
+            v["logged_in"] = json!(st.remote.session().is_some());
+            v["server"] = json!(st.config().server_url);
+            json_response(200, &v)
+        }
+        ("api/workspace/source", true) => {
+            let src = body_json(req)["source"].as_str().unwrap_or("").to_string();
+            if src != "local" && src != "server" {
+                return json_response(400, &json!({"error": "source: local или server"}));
+            }
+            if src == "server" && st.remote.session().is_none() {
+                return json_response(409, &json!({"error": "Сначала войдите на сервер"}));
+            }
+            if src == "local" {
+                st.workspace.release_all();
+            }
+            st.update_config(|c| c.project_source = src.clone());
+            json_response(200, &json!({"ok": true, "source": src}))
         }
         ("api/sync/retry", true) => {
             st.sync.resume();

@@ -1,13 +1,14 @@
 //! OpenTrace Desktop (Tauri 2): the existing OpenTrace web UI in native windows, analysis in-process through
 //! `opentrace-core`, optional organisation features through OpenTrace Server API v1.
 mod bridge;
-mod config;
+pub mod config;
 mod pool;
-mod remote;
+pub mod remote;
 mod selftest;
 mod state;
-mod sync;
+pub mod sync;
 mod windows;
+pub mod workspace;
 
 use state::DesktopState;
 use std::path::PathBuf;
@@ -48,6 +49,14 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
     let sync = sync::SyncQueue::open(data.join("fsa-cache"), cfg.fsa_cache_max_mib.saturating_mul(1024 * 1024));
     *sync.enabled.lock().unwrap_or_else(|e| e.into_inner()) = cfg.sync_fsa;
     sync.pause(Some("Нет входа на сервер".into()));
+    let ca_cfg = cfg.ca_cert_pem.clone();
+    let cfg_path_ws = cfg_path.clone();
+    let workspace = Arc::new(workspace::Workspace::new(
+        remote.clone(),
+        // Current CA setting from disk-backed config (read lazily: it can change in the connection page).
+        Arc::new(move || config::DesktopConfig::load(&cfg_path_ws).ca_cert_pem.or_else(|| ca_cfg.clone())),
+    ));
+    workspace.start_heartbeat(Duration::from_secs(25));
     let st = Arc::new(DesktopState {
         core,
         pool: pool::Pool::new(pool::default_size(), "analysis"),
@@ -56,6 +65,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
         data_dir: data,
         remote: remote.clone(),
         sync: sync.clone(),
+        workspace,
         selftest: selftest.clone(),
         close_ok: Mutex::new(Default::default()),
         close_asked: Mutex::new(Default::default()),
@@ -160,6 +170,14 @@ pub fn run() {
         })
         .setup(move |app| setup(app, st_setup.clone()))
         .on_window_event(on_window_event)
-        .run(tauri::generate_context!())
-        .expect("OpenTrace Desktop failed to start");
+        .build(tauri::generate_context!())
+        .expect("OpenTrace Desktop failed to start")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Free server project locks right away instead of letting them expire.
+                if let Some(st) = app.try_state::<Arc<DesktopState>>() {
+                    st.workspace.release_all();
+                }
+            }
+        });
 }

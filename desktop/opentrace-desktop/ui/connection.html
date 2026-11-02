@@ -45,6 +45,12 @@
 <div class="row" id="logoutBox" hidden><label></label><button class="btn" id="logout">Выйти</button></div>
 <div id="authOut"></div>
 
+<h2>Где хранятся проекты</h2>
+<div class="row"><label><input type="radio" name="src" id="srcLocal" value="local"> На этом компьютере</label>
+<label><input type="radio" name="src" id="srcServer" value="server"> На сервере организации (с блокировкой: один редактор)</label></div>
+<div class="note">В режиме сервера команды «Открыть / Сохранить проект» работают с проектами сервера. Если проект редактирует другой пользователь, он открывается только для чтения.</div>
+<div id="srcOut"></div>
+
 <h2>Синхронизация FSA</h2>
 <div id="sync" class="note"></div>
 <div class="row"><button class="btn" id="retry">Повторить неудачные</button></div>

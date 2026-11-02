@@ -27,6 +27,14 @@ native-tls = "0.2"
 keyring = { version = "3", features = ["windows-native", "linux-native"] }
 sha2 = "0.10"
 url = "2"
+percent-encoding = "2"
+
+[dev-dependencies]
+# Integration tests run the real OpenTrace Server in-process.
+opentrace-server = { path = "../../../server/opentrace-server" }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

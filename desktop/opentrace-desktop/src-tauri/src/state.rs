@@ -20,6 +20,8 @@ pub struct DesktopState {
     /// RemoteOrganizationService.
     pub remote: Arc<Remote>,
     pub sync: Arc<SyncQueue>,
+    /// ProjectWorkspace for server projects.
+    pub workspace: Arc<crate::workspace::Workspace>,
     pub selftest: Option<Arc<SelfTest>>,
     pub close_ok: Mutex<HashSet<String>>,
     pub close_asked: Mutex<std::collections::HashMap<String, std::time::Instant>>,
@@ -35,6 +37,10 @@ impl DesktopState {
         let mut g = self.cfg.lock().unwrap_or_else(|e| e.into_inner());
         f(&mut g);
         let _ = g.save(&self.cfg_path);
+    }
+
+    pub fn server_projects(&self) -> bool {
+        self.config().project_source == "server"
     }
 
     pub fn allow_close(&self, label: &str) {

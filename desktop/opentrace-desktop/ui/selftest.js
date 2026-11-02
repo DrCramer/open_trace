@@ -58,6 +58,18 @@
             await sleep(250);
           }
           c.sync_ms = Date.now() - t1;
+          // Server projects through the UI's own save/open code: lease, guarded writes, read back.
+          await sleep(5000); // let the plot window finish its checks on the example project first
+          var src = await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'server' }) });
+          c.ws_source_status = src.status;
+          var pname = 'Selftest ' + Date.now();
+          c.ws_saved = await window.OT.writeProject(pname, { create: true });
+          c.ws_after_save = await (await fetch('/desktop/api/workspace/status')).json();
+          window.OT.state.project.samples = [];
+          await window.OT.loadProject(pname);
+          c.ws_loaded_samples = window.OT.state.project.samples.length;
+          c.ws_after_open = await (await fetch('/desktop/api/workspace/status')).json();
+          await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
         } else {
           c.sync = await (await fetch('/desktop/api/sync/status')).json();
         }

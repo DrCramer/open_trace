@@ -30,6 +30,9 @@
     $('loginBox').hidden = !!i.server.logged_in;
     $('logoutBox').hidden = !i.server.logged_in;
     document.title = 'OpenTrace ' + i.app_version + ' — сервер организации';
+    $('srcLocal').checked = i.project_source !== 'server';
+    $('srcServer').checked = i.project_source === 'server';
+    $('srcServer').disabled = !i.server.logged_in && i.project_source !== 'server';
     warn();
     if (i.server.logged_in) { lists(); }
   }
@@ -81,6 +84,15 @@
   });
   $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('login').click(); });
   $('logout').addEventListener('click', async function () { await api('server/logout', {}); await load(); });
+  ['srcLocal', 'srcServer'].forEach(function (id) {
+    $(id).addEventListener('change', async function () {
+      $('srcOut').textContent = '';
+      try {
+        await api('workspace/source', { source: $(id).value });
+        $('srcOut').innerHTML = '<span class="ok">' + ($(id).value === 'server' ? 'Проекты: сервер. Откройте проект заново (Файл → Открыть проект).' : 'Проекты: этот компьютер.') + '</span>';
+      } catch (e) { $('srcOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; await load(); }
+    });
+  });
   $('retry').addEventListener('click', async function () { await api('sync/retry', {}); syncTick(); });
 
   async function syncTick() {

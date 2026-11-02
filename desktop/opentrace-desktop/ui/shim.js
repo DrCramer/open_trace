@@ -108,6 +108,35 @@
     }
     tick();
     setInterval(tick, 3000);
+
+    // Project source / lock state: separate cell + a banner while the server project is read-only.
+    var ws = document.createElement('div');
+    ws.className = 'cell';
+    ws.id = 'otWs';
+    ws.style.cssText = 'white-space:nowrap;min-width:150px';
+    bar.insertBefore(ws, cell);
+    var banner = null;
+    function wsTick() {
+      origFetch('/desktop/api/workspace/status').then(function (r) { return r.json(); }).then(function (w) {
+        if (w.source !== 'server') { ws.textContent = 'Проекты: локально'; ws.title = 'Проекты хранятся на этом компьютере'; }
+        else if (!w.project) { ws.textContent = 'Проекты: сервер'; ws.title = w.server || ''; }
+        else if (w.editing) { ws.textContent = 'Сервер: редактирование ✎'; ws.title = 'Проект «' + w.project + '», ревизия ' + w.revision + '. Блокировка продлевается автоматически.'; }
+        else { ws.textContent = 'Сервер: только чтение'; ws.title = w.readonly || ''; }
+        var ro = w.source === 'server' && w.project && !w.editing ? (w.readonly || 'только чтение') : null;
+        if (ro && !banner) {
+          banner = document.createElement('div');
+          banner.id = 'otReadOnly';
+          banner.style.cssText = 'background:#fff3cd;border-bottom:1px solid #e0b000;padding:3px 8px;font-size:12px';
+          document.body.insertBefore(banner, document.body.firstChild.nextSibling);
+        }
+        if (banner) {
+          if (ro) banner.textContent = 'Проект «' + w.project + '» открыт только для чтения: ' + ro + '. Сохранение на сервер недоступно.';
+          else { banner.remove(); banner = null; }
+        }
+      }).catch(function () {});
+    }
+    wsTick();
+    setInterval(wsTick, 3000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', syncCell);
   else syncCell();
