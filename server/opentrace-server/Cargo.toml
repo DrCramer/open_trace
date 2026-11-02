@@ -33,6 +33,10 @@ sha2 = "0.10"
 getrandom = "0.2"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 
+[target.'cfg(windows)'.dependencies]
+# Native Windows service (Service Control Manager): `service-install`, `service-run`, `service-uninstall`.
+windows-service = "0.8"
+
 [dev-dependencies]
 tempfile = "3"
 

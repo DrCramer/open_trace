@@ -9,6 +9,7 @@
 //! pure-Rust `libm` crate (musl port; differs from the reference in 6 golden corpora — experimental).
 
 #[cfg(not(feature = "portable-math"))]
+#[allow(dead_code)] // exp/log/pow are only used with `system-libm`
 mod sys {
     extern "C" {
         #[link_name = "exp"]

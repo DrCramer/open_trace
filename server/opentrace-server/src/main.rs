@@ -17,6 +17,9 @@ Commands:
   verify-backup DIR          check a backup against its manifest
   restore DIR                restore a backup into an empty data directory
   version                    print versions
+  service-install [--name N] Windows: register the native service (elevated; needs --config)
+  service-uninstall [--name N]  Windows: stop and remove the service (data directory untouched)
+  service-run [--name N]     Windows: entry point used by the Service Control Manager
 
 Configuration: --config FILE (TOML), then OPENTRACE_SERVER_* environment variables (see docs/desktop/DEPLOY_*.md).";
 
@@ -42,6 +45,8 @@ fn take_opt(args: &mut Vec<String>, name: &str) -> Option<String> {
 fn run(mut args: Vec<String>) -> Result<(), String> {
     let config = take_opt(&mut args, "--config").map(PathBuf::from);
     let out = take_opt(&mut args, "--out").map(PathBuf::from);
+    #[allow(unused_variables)]
+    let service_name = take_opt(&mut args, "--name").unwrap_or_else(|| "OpenTraceServer".to_string());
     let cmd = if args.is_empty() { "help".to_string() } else { args.remove(0) };
     let load = || ServerConfig::load(config.as_deref());
     match cmd.as_str() {
@@ -130,6 +135,19 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             let _lock = opentrace_server::take_instance_lock(&cfg).map_err(|e| format!("{} — stop the server first", e))?;
             println!("restored {} files into {}", backup::restore(&dir, &cfg)?, cfg.data_dir.display());
             Ok(())
+        }
+        #[cfg(windows)]
+        "service-run" => opentrace_server::winsvc::run(&service_name, config),
+        #[cfg(windows)]
+        "service-install" => {
+            let config = config.ok_or("service-install needs --config FILE (the service has no environment of its own)")?;
+            opentrace_server::winsvc::install(&service_name, &config)
+        }
+        #[cfg(windows)]
+        "service-uninstall" => opentrace_server::winsvc::uninstall(&service_name),
+        #[cfg(not(windows))]
+        "service-run" | "service-install" | "service-uninstall" => {
+            Err("Windows services exist only on Windows; on Linux use packaging/systemd/opentrace-server.service".into())
         }
         "version" | "--version" => {
             println!(

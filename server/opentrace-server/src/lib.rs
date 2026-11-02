@@ -11,6 +11,8 @@ pub mod leases;
 pub mod legacy;
 pub mod standards;
 pub mod state;
+#[cfg(windows)]
+pub mod winsvc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
@@ -110,12 +112,34 @@ async fn access_log(req: axum::extract::Request, next: axum::middleware::Next) -
     resp
 }
 
+static LOG_FILE: std::sync::Mutex<Option<std::fs::File>> = std::sync::Mutex::new(None);
+
+/// Also append log lines to `path` (the Windows service has no console). Never logs passwords, tokens or genetic data:
+/// callers pass operational messages only.
+pub fn set_log_file(path: &std::path::Path) -> Result<(), String> {
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {}", d.display(), e))?;
+    }
+    let f = std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("{}: {}", path.display(), e))?;
+    *LOG_FILE.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
+    Ok(())
+}
+
 pub fn log(msg: &str) {
     let t = opentrace_core::localtime::now().iso();
     eprintln!("{} {}", t, msg);
+    if let Some(f) = LOG_FILE.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        use std::io::Write;
+        let _ = writeln!(f, "{} {}", t, msg);
+    }
 }
 
 pub async fn serve(cfg: ServerConfig) -> Result<(), String> {
+    serve_until(cfg, shutdown_signal()).await
+}
+
+/// Runs until `shutdown` completes (console: Ctrl+C/SIGTERM; Windows service: SCM stop), then finishes open requests.
+pub async fn serve_until(cfg: ServerConfig, shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> Result<(), String> {
     let addr = cfg.listen_addr()?;
     let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| format!("bind {}: {}", addr, e))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -131,7 +155,7 @@ pub async fn serve(cfg: ServerConfig) -> Result<(), String> {
         if st.cfg.legacy_web { "/idx/" } else { "off" }
     ));
     let app = router(st).into_make_service_with_connect_info::<std::net::SocketAddr>();
-    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await.map_err(|e| e.to_string())?;
+    axum::serve(listener, app).with_graceful_shutdown(shutdown).await.map_err(|e| e.to_string())?;
     log("stopped");
     Ok(())
 }
