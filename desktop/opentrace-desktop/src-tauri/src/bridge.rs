@@ -14,6 +14,35 @@ use tauri::{AppHandle, Manager};
 pub const SHIM_JS: &str = include_str!("../../ui/shim.js");
 const CONNECTION_HTML: &str = include_str!("../../ui/connection.html");
 const CONNECTION_JS: &str = include_str!("../../ui/connection.js");
+const STANDARDS_HTML: &str = include_str!("../../ui/standards.html");
+const STANDARDS_JS: &str = include_str!("../../ui/standards.js");
+
+/// Canonical JSON (object keys sorted recursively, compact) — must equal OpenTrace Server's `standards::canonical`,
+/// whose SHA-256 identifies a standard version (checked against the server crate in tests/workspace_server.rs).
+pub fn canonical(v: &Value) -> String {
+    fn sort(v: &Value) -> Value {
+        match v {
+            Value::Object(m) => {
+                let mut keys: Vec<&String> = m.keys().collect();
+                keys.sort();
+                let mut out = serde_json::Map::new();
+                for k in keys {
+                    out.insert(k.clone(), sort(&m[k]));
+                }
+                Value::Object(out)
+            }
+            Value::Array(a) => Value::Array(a.iter().map(sort).collect()),
+            other => other.clone(),
+        }
+    }
+    serde_json::to_string(&sort(v)).unwrap_or_default()
+}
+
+/// API v1 paths the desktop pages may call through Rust (the token never reaches JavaScript).
+fn proxy_allowed(path: &str, method: &str) -> bool {
+    let p = path.trim_start_matches('/');
+    (p == "me" && method == "GET") || p == "standards" || p.starts_with("standards/") || p == "lab-profiles"
+}
 
 /// CSP for HTML pages: own scheme only (no remote scripts, frames or form targets); inline code is what the
 /// existing pages use.
@@ -264,6 +293,30 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             st.update_config(|c| c.project_source = src.clone());
             json_response(200, &json!({"ok": true, "source": src}))
         }
+        ("standards.html", false) => response(200, "text/html; charset=utf-8", inject_scripts(STANDARDS_HTML.as_bytes().to_vec(), false)),
+        ("standards.js", false) => response(200, "text/javascript; charset=utf-8", STANDARDS_JS.as_bytes().to_vec()),
+        ("api/standards/hash", true) => {
+            use sha2::Digest;
+            let items = body_json(req)["items"].as_array().cloned().unwrap_or_default();
+            let out: Vec<Value> = items.iter().map(|i| json!(crate::sync::hex(&sha2::Sha256::digest(canonical(&i["content"]).as_bytes())))).collect();
+            json_response(200, &json!({"sha256": out}))
+        }
+        (p, _) if p.starts_with("api/v1/") => {
+            let method = req.method().as_str().to_string();
+            let sub = &p["api/v1".len()..];
+            if !proxy_allowed(sub, &method) || !matches!(method.as_str(), "GET" | "POST" | "PUT") {
+                return json_response(403, &json!({"error": "not available from the desktop pages"}));
+            }
+            let path = match req.uri().query() {
+                Some(q) => format!("/api/v1{}?{}", sub, q),
+                None => format!("/api/v1{}", sub),
+            };
+            let body = if method == "GET" { None } else { Some(body_json(req)) };
+            match st.remote.call(st.config().ca_cert_pem.as_deref(), &method, &path, body.as_ref()) {
+                Ok(v) => json_response(200, &v),
+                Err(e) => remote_err(e),
+            }
+        }
         ("api/sync/retry", true) => {
             st.sync.resume();
             json_response(200, &json!({"ok": true}))
@@ -314,6 +367,18 @@ mod tests {
         let out = String::from_utf8(inject_scripts(b"<!doctype html>\n<html><HEAD><meta charset=utf-8><script src=/idx/ui.js></script>".to_vec(), false)).unwrap();
         assert!(out.contains("<HEAD><script src=\"/desktop/shim.js\"></script><meta"));
         assert_eq!(inject_scripts(b"no head here".to_vec(), true), b"no head here");
+    }
+
+    #[test]
+    fn proxy_is_limited_to_standards() {
+        assert!(proxy_allowed("/standards", "GET"));
+        assert!(proxy_allowed("/standards/kit/K/1/approve", "POST"));
+        assert!(proxy_allowed("/lab-profiles", "GET"));
+        assert!(proxy_allowed("/me", "GET"));
+        assert!(!proxy_allowed("/projects/P/idx", "POST"));
+        assert!(!proxy_allowed("/fsa/abc", "GET"));
+        assert!(!proxy_allowed("/auth/logout", "POST"));
+        assert!(!proxy_allowed("/audit", "GET"));
     }
 
     #[test]

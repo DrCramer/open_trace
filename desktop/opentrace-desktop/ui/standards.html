@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenTrace — лабораторные стандарты</title>
+<link rel="stylesheet" href="/idx/idx.css">
+<style>
+ body{padding:0;overflow:auto}
+ main{padding:10px 14px}
+ h1{font-size:15px;margin:2px 0 8px}
+ .tabsx{display:flex;gap:4px;border-bottom:1px solid #b9b9b9;margin-bottom:8px}
+ .tabsx button{border:1px solid #b9b9b9;border-bottom:none;background:#ececec;padding:4px 10px;cursor:pointer}
+ .tabsx button.on{background:#fff;font-weight:600}
+ .row{display:flex;gap:8px;align-items:center;margin:5px 0;flex-wrap:wrap}
+ .row label.l{min-width:170px}
+ table.g{width:100%}
+ table.g tr.sel td{background:#cfe2ff;color:#000}
+ .st{padding:0 6px;border-radius:3px;font-size:11px;white-space:nowrap}
+ .st.draft{background:#e8e8e8}.st.pending_review{background:#fff3cd}.st.approved{background:#d4edda}.st.deprecated{background:#f8d7da}.st.archived{background:#ddd;color:#666}
+ pre{background:#f7f7f7;border:1px solid #ddd;padding:6px;max-height:260px;overflow:auto;font-size:11px}
+ .err{color:#b00000;white-space:pre-wrap}.ok{color:#0a6b0a}.note{color:#555;font-size:12px}
+ code{font-size:11px}
+</style>
+</head>
+<body>
+<main>
+<h1>Лабораторные стандарты организации</h1>
+<div class="note" id="who"></div>
+<div class="tabsx"><button data-t="list" class="on">Стандарты сервера</button><button data-t="import">Импорт с этого компьютера</button><button data-t="profile">Новый лабораторный профиль</button></div>
+
+<section id="t-list">
+ <div class="row"><label>Вид</label><select id="kind"><option value="">все</option></select>
+  <label><input type="checkbox" id="latest" checked> только последние версии</label><button class="btn" id="reload">Обновить</button></div>
+ <div class="grid"><table class="g" id="list"><thead><tr><th>Вид</th><th>Имя</th><th>Версия</th><th>Статус</th><th>Автор</th><th>Утвердил</th><th>SHA-256</th></tr></thead><tbody></tbody></table></div>
+ <div id="detail"></div>
+</section>
+
+<section id="t-import" hidden>
+ <p class="note">Методы, наборы (панели, бины, статтеры), стандарты длин и матрицы, сохранённые в этом приложении, можно передать на сервер как <b>черновики</b>. Утверждённые версии на сервере не изменяются: при отличии создаётся новая версия-черновик, которую должен утвердить другой сотрудник. Локальные справочники не удаляются.</p>
+ <div class="row"><button class="btn" id="scan">Сравнить с сервером</button><button class="btn" id="doImport" disabled>Импортировать выбранные как черновики</button></div>
+ <div class="grid"><table class="g" id="local"><thead><tr><th></th><th>Вид</th><th>Имя</th><th>SHA-256</th><th>На сервере</th></tr></thead><tbody></tbody></table></div>
+ <div id="importOut"></div>
+</section>
+
+<section id="t-profile" hidden>
+ <p class="note">Профиль фиксирует точные утверждённые версии метода, набора, бинов, стандарта длин (и, при необходимости, статтеров и матрицы) с их SHA-256. Анализы, выполненные по профилю, ссылаются на эту версию и не меняются при выпуске новых версий.</p>
+ <div class="row"><label class="l" for="pname">Имя профиля</label><input type="text" id="pname" style="min-width:300px"></div>
+ <div id="members"></div>
+ <div class="row"><label class="l"></label><button class="btn" id="mkProfile">Создать черновик профиля</button></div>
+ <div id="profileOut"></div>
+</section>
+</main>
+<script src="/desktop/standards.js"></script>
+</body>
+</html>

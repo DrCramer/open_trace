@@ -47,7 +47,8 @@ impl SelfTest {
                 || (main["sync"]["done"].as_u64().unwrap_or(0) >= 1
                     && main["ws_saved"] == true
                     && main["ws_loaded_samples"].as_u64().unwrap_or(0) >= 1
-                    && main["ws_after_open"]["editing"] == true));
+                    && main["ws_after_open"]["editing"] == true
+                    && (main["local_methods"].as_u64().unwrap_or(0) == 0 || main["std_hash_match"] == true)));
         let report = json!({
             "pass": pass,
             "platform": std::env::consts::OS,

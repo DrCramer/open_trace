@@ -10,6 +10,11 @@ pub mod sync;
 mod windows;
 pub mod workspace;
 
+/// Canonical JSON used for standard hashes (re-exported for tests).
+pub fn canonical_json(v: &serde_json::Value) -> String {
+    bridge::canonical(v)
+}
+
 use state::DesktopState;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;

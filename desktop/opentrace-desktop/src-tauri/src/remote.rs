@@ -212,6 +212,18 @@ impl Remote {
         r.call().map_err(|e| self.on_err(map_err(e)))?.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
     }
 
+    /// Generic JSON call for the allow-listed proxy of the desktop pages (`GET`/`POST`/`PUT`).
+    pub fn call(&self, ca: Option<&std::path::Path>, method: &str, path: &str, body: Option<&Value>) -> RResult<Value> {
+        let s = self.authed()?;
+        let a = self.agent(ca)?;
+        let r = a.request(method, &format!("{}{}", s.server, path)).set("Authorization", &format!("Bearer {}", s.token));
+        let res = match body {
+            Some(b) => r.send_json(b.clone()),
+            None => r.call(),
+        };
+        res.map_err(|e| self.on_err(map_err(e)))?.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
+    }
+
     /// `HEAD /api/v1/fsa/{sha}`: true when the server already has the file.
     pub fn fsa_exists(&self, ca: Option<&std::path::Path>, sha: &str) -> RResult<bool> {
         let s = self.authed()?;

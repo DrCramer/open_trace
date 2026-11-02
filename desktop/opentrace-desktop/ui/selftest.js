@@ -70,6 +70,17 @@
           c.ws_loaded_samples = window.OT.state.project.samples.length;
           c.ws_after_open = await (await fetch('/desktop/api/workspace/status')).json();
           await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
+          // Lab standards: a local method imported as a server draft; desktop and server hash it identically.
+          var lm = ((JSON.parse(localStorage.getItem('opentrace.methods.v1') || 'null') || {}).methods || []).map(function (r) { return r.method; }).filter(Boolean);
+          c.local_methods = lm.length;
+          if (lm.length) {
+            var sr = await fetch('/desktop/api/v1/standards/analysis_method/' + encodeURIComponent(lm[0].name + ' ' + Date.now()), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: lm[0], note: 'selftest' }) });
+            c.std_import_status = sr.status;
+            var sv = await sr.json();
+            var hh = await (await fetch('/desktop/api/standards/hash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ content: lm[0] }] }) })).json();
+            c.std_hash_match = sv.content_sha256 === hh.sha256[0];
+            c.std_version = sv.version;
+          }
         } else {
           c.sync = await (await fetch('/desktop/api/sync/status')).json();
         }

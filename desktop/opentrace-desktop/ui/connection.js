@@ -93,6 +93,7 @@
       } catch (e) { $('srcOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; await load(); }
     });
   });
+  $('openStandards').addEventListener('click', function () { window.open('/desktop/standards.html', 'opentrace-standards', 'width=1100,height=760'); });
   $('retry').addEventListener('click', async function () { await api('sync/retry', {}); syncTick(); });
 
   async function syncTick() {

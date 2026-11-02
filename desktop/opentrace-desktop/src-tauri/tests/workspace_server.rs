@@ -129,3 +129,14 @@ fn revision_conflict_after_concurrent_web_change_turns_read_only() {
     let (_rc, c) = client(&s, "Casework Analyst");
     assert_eq!(c.open("Case 1").unwrap()["comment"], "B wins");
 }
+
+#[test]
+fn desktop_and_server_hash_standards_identically() {
+    for v in [
+        json!({"b": 1, "a": {"y": [1, 2.5, "x"], "x": null}, "é": "ü"}),
+        json!({"threshold": 50.0, "list": [{"z": 1e-7, "a": 1e21}], "flag": true}),
+        json!({}),
+    ] {
+        assert_eq!(opentrace_desktop_lib::canonical_json(&v), opentrace_server::standards::canonical(&v));
+    }
+}
