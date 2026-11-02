@@ -107,7 +107,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
     }
     windows::create_main(app.handle())?;
     if let Some(t) = selftest {
-        t.watchdog(app.handle().clone(), 120);
+        t.watchdog(app.handle().clone(), if crate::selftest::batch_size().is_some() { 600 } else { 120 });
     }
     Ok(())
 }

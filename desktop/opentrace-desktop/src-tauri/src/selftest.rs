@@ -9,6 +9,51 @@ use tauri::AppHandle;
 
 pub const SELFTEST_JS: &str = include_str!("../../ui/selftest.js");
 
+/// `OPENTRACE_DESKTOP_SELFTEST_BATCH=N` (1..=500): also run the batch measurement (see `ui/selftest.js`).
+pub fn batch_size() -> Option<u64> {
+    std::env::var("OPENTRACE_DESKTOP_SELFTEST_BATCH").ok().and_then(|v| v.parse::<u64>().ok()).filter(|n| (1..=500).contains(n))
+}
+
+/// Resident memory of this process and all its descendants (the WebKitGTK web/network processes), Linux only.
+/// WebView2 exposes the JS heap through `performance.memory` instead.
+pub fn process_tree_rss_mib() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        let me = std::process::id();
+        let mut parent = std::collections::HashMap::new();
+        let mut rss = std::collections::HashMap::new();
+        for e in std::fs::read_dir("/proc").ok()?.flatten() {
+            let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else { continue };
+            let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else { continue };
+            // pid (comm) state ppid ... ; comm may contain spaces, so split after the last ')'.
+            let Some(rest) = stat.rsplit_once(')').map(|x| x.1) else { continue };
+            let f: Vec<&str> = rest.split_whitespace().collect();
+            if f.len() > 21 {
+                parent.insert(pid, f[1].parse::<u32>().unwrap_or(0));
+                rss.insert(pid, f[21].parse::<u64>().unwrap_or(0)); // pages
+            }
+        }
+        let page = 4096u64;
+        let mut total = 0u64;
+        for (&pid, &r) in &rss {
+            let mut p = pid;
+            for _ in 0..64 {
+                if p == me {
+                    total += r * page;
+                    break;
+                }
+                match parent.get(&p) {
+                    Some(&q) if q != 0 => p = q,
+                    _ => break,
+                }
+            }
+        }
+        return Some(total / 1_048_576);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
 pub struct SelfTest {
     pub out: PathBuf,
     started: std::time::Instant,
@@ -48,7 +93,11 @@ impl SelfTest {
                     && main["ws_saved"] == true
                     && main["ws_loaded_samples"].as_u64().unwrap_or(0) >= 1
                     && main["ws_after_open"]["editing"] == true
-                    && (main["local_methods"].as_u64().unwrap_or(0) == 0 || main["std_hash_match"] == true)));
+                    && (main["local_methods"].as_u64().unwrap_or(0) == 0 || main["std_hash_match"] == true)))
+            && (batch_size().is_none()
+                || (main["batch"]["analyzed"].as_u64() == batch_size()
+                    && main["batch"]["sizing_accepted"].as_u64() == batch_size()
+                    && main["batch"]["plot_ready"] == true));
         let report = json!({
             "pass": pass,
             "platform": std::env::consts::OS,

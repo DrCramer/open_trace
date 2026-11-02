@@ -18,6 +18,80 @@
     return false;
   };
   var path = location.pathname;
+  var heap = function () { return performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null; };
+  var rss = async function () { try { return (await (await fetch('/desktop/api/selftest/memory')).json()).process_tree_rss_mib; } catch (e) { return null; } };
+
+  // Batch mode (OPENTRACE_DESKTOP_SELFTEST_BATCH=N): N invented 10 000-scan run files through the UI's own
+  // "Add Samples" + "Analyze" code (4 requests in flight, slimAnalysis, table render), then all of them in the
+  // Samples Plot window. Measures wall time and, where the webview exposes it (Chromium/WebView2), the JS heap.
+  var batchRun = async function (n) {
+    var b = { files: n };
+    var OT = window.OT;
+    var t0 = performance.now();
+    var blobs = await Promise.all(Array.from({ length: n }, function (_, k) {
+      return fetch('/desktop/api/selftest/fsa?seed=' + k).then(function (r) { return r.blob(); });
+    }));
+    var files = blobs.map(function (bl, k) { return new File([bl], 'batch' + String(k).padStart(3, '0') + '.fsa'); });
+    b.fetch_ms = Math.round(performance.now() - t0);
+    b.input_mib = Math.round(blobs.reduce(function (a, x) { return a + x.size; }, 0) / 10485.76) / 100;
+    var names = (window.Methods ? Methods.list() : []).map(function (r) { return r.method.name; });
+    var meth = names.find(function (x) { return /MiniFiler_GS500/.test(x); }) || names[0];
+    b.method = meth;
+    b.size_standard = 'CE_G5_HID_GS500';
+    Object.assign(OT.state.project, { name: 'Selftest batch', runFolders: [], samples: [], dirty: false });
+    // No panel in a fresh profile: continue past the Analysis Requirements Summary instead of asking (not saved).
+    if (window.ProjectOptions) ProjectOptions.get().ars = 'continue';
+    OT.state.selected.clear();
+    b.heap_before_mib = heap();
+    b.rss_before_mib = await rss();
+    t0 = performance.now();
+    OT.addSampleFiles(files, 'Batch run', meth, '', b.size_standard);
+    b.add_ms = Math.round(performance.now() - t0);
+    // Main-thread time spent parsing the analysis responses (Response.json), measured around the UI's own calls.
+    var origJson = Response.prototype.json, parseMs = 0, parseBytes = 0;
+    Response.prototype.json = async function () {
+      if (!/\/api\/analyze/.test(this.url)) return origJson.call(this);
+      var txt = await this.text();
+      var p0 = performance.now();
+      var v = JSON.parse(txt);
+      parseMs += performance.now() - p0;
+      parseBytes += txt.length;
+      return v;
+    };
+    t0 = performance.now();
+    try { await OT.analyze('pending'); } finally { Response.prototype.json = origJson; }
+    b.analyze_ms = Math.round(performance.now() - t0);
+    b.json_parse_ms = Math.round(parseMs);
+    b.json_mib = Math.round(parseBytes / 10485.76) / 100;
+    var smp = OT.state.project.samples;
+    b.analyzed = smp.filter(function (x) { return x.status === 'analyzed'; }).length;
+    b.sizing_accepted = smp.filter(function (x) { return x.analysis && x.analysis.sizing && x.analysis.sizing.status === 'accepted'; }).length;
+    b.peaks = smp.reduce(function (a, x) { return a + ((x.analysis && x.analysis.channels) || []).reduce(function (m, ch) { return m + ((ch.peaks || []).length); }, 0); }, 0);
+    b.message = OT.state.lastMessage || null;
+    b.heap_after_mib = heap();
+    b.rss_after_mib = await rss();
+    // All samples in the plot window: time until its canvases exist and were drawn.
+    smp.forEach(function (x) { OT.state.selected.add(x.id); });
+    var oldDoc = OT.state.plotWin && !OT.state.plotWin.closed ? OT.state.plotWin.document : null;
+    t0 = performance.now();
+    OT.displayPlots();
+    b.plot_ready = await wait(function () {
+      var w = OT.state.plotWin;
+      if (!w || w.closed || w.document === oldDoc || w.document.readyState !== 'complete') return false;
+      var cs = w.document.querySelectorAll('#plotarea canvas');
+      return cs.length > 0 && !!cs[0]._geom;
+    }, 60000);
+    await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
+    b.plot_ms = Math.round(performance.now() - t0);
+    try {
+      var cs = Array.prototype.slice.call(OT.state.plotWin.document.querySelectorAll('#plotarea canvas'));
+      b.plot_canvases = cs.length;
+      b.plot_painted = cs.filter(function (x) { return !!x._geom; }).length; // panes painted so far (visible ones)
+    } catch (e) { b.plot_canvases = String(e); }
+    b.heap_plot_mib = heap();
+    b.rss_plot_mib = await rss();
+    return b;
+  };
 
   if (path === '/idx/' || path === '/idx' || path === '/idx/project.html') {
     window.addEventListener('load', async function () {
@@ -83,6 +157,10 @@
           }
         } else {
           c.sync = await (await fetch('/desktop/api/sync/status')).json();
+        }
+        if (window.__OT_SELFTEST_BATCH__) {
+          await sleep(3000); // the example plot window reports first
+          c.batch = await batchRun(window.__OT_SELFTEST_BATCH__);
         }
       } catch (e) {
         c.error = String((e && e.stack) || e);

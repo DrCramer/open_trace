@@ -22,7 +22,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
+window.OT={state,plotPayload,addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
  // plot window: Edit > Undo (latest active label edit of the displayed samples), View > Sample Info / Raw Data / EPT Data
  undoLast:(ids)=>{const all=state.project.samples.filter(s=>ids.includes(s.id)).flatMap(s=>(s.edits||[]).filter(e=>!e.undone).map(e=>({s,e})));
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];
@@ -778,13 +778,15 @@ function addSamples(){
  function doAdd(body,andAnalyze){{if(!files.length)return false;const run=body.querySelector('#addRun').value.trim()||'Run';const std=body.querySelector('#addStd').value;const pkey=body.querySelector('#addPanel').value;const meth=body.querySelector('#addMethod').value;
     try{localStorage.setItem('opentrace.lastMethod',meth)}catch(e){}
     try{localStorage.setItem('opentrace.lastPanel',pkey)}catch(e){}
-    if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
-    for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
-     state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),typeAuto:ProjectOptions.get().add.type==='auto',
-      runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
-    Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
-    sniffSamples(state.project.samples);
-    state.project.dirty=true;render();if(andAnalyze)analyze('pending')}return true}}
+    addSampleFiles(files,run,meth,pkey,std);if(andAnalyze)analyze('pending')}return true}}
+function addSampleFiles(files,run,meth,pkey,std){
+ if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
+ for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
+  state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),typeAuto:ProjectOptions.get().add.type==='auto',
+   runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
+ Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
+ sniffSamples(state.project.samples);
+ state.project.dirty=true;render()}
 
 // ---------- Edit > Define New Sample File Path ----------
 // The sample keeps a reference to its .fsa (Sample Origin Path = folder it was added from; browsers expose only the

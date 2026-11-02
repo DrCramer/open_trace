@@ -453,3 +453,79 @@ pub fn make_ladder_calling_demo(legacy: bool) -> (Fixture, Value) {
     }
     (fixture, quality)
 }
+
+// ------------------------------------------------------------------ load-test run files
+
+const SYNTHETIC_RUN_SCANS: usize = 10_000;
+/// GS500 LIZ sizes of `synthetic_run_fsa` (DATA105).
+pub const SYNTHETIC_RUN_STANDARD_BP: [f64; 16] = [35.0, 50.0, 75.0, 100.0, 139.0, 150.0, 160.0, 200.0, 250.0, 300.0, 340.0, 350.0, 400.0, 450.0, 490.0, 500.0];
+
+struct RunRng(u64);
+impl RunRng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+    fn u01(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+    }
+}
+
+/// Mobility: bp → scan, mildly non-linear like a real run.
+fn run_scan_of(bp: f64) -> f64 {
+    2450.0 + 13.5 * bp + 0.002 * bp * bp
+}
+
+/// Invented 5-dye run file for load tests (desktop self-test batch mode, `bench_batch`): 10 000 scans, six "markers"
+/// with two alleles, stutter and +A per dye, noise peaks, an off-scale peak in every 16th file, GS500 on DATA105.
+/// Deterministic per `seed` and identical on every platform (math through `cmath`). Not lab data.
+pub fn synthetic_run_fsa(seed: u64) -> Vec<u8> {
+    let mut r = RunRng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+    let name = format!("Synthetic bench {}", seed);
+    let mut items = vec![item("SMPL", 1, 18, 1, name.len() + 1, pstr(name.as_bytes())), item("Dye#", 1, 4, 2, 1, 5i16.to_be_bytes().to_vec())];
+    for (i, (number, dye)) in [(1, "6-FAM"), (2, "VIC"), (3, "NED"), (4, "PET"), (105, "LIZ")].iter().enumerate() {
+        items.push(item("DyeN", (i + 1) as i32, 18, 1, dye.len() + 1, pstr(dye.as_bytes())));
+        // (bp, height, sigma in scans)
+        let mut peaks: Vec<(f64, f64, f64)> = Vec::new();
+        if *number == 105 {
+            for bp in SYNTHETIC_RUN_STANDARD_BP {
+                peaks.push((bp, 700.0 + 500.0 * r.u01(), 3.5));
+            }
+        } else {
+            for m in 0..6 {
+                let lo = 70.0 + 60.0 * m as f64;
+                for _ in 0..2 {
+                    let bp = lo + 4.0 * (r.next() % 10) as f64 + 0.3;
+                    let h = 300.0 + 2700.0 * r.u01();
+                    peaks.push((bp, h, 4.5));
+                    peaks.push((bp - 4.0, 0.08 * h, 4.5)); // stutter
+                    peaks.push((bp + 1.0, 0.05 * h, 4.5)); // +A
+                }
+            }
+            for _ in 0..8 {
+                peaks.push((60.0 + 400.0 * r.u01(), 40.0 + 80.0 * r.u01(), 4.0)); // noise peaks
+            }
+            if seed % 16 == 3 && *number == 1 {
+                peaks.push((180.3, 40_000.0, 5.0)); // off-scale
+            }
+        }
+        let mut values = vec![0f64; SYNTHETIC_RUN_SCANS];
+        for (s, v) in values.iter_mut().enumerate() {
+            *v = 30.0 + 0.001 * s as f64 + (r.u01() - 0.5) * 8.0;
+        }
+        for (bp, h, sig) in peaks {
+            let c = run_scan_of(bp);
+            let lo = (c - 8.0 * sig).max(0.0) as usize;
+            let hi = ((c + 8.0 * sig) as usize).min(SYNTHETIC_RUN_SCANS - 1);
+            for (s, v) in values.iter_mut().enumerate().take(hi + 1).skip(lo) {
+                let z = (s as f64 - c) / sig;
+                *v += h * exp(-0.5 * z * z);
+            }
+        }
+        let data: Vec<u8> = values.iter().flat_map(|v| (v.round().clamp(-32768.0, 32767.0) as i16).to_be_bytes()).collect();
+        items.push(item("DATA", *number, 4, 2, SYNTHETIC_RUN_SCANS, data));
+    }
+    build_abif(&items)
+}

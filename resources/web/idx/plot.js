@@ -81,7 +81,7 @@ function paneList(){
  return out}
 
 function draw(){
- const area=$('plotarea');area.replaceChildren();
+ const area=$('plotarea');paintObserver?.disconnect();area.replaceChildren();
  if(!payload||!payload.samples.length){area.append(el('div',{class:'empty',text:T('selectSamplesFirst')}));renderLower();return}
  const panes=paneList();
  // multi-line labels (Labels tab) get extra room so the trace keeps its height
@@ -115,8 +115,17 @@ function draw(){
   // the Genotypes plot shows the marker size range plus the Marker Margin of the plot setting
   let px0=x0,px1=x1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);
    px0=p.marker.min_bp-mg;px1=p.marker.max_bp+mg;if(view.xAxis==='dp'){px0=bpToScan(c,px0);px1=bpToScan(c,px1)}}
-  requestAnimationFrame(()=>paint(canvas,items,px0,px1,p.marker))}
+  lazyPaint(area,canvas,()=>paint(canvas,items,px0,px1,p.marker))}
  renderLower()}
+
+// A pane is painted when it scrolls near the visible part of the plot area, not all at once: 96 samples in separate
+// dye panes are 384 canvases, and every selection change redraws. Same pixels as eager painting; printing paints
+// its own canvases synchronously.
+let paintObserver=null;
+function lazyPaint(area,canvas,fn){
+ if(!('IntersectionObserver' in window)){requestAnimationFrame(fn);return}
+ if(!paintObserver||paintObserver.root!==area)paintObserver=new IntersectionObserver(es=>{for(const e of es)if(e.isIntersecting){paintObserver.unobserve(e.target);const f=e.target._lazyPaint;e.target._lazyPaint=null;if(f)f()}},{root:area,rootMargin:'100% 0px'});
+ canvas._lazyPaint=fn;paintObserver.observe(canvas)}
 
 function paint(cv,items,x0,x1,onlyMarker){
  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.height;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';

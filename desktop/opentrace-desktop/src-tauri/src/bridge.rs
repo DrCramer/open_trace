@@ -134,6 +134,9 @@ pub fn inject_scripts(html: Vec<u8>, selftest: bool) -> Vec<u8> {
         if std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_some() {
             tags.push_str("window.__OT_SELFTEST_SERVER__=true;");
         }
+        if let Some(n) = crate::selftest::batch_size() {
+            tags.push_str(&format!("window.__OT_SELFTEST_BATCH__={};", n));
+        }
         tags.push_str("</script><script src=\"/desktop/selftest.js\"></script>");
     }
     let lower: Vec<u8> = html.iter().take(4096).map(|b| b.to_ascii_lowercase()).collect();
@@ -328,7 +331,15 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             }
             json_response(200, &json!({"ok": true}))
         }
-        ("api/selftest/fsa", false) if st.selftest.is_some() => response(200, "application/octet-stream", opentrace_core::demo::demo_bytes()),
+        ("api/selftest/fsa", false) if st.selftest.is_some() => {
+            // `?seed=N`: a 10 000-scan run file for the batch measurement; otherwise the small demo file.
+            let body = match query_param(req, "seed").and_then(|v| v.parse::<u64>().ok()) {
+                Some(seed) => opentrace_core::demo::synthetic_run_fsa(seed),
+                None => opentrace_core::demo::demo_bytes(),
+            };
+            response(200, "application/octet-stream", body)
+        }
+        ("api/selftest/memory", false) if st.selftest.is_some() => json_response(200, &json!({"process_tree_rss_mib": crate::selftest::process_tree_rss_mib()})),
         ("api/selftest/report", true) if st.selftest.is_some() => {
             let v = body_json(req);
             if let Some(t) = &st.selftest {
