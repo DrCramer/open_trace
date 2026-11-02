@@ -102,10 +102,38 @@ fn case_colliding_sessions(req: &[u8]) -> std::collections::BTreeSet<usize> {
                 let id = id.as_str().map(|s| s.to_string()).unwrap_or_else(|| id.to_string());
                 samples.entry(id.to_ascii_lowercase()).or_default().insert(id);
             }
+            // Imported packages bring their own sample files (zip entries `samples/<id>.<ext>`).
+            if let Some(pkg) = r["package_b64"].as_str().and_then(|b| opentrace_core::matrix::b64decode_strict(b).ok()) {
+                for id in zip_sample_ids(&pkg) {
+                    samples.entry(id.to_ascii_lowercase()).or_default().insert(id);
+                }
+            }
         }
         if folders.values().chain(samples.values()).any(|v| v.len() > 1) {
             out.insert(si);
         }
+    }
+    out
+}
+
+/// Sample ids named by the local file headers of a zip (`samples/<id>.fsa`, `samples/<id>.json.gz`).
+fn zip_sample_ids(zip: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 30 <= zip.len() {
+        if &zip[i..i + 4] != b"PK\x03\x04" {
+            i += 1;
+            continue;
+        }
+        let n = u16::from_le_bytes([zip[i + 26], zip[i + 27]]) as usize;
+        if let Some(name) = zip.get(i + 30..i + 30 + n) {
+            let name = String::from_utf8_lossy(name);
+            if let Some(rest) = name.strip_prefix("samples/") {
+                let id = rest.strip_suffix(".json.gz").or_else(|| rest.strip_suffix(".fsa")).unwrap_or(rest);
+                out.push(id.to_string());
+            }
+        }
+        i += 30 + n;
     }
     out
 }
@@ -130,4 +158,12 @@ fn demo_fixtures_match_python() {
     let want = gunzip(&dir.join("demo.ref.txt.gz"));
     let got = Command::new(examples_dir().join("demo_dump")).output().unwrap().stdout;
     assert!(got == want, "demo fixtures differ from the Python reference");
+}
+
+#[test]
+fn case_collision_detector_sees_imported_packages() {
+    // Session 26 of the corpus imports a package holding samples `s1` and `S1`.
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("golden");
+    let skip = case_colliding_sessions(&gunzip(&dir.join("idx_projects.req.jsonl.gz")));
+    assert!(skip.contains(&26), "{:?}", skip);
 }
