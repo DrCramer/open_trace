@@ -42,13 +42,15 @@ fn golden_corpora_match_python_reference() {
         let mut got = cmd.output().unwrap_or_else(|e| panic!("{}: {}", bin.display(), e)).stdout;
         let mut want = want;
         if name == "idx_projects" && cfg!(any(windows, target_os = "macos")) {
-            // Case-insensitive file system: sessions whose project or sample names differ only by letter case cannot
-            // reproduce the Linux layout (and saving such a sample is refused there on purpose, see W7 in
-            // docs/desktop/BASELINE_AUDIT.md). Every other session is still compared byte for byte.
-            let skip = case_colliding_sessions(&gunzip(&dir.join(format!("{}.req.jsonl.gz", name))));
+            // The reference was recorded on a case-sensitive POSIX file system. Sessions whose reference file tree
+            // holds two paths differing only by letter case (W7: saving such a sample is refused here on purpose,
+            // see docs/desktop/BASELINE_AUDIT.md) or, on Windows, a name NTFS cannot store (control characters,
+            // `<>:"|?*`, trailing dot/space, device names) cannot reproduce that layout. Every other session is still
+            // compared byte for byte.
+            let skip = unreproducible_sessions(&want, cfg!(windows));
             let total = gunzip(&dir.join(format!("{}.req.jsonl.gz", name))).split(|b| *b == b'\n').filter(|l| !l.is_empty()).count();
-            assert!(skip.len() * 2 < total, "too many case-colliding sessions skipped: {:?}", skip);
-            eprintln!("idx_projects: {} of {} sessions use case-only name differences; the other {} are compared", skip.len(), total, total - skip.len());
+            assert!(skip.len() * 4 < total, "too many sessions skipped: {:?}", skip);
+            eprintln!("idx_projects: sessions {:?} of {} need a case-sensitive POSIX file system; the other {} are compared", skip, total, total - skip.len());
             got = drop_sessions(&got, &skip);
             want = drop_sessions(&want, &skip);
         }
@@ -64,78 +66,37 @@ fn golden_corpora_match_python_reference() {
     assert!(checked >= 20, "golden manifest unexpectedly small: {}", checked);
 }
 
-/// `slug` of idx_projects.rs (the project folder name).
-fn folder_slug(name: &str) -> String {
-    let mut out = String::new();
-    let mut bad = false;
-    for c in name.chars() {
-        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-            out.push(c);
-            bad = false;
-        } else if !bad {
-            out.push('_');
-            bad = true;
-        }
-    }
-    out.trim_matches('_').chars().take(40).collect()
-}
-
-/// Sessions (lines of the request corpus) that use two project folders, or two sample ids of one project, that differ
-/// only by letter case: distinct files on Linux, one file on a case-insensitive file system.
-fn case_colliding_sessions(req: &[u8]) -> std::collections::BTreeSet<usize> {
+/// Sessions of an `ip_dump` reference whose file tree (`IP <s> <step> TREE [...]`) cannot exist on a
+/// case-insensitive file system, or (with `windows`) holds a name Windows cannot store.
+fn unreproducible_sessions(reference: &[u8], windows: bool) -> std::collections::BTreeSet<usize> {
     use std::collections::{BTreeMap, BTreeSet};
     let mut out = BTreeSet::new();
-    for (si, line) in String::from_utf8_lossy(req).lines().filter(|l| !l.trim().is_empty()).enumerate() {
-        let ops: serde_json::Value = serde_json::from_str(line).unwrap_or(serde_json::Value::Null);
-        let mut folders: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let mut samples: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for op in ops.as_array().into_iter().flatten() {
-            let r = &op["req"];
-            for key in ["name", "new_name"] {
-                if let Some(n) = r[key].as_str() {
-                    let slug = folder_slug(n);
-                    folders.entry(slug.to_ascii_lowercase()).or_default().insert(slug);
-                }
-            }
-            // Samples move between projects with save_as/rename/import, so any two ids of a session count.
-            if let Some(id) = r.get("id").filter(|_| r["name"].is_string()) {
-                let id = id.as_str().map(|s| s.to_string()).unwrap_or_else(|| id.to_string());
-                samples.entry(id.to_ascii_lowercase()).or_default().insert(id);
-            }
-            // Imported packages bring their own sample files (zip entries `samples/<id>.<ext>`).
-            if let Some(pkg) = r["package_b64"].as_str().and_then(|b| opentrace_core::matrix::b64decode_strict(b).ok()) {
-                for id in zip_sample_ids(&pkg) {
-                    samples.entry(id.to_ascii_lowercase()).or_default().insert(id);
-                }
+    for line in String::from_utf8_lossy(reference).lines() {
+        let mut f = line.splitn(4, ' ');
+        let (ip, si, _step, rest) = (f.next(), f.next(), f.next(), f.next().unwrap_or(""));
+        let (Some("IP"), Some(Ok(si))) = (ip, si.map(|s| s.parse::<usize>())) else { continue };
+        let Some(tree) = rest.strip_prefix("TREE ") else { continue };
+        let tree: serde_json::Value = serde_json::from_str(tree).unwrap_or(serde_json::Value::Null);
+        let mut seen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut bad = false;
+        for e in tree.as_array().into_iter().flatten() {
+            if let Some(p) = e[1].as_str() {
+                seen.entry(p.to_lowercase()).or_default().insert(p.to_string());
+                bad |= windows && p.split('/').any(|c| !windows_name_ok(c));
             }
         }
-        if folders.values().chain(samples.values()).any(|v| v.len() > 1) {
+        if bad || seen.values().any(|v| v.len() > 1) {
             out.insert(si);
         }
     }
     out
 }
 
-/// Sample ids named by the local file headers of a zip (`samples/<id>.fsa`, `samples/<id>.json.gz`).
-fn zip_sample_ids(zip: &[u8]) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + 30 <= zip.len() {
-        if &zip[i..i + 4] != b"PK\x03\x04" {
-            i += 1;
-            continue;
-        }
-        let n = u16::from_le_bytes([zip[i + 26], zip[i + 27]]) as usize;
-        if let Some(name) = zip.get(i + 30..i + 30 + n) {
-            let name = String::from_utf8_lossy(name);
-            if let Some(rest) = name.strip_prefix("samples/") {
-                let id = rest.strip_suffix(".json.gz").or_else(|| rest.strip_suffix(".fsa")).unwrap_or(rest);
-                out.push(id.to_string());
-            }
-        }
-        i += 30 + n;
-    }
-    out
+fn windows_name_ok(c: &str) -> bool {
+    let stem = c.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let device = ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+        || ((stem.starts_with("COM") || stem.starts_with("LPT")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit());
+    !c.is_empty() && !device && !c.ends_with(['.', ' ']) && !c.chars().any(|ch| ch < ' ' || "<>:\"|?*\\".contains(ch))
 }
 
 /// Removes the `IP <session> ...` lines of the given sessions from an ip_dump output.
@@ -161,9 +122,13 @@ fn demo_fixtures_match_python() {
 }
 
 #[test]
-fn case_collision_detector_sees_imported_packages() {
-    // Session 26 of the corpus imports a package holding samples `s1` and `S1`.
+fn unreproducible_sessions_of_the_project_corpus() {
+    // Pins what a case-insensitive / Windows run leaves out, so the skip list cannot grow unnoticed.
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("golden");
-    let skip = case_colliding_sessions(&gunzip(&dir.join("idx_projects.req.jsonl.gz")));
-    assert!(skip.contains(&26), "{:?}", skip);
+    let reference = gunzip(&dir.join("idx_projects.ref.txt.gz"));
+    let case_only: Vec<usize> = unreproducible_sessions(&reference, false).into_iter().collect();
+    let windows: Vec<usize> = unreproducible_sessions(&reference, true).into_iter().collect();
+    assert_eq!(case_only, [7, 16, 20, 26, 42]);
+    assert_eq!(windows, [7, 16, 20, 26, 42, 44]); // 44: sample id with a newline
+    assert!(windows_name_ok("S1.json.gz") && !windows_name_ok("new\n.fsa") && !windows_name_ok("nul.txt") && !windows_name_ok("a."));
 }
