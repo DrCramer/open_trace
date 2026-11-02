@@ -69,6 +69,8 @@ cat selftest.json   # "pass": true
 | `src/sync.rs` | кэш FSA и фоновая отправка |
 | `src/pool.rs` | пул потоков анализа |
 | `src/workspace.rs` | проекты на сервере (`project_source = "server"`): lease, heartbeat, только чтение, сохранение с ревизией и fencing-токеном, FSA по `sha256` |
+| `src/provenance.rs` | журнал анализов сеанса → записи происхождения при сохранении в серверный проект |
+| `src/labprofile.rs` | активный лабораторный профиль: проверка хешей, ожидаемые настройки, сравнение с отправленными |
 | `ui/shim.js` | внедряется во все окна: синхронизация после анализа, статус сервера и проекта, баннер «только чтение», закрытие |
 | `ui/connection.*` | страница «Сервер организации» (адрес, вход, источник проектов) |
 | `ui/standards.*` | «Лабораторные стандарты»: список версий, импорт локальных справочников как черновиков, отправка/утверждение, профили |
@@ -83,6 +85,16 @@ OPENTRACE_SELFTEST_PASSWORD=... OPENTRACE_DESKTOP_SELFTEST=$PWD/selftest.json \
 ```
 
 В режиме самотеста токен не сохраняется в хранилище учётных данных ОС.
+
+Нагрузочный режим самотеста — `OPENTRACE_DESKTOP_SELFTEST_BATCH=N` (1…500): N выдуманных файлов по 10 000 сканов (`demo::synthetic_run_fsa`) проходят через собственные функции UI «Добавить образцы» и «Анализ» (4 запроса одновременно), затем все открываются в окне графиков. В отчёте: время анализа, время разбора JSON на главном потоке, объём ответов, память (Linux — RSS дерева процессов WebKit, WebView2 — куча JS), готовность окна графиков. С сервером и `OPENTRACE_SELFTEST_PROFILE=<имя>:<версия>` пакет ещё активирует утверждённый профиль, сохраняется как серверный проект, и для каждого образца требуется запись происхождения со ссылкой на профиль. Пример подготовки сервера: создать и утвердить метод, стандарт длин, набор, бины и профиль двумя пользователями (автор и утверждающий), затем:
+
+```bash
+OPENTRACE_SELFTEST_SERVER_URL=http://127.0.0.1:18771 OPENTRACE_SELFTEST_USER='Casework Analyst' OPENTRACE_SELFTEST_PASSWORD=... \
+OPENTRACE_SELFTEST_PROFILE='Lab GF:1' OPENTRACE_DESKTOP_SELFTEST_BATCH=8 OPENTRACE_DESKTOP_SELFTEST=$PWD/st.json \
+  xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
+```
+
+Ядро без webview: `cargo run --release --example bench_batch -- 1 48 96` (в `core/`).
 
 ## Server
 
