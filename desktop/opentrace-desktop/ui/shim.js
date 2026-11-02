@@ -122,6 +122,20 @@
         else if (!w.project) { ws.textContent = 'Проекты: сервер'; ws.title = w.server || ''; }
         else if (w.editing) { ws.textContent = 'Сервер: редактирование ✎'; ws.title = 'Проект «' + w.project + '», ревизия ' + w.revision + '. Блокировка продлевается автоматически.'; }
         else { ws.textContent = 'Сервер: только чтение'; ws.title = w.readonly || ''; }
+        // Provenance and the active laboratory profile in the tooltip; a warning mark when something was not recorded.
+        var p = w.provenance || {}, lp = w.lab_profile;
+        var lines = [];
+        if (lp && lp.verified) lines.push('Лабораторный профиль: ' + lp.name + ' v' + lp.version);
+        else if (lp && lp.verified === false) lines.push('Лабораторный профиль не используется: ' + lp.error);
+        if (p.posted || p.ambiguous || p.failed || p.profile_mismatch) {
+          lines.push('Происхождение анализов записано: ' + (p.posted || 0) + (p.ambiguous ? '; не записано (файл анализировался с разными настройками): ' + p.ambiguous : '') +
+            (p.failed ? '; ошибок: ' + p.failed + ' (' + (p.last_error || '') + ')' : '') +
+            (p.profile_mismatch ? '; без ссылки на профиль: ' + p.profile_mismatch + ' (' + (p.last_mismatch || '') + ')' : ''));
+        }
+        if (lines.length) {
+          ws.title = (ws.title ? ws.title + '\n' : '') + lines.join('\n');
+          if ((p.failed || p.ambiguous || p.profile_mismatch || (lp && lp.verified === false)) && ws.textContent.indexOf('⚠') < 0) ws.textContent += ' ⚠';
+        }
         var ro = w.source === 'server' && w.project && !w.editing ? (w.readonly || 'только чтение') : null;
         if (ro && !banner) {
           banner = document.createElement('div');

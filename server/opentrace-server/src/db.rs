@@ -122,6 +122,21 @@ BEGIN
 END;
 "#,
     ),
+    (
+        3,
+        "web UI: project revision each browser session last opened or wrote (no silent overwrite between web users)",
+        r#"
+CREATE TABLE web_views (
+    ticket_sha256 TEXT NOT NULL,
+    project       TEXT NOT NULL,
+    revision      INTEGER NOT NULL,
+    user_name     TEXT,
+    updated_ms    INTEGER NOT NULL,
+    PRIMARY KEY (ticket_sha256, project)
+);
+CREATE INDEX web_views_updated ON web_views (updated_ms);
+"#,
+    ),
 ];
 
 pub fn open(path: &Path) -> Result<Connection, String> {
@@ -225,9 +240,9 @@ mod tests {
     fn migrations_apply_once_and_record_version() {
         let dir = tempfile::tempdir().unwrap();
         let mut c = open(&dir.path().join("t.sqlite3")).unwrap();
-        assert_eq!(migrate(&mut c).unwrap(), vec![1, 2]);
+        assert_eq!(migrate(&mut c).unwrap(), vec![1, 2, 3]);
         assert!(migrate(&mut c).unwrap().is_empty());
-        assert_eq!(schema_version(&c).unwrap(), 2);
+        assert_eq!(schema_version(&c).unwrap(), 3);
     }
 
     #[test]

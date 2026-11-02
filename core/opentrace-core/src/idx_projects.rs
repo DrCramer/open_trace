@@ -298,6 +298,11 @@ impl ProjectLibrary {
         verr(format!("{}: not an OpenTrace project", folder.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()))
     }
 
+    /// Whether a project of this name is in the library (embedders, e.g. OpenTrace Server's web write checks).
+    pub fn exists(&self, name: &str) -> bool {
+        matches!(self.find(&Value::String(name.to_string())), Ok(Some(_)))
+    }
+
     fn find(&self, name: &Value) -> LR<Option<PathBuf>> {
         let name = check_name(name)?;
         for folder in self.dirs()? {

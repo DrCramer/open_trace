@@ -383,3 +383,44 @@ async fn backup_verify_and_restore_roundtrip() {
     std::fs::write(b.join("opentrace.sqlite3"), b"tampered").unwrap();
     assert!(opentrace_server::backup::verify(&b).is_err());
 }
+
+/// Legacy web request as a given browser session (`X-User-Ticket`).
+async fn web_as(s: &Srv, ticket: &str, v: Value) -> Resp {
+    let h = [("host", format!("127.0.0.1:{}", PORT)), ("x-session-token", s.st.legacy.token.clone()), ("x-user-ticket", ticket.to_string()),
+             ("content-type", "application/json".into())];
+    s.call("POST", "/api/idx-project", None, &h, Body::from(v.to_string())).await
+}
+
+#[tokio::test]
+async fn two_web_users_cannot_overwrite_each_other() {
+    let s = start();
+    let meta = |c: &str, create: bool| json!({"action": "save_meta", "name": "W1", "project": {"samples": [], "comment": c}, "create": create, "overwrite": !create});
+    // A creates the project from the web without opening it (new project).
+    assert_eq!(web_as(&s, "ticket-A", meta("a1", true)).await.status, StatusCode::OK);
+    // A keeps saving (each write moves A's view along).
+    assert_eq!(web_as(&s, "ticket-A", meta("a2", false)).await.status, StatusCode::OK);
+    // B opens, A saves again, B's save is refused (project changed since B opened it).
+    assert_eq!(web_as(&s, "ticket-B", json!({"action": "open", "name": "W1"})).await.status, StatusCode::OK);
+    assert_eq!(web_as(&s, "ticket-A", meta("a3", false)).await.status, StatusCode::OK);
+    let b = web_as(&s, "ticket-B", meta("b1", false)).await;
+    assert_eq!(b.status, StatusCode::CONFLICT, "{}", b.json);
+    assert_eq!(b.json["code"], "revision_conflict");
+    // A browser that never opened an existing, already changed project cannot overwrite it either.
+    let c = web_as(&s, "ticket-C", meta("c1", false)).await;
+    assert_eq!(c.json["code"], "revision_conflict", "{}", c.json);
+    // B re-opens and can save; nothing of A's was lost in between.
+    let opened = web_as(&s, "ticket-B", json!({"action": "open", "name": "W1"})).await;
+    assert_eq!(opened.json["comment"], "a3", "{}", opened.json);
+    assert_eq!(web_as(&s, "ticket-B", meta("b2", false)).await.status, StatusCode::OK);
+    // Save As under a new name works without opening it.
+    let sa = json!({"action": "save_meta", "name": "W1 copy", "project": {"samples": [], "comment": "x"}, "create": true, "overwrite": false});
+    assert_eq!(web_as(&s, "ticket-A", sa).await.status, StatusCode::OK);
+    // A desktop write (API v1) moves the revision as well: A's stale view is refused.
+    let t = s.login("Casework Analyst").await;
+    let l = s.post("/api/v1/projects/W1/lease", Some(&t), &[], json!({})).await;
+    let rev = l.json["revision"].as_i64().unwrap();
+    let w = s.post("/api/v1/projects/W1/idx", Some(&t), &lease_headers(&l.json, rev), save_meta("desk", false)).await;
+    assert_eq!(w.status, StatusCode::OK, "{}", w.json);
+    s.call("DELETE", "/api/v1/projects/W1/lease", Some(&t), &[("x-lease-id", l.json["lease_id"].as_str().unwrap().to_string())], Body::empty()).await;
+    assert_eq!(web_as(&s, "ticket-B", meta("b3", false)).await.json["code"], "revision_conflict");
+}

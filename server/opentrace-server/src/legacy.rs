@@ -1,7 +1,13 @@
 //! The existing web UI (`/`, `/idx/`, `/api/*`) served unchanged through `opentrace_core::server::App::handle`,
-//! with one addition: project writes from the web are refused while another client holds the project's edit lease,
-//! and every accepted web write advances the project revision (so a desktop editor with an older revision gets a
-//! conflict instead of silently overwriting it).
+//! with these additions for project writes from the web:
+//!
+//! * refused while another client holds the project's edit lease;
+//! * every accepted web write advances the project revision (a desktop editor with an older revision gets a conflict
+//!   instead of silently overwriting it);
+//! * optimistic check between browsers: the server remembers, per browser session (`X-User-Ticket`, stored hashed)
+//!   and project, the revision that session last opened or wrote (`web_views`). A write is refused when the project
+//!   changed since — two web users can no longer overwrite each other's work. A project that does not exist yet, or was
+//!   never changed through this server (revision 0), may be written without having been opened (new project, Save As).
 use crate::leases;
 use crate::state::Shared;
 use axum::body::Body;
@@ -45,6 +51,31 @@ pub fn touched_projects(body: &[u8]) -> Touch {
     }
     Touch::Names(names)
 }
+
+fn peek(body: &[u8]) -> (String, Option<String>) {
+    let p = serde_json::from_slice::<Peek>(body).ok();
+    let action = p.as_ref().and_then(|p| p.action.clone()).unwrap_or_default();
+    let name = p.and_then(|p| p.name).and_then(|v| v.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty());
+    (action, name)
+}
+
+fn ticket_key(headers: &axum::http::HeaderMap) -> String {
+    crate::db::sha256_hex(headers.get("x-user-ticket").and_then(|v| v.to_str().ok()).unwrap_or("").as_bytes())
+}
+
+fn view_of(db: &rusqlite::Connection, key: &str, project: &str) -> Result<Option<i64>, String> {
+    crate::db::get_opt::<i64>(db, "SELECT revision FROM web_views WHERE ticket_sha256 = ?1 AND project = ?2", rusqlite::params![key, project])
+}
+
+fn set_view(db: &rusqlite::Connection, key: &str, project: &str, revision: i64) {
+    let _ = db.execute(
+        "INSERT INTO web_views (ticket_sha256, project, revision, updated_ms) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (ticket_sha256, project) DO UPDATE SET revision = excluded.revision, updated_ms = excluded.updated_ms",
+        rusqlite::params![key, project, revision, crate::db::now_ms()],
+    );
+}
+
+const VIEW_RETENTION_MS: i64 = 30 * 24 * 3600 * 1000;
 
 fn any_active_lease(db: &rusqlite::Connection, now: i64) -> Result<Option<(String, String)>, String> {
     db.query_row("SELECT name, user_name FROM project_leases WHERE expires_ms > ?1 LIMIT 1", [now], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -151,6 +182,32 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
                         Err(e) => return json_err(500, json!({"error": format!("{:?}", e)})),
                     }
                 }
+                let key = ticket_key(&headers);
+                let (action, _) = peek(&core_req.body);
+                for (i, n) in names.iter().enumerate() {
+                    // The target of rename / save_as / import (`new_name`) is a new project: nothing to compare with.
+                    if i > 0 || action == "import" {
+                        continue;
+                    }
+                    let current = match leases::revision(&db, n) {
+                        Ok(r) => r,
+                        Err(e) => return json_err(500, json!({"error": format!("{:?}", e)})),
+                    };
+                    let seen = match view_of(&db, &key, n) {
+                        Ok(v) => v,
+                        Err(e) => return json_err(500, json!({"error": e})),
+                    };
+                    let stale = match seen {
+                        Some(r) => r != current,
+                        // Not opened by this browser: fine for a new project (or a name reused after deletion).
+                        None => current != 0 && opentrace_core::idx_projects::ProjectLibrary::new(Some(st2.legacy.projects_root())).exists(n),
+                    };
+                    if stale {
+                        return json_err(409, json!({
+                            "error": format!("Проект «{}» изменён на сервере после того, как вы его открыли (другим пользователем или в другом окне). Сохранение отклонено, чтобы не затереть чужие изменения: сохраните проект под другим именем или откройте его заново. / Project changed on the server since you opened it.", n),
+                            "code": "revision_conflict", "revision": current}));
+                    }
+                }
                 let r = st2.legacy.handle(&core_req);
                 if r.code == 200 {
                     let mut bumped = names.clone();
@@ -160,13 +217,28 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
                         }
                     }
                     for n in &bumped {
-                        let _ = leases::bump_unleased(&mut db, n, None);
+                        if let Ok(r) = leases::bump_unleased(&mut db, n, None) {
+                            set_view(&db, &key, n, r);
+                        }
                     }
                 }
                 return respond(r.code, &r.kind, r.body);
             }
         }
         let r = st2.legacy.handle(&core_req);
+        if r.code == 200 && method == "POST" && path == "/api/idx-project" {
+            // Remember what this browser session has seen of the project it opened.
+            if let (action, Some(name)) = peek(&core_req.body) {
+                if action == "open" {
+                    let db = st2.db();
+                    let now = crate::db::now_ms();
+                    let _ = db.execute("DELETE FROM web_views WHERE updated_ms < ?1", [now - VIEW_RETENTION_MS]);
+                    if let Ok(rev) = leases::revision(&db, &name) {
+                        set_view(&db, &ticket_key(&headers), &name, rev);
+                    }
+                }
+            }
+        }
         respond(r.code, &r.kind, r.body)
     })
     .await
