@@ -125,3 +125,40 @@ fn bit_identical_to_glibc_fma_variant() {
     }
     assert_eq!((de, dl, dp), (0, 0, 0), "differences in {} cases each (exp, log, pow)", n);
 }
+
+/// `expm1` and `sin` still come from the system C library (`cmath::sys`). Used by the analysis in
+/// `sizing_quality` (expm1 of a log-probability ≤ 0) and `numeric` (sin(π·x) in the gamma reflection). This
+/// fingerprint shows whether a platform's libm agrees with glibc on these ranges; a mismatch means the port must be
+/// extended before results can be claimed identical.
+fn system_fingerprint(n: usize) -> String {
+    let mut r = Rng(0xD1B5_4A32_D192_ED03);
+    let mut h = Sha256::new();
+    for i in 0..n {
+        let e = match i % 3 {
+            0 => -745.0 * r.u01(),
+            1 => -1e-3 * r.u01(),
+            _ => -r.wide(-60, 9),
+        };
+        let s = match i % 3 {
+            0 => std::f64::consts::PI * (2.0 * r.u01()),
+            1 => (r.u01() - 0.5) * 2e-6,
+            _ => (r.u01() - 0.5) * 2000.0,
+        };
+        h.update(opentrace_core::cmath::expm1(e).to_bits().to_le_bytes());
+        h.update(opentrace_core::cmath::sin(s).to_bits().to_le_bytes());
+    }
+    h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Recorded on Linux x86-64 (glibc 2.39).
+const SYSTEM_FINGERPRINT_1M: &str = "4bff6dd7099b8f7e92793993e16b6854bca79571c8063331e8e817d5511f8624";
+
+#[test]
+fn expm1_and_sin_agree_with_glibc_on_this_platform() {
+    let got = system_fingerprint(1_000_000);
+    eprintln!("expm1/sin fingerprint: {}", got);
+    if SYSTEM_FINGERPRINT_1M.starts_with("FILLED") {
+        panic!("record this fingerprint: {}", got);
+    }
+    assert_eq!(got, SYSTEM_FINGERPRINT_1M, "this platform's libm expm1/sin differ from glibc: extend libm_port before claiming identical results");
+}
