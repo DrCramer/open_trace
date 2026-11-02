@@ -125,3 +125,14 @@ sudo apt install ./src-tauri/target/release/bundle/deb/*.deb
 ```
 
 Данные пользователя: `~/.local/share/org.opentrace.desktop/` (проекты, security, `fsa-cache`), настройки: `~/.config/org.opentrace.desktop/desktop.json`. Токен сервера хранится в ключнице ядра Linux (keyutils) до выхода из сеанса; после перезагрузки потребуется повторный вход.
+
+Пакеты: `.deb` (≈6 МБ; ставит `/usr/bin/opentrace-desktop`, ресурсы в `/usr/lib/OpenTrace Desktop/resources`, ярлык меню; зависимости — WebKitGTK 4.1 и GTK 3) и AppImage (≈80 МБ, включает библиотеки; на системах без FUSE запуск `APPIMAGE_EXTRACT_AND_RUN=1 ./OpenTrace*.AppImage`). Удаление: `sudo apt remove open-trace-desktop` (данные пользователя остаются).
+
+Проверка установленного пакета (самотест в реальном webview; на сервере без дисплея — через `xvfb-run`):
+
+```bash
+OPENTRACE_DESKTOP_DATA_DIR=$(mktemp -d) OPENTRACE_DESKTOP_SELFTEST=$PWD/selftest.json xvfb-run -a /usr/bin/opentrace-desktop
+grep '"pass"' selftest.json   # "pass": true
+```
+
+Проверено (Ubuntu 24.04 x86_64, WebKitGTK 2.52): `.deb` и AppImage собраны, установлены и прошли самотест при скрытом дереве исходников — интерфейс и данные берутся из пакета.

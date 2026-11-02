@@ -2,7 +2,7 @@
 
 Windows 10/11 x64 (клиент) и Windows Server 2019+/Windows 10/11 x64 (сервер). Docker не нужен.
 
-> Исследовательское ПО. Не валидировано для диагностики и судебно-экспертной работы. Результаты анализа на Windows пока могут отличаться от Linux в последнем бите для части моделей пиков (см. `BASELINE_AUDIT.md`, W6).
+> Исследовательское ПО. Не валидировано для диагностики и судебно-экспертной работы. Численные результаты на Windows совпадают с Linux побитово на golden-корпусах (порт `exp`/`log`/`pow` glibc, см. `BASELINE_AUDIT.md`, W6); имена образцов, различающиеся только регистром, на Windows не сохраняются (W7).
 
 ## 1. Инструменты сборки
 
@@ -76,17 +76,24 @@ $env:OPENTRACE_RESOURCES = "$dst\resources"
 Invoke-RestMethod http://127.0.0.1:8770/api/v1/health
 ```
 
-### Автозапуск
+### Служба Windows
 
-Полноценная служба Windows (SCM) — этап F. Сейчас: задача планировщика при загрузке под `NT AUTHORITY\LOCAL SERVICE` (только встроенные средства; права на запись только в каталог данных). В PowerShell от администратора:
+`opentrace-server.exe` сам регистрируется в диспетчере служб (SCM). В PowerShell **от администратора**:
 
 ```powershell
-cd server\opentrace-server\packaging\windows
-.\install-scheduled-task.ps1 -InstallDir "C:\Program Files\OpenTrace Server" -DataDir "C:\ProgramData\OpenTrace\server" -ConfigFile "C:\ProgramData\OpenTrace\server\server.toml"
-Get-ScheduledTask -TaskName "OpenTrace Server" | Get-ScheduledTaskInfo
+& "$dst\opentrace-server.exe" service-install --config C:\ProgramData\OpenTrace\server\server.toml
+sc.exe start OpenTraceServer
+Invoke-RestMethod http://127.0.0.1:8770/api/v1/health
+Get-Content C:\ProgramData\OpenTrace\server\logs\server.log -Tail 20
 ```
 
-Скрипт в этой итерации **не запускался** на реальной машине (требует прав администратора); перед использованием в лаборатории проверьте на тестовом сервере. Удаление: `Unregister-ScheduledTask -TaskName "OpenTrace Server" -Confirm:$false`.
+Что делает `service-install`: служба `OpenTraceServer` (имя меняется `--name`), автозапуск, запуск под виртуальной учётной записью `NT SERVICE\OpenTraceServer` (без пароля, без прав администратора), перезапуск при сбое через 10 с / 60 с / 5 мин (в том числе при выходе с ошибкой), права «изменение» только на `data_dir` (через `icacls`; на файл конфигурации — чтение, если он вне `data_dir`). Остановка `sc.exe stop OpenTraceServer` завершает текущие запросы и выходит штатно. Журнал — `<data_dir>\logs\server.log`; если не прочитана конфигурация — `opentrace-server-service.log` в `%TEMP%` учётной записи службы (у виртуальной учётной записи обычно `C:\Windows\ServiceProfiles\OpenTraceServer\AppData\Local\Temp`) и запись в журнале событий «System» о неудачном запуске.
+
+Удаление (каталог данных не трогается): `& "$dst\opentrace-server.exe" service-uninstall`. Обновление: `sc.exe stop`, замена exe и `resources`, `sc.exe start` (путь к exe записан в службе — не меняйте каталог установки без переустановки службы).
+
+`service-run` запускает только SCM; из консоли команда сразу завершается с сообщением. Для пробного запуска используйте `serve`.
+
+Альтернатива без регистрации службы — задача планировщика (`packaging\windows\install-scheduled-task.ps1`, запуск под `NT AUTHORITY\LOCAL SERVICE`); удаление: `Unregister-ScheduledTask -TaskName "OpenTrace Server" -Confirm:$false`.
 
 ### HTTPS на Windows
 
@@ -99,15 +106,20 @@ Get-ScheduledTask -TaskName "OpenTrace Server" | Get-ScheduledTaskInfo
 & "$dst\opentrace-server.exe" verify-backup D:\Backups\OpenTrace\opentrace-backup-<дата>
 ```
 
-Восстановление — в пустой каталог при остановленной задаче (`Stop-ScheduledTask`), команда `restore <каталог>`; затем укажите новый `data_dir` в конфигурации.
+Восстановление — в пустой каталог при остановленной службе (`sc.exe stop OpenTraceServer`), команда `restore <каталог>`; затем укажите новый `data_dir` в конфигурации.
 
 ## 4. Что проверено на Windows в этой итерации
 
+Windows 11 x64, rustc 1.94 MSVC, WebView2 142, обычный (не повышенный) пользователь.
+
 | Что | Результат |
 |---|---|
-| Сборка `opentrace` (ядро) MSVC | ✅ после исправлений W1–W3 |
-| `cargo test` ядра | ⚠️ HTTP-golden ✅; известные различия W6 (1 ULP), W7 (защита от перезаписи), W8 (текст ошибки ОС) |
+| Сборка ядра MSVC, `cargo test --release` ядра | ✅ все наборы, включая побитовые golden (после порта glibc-математики; в `idx_projects` не сравниваются 6 из 46 сессий, эталон которых невозможен на NTFS — W7/W7c) |
+| Отпечаток `libm_port` (10⁶ аргументов exp/log/pow) | ✅ совпадает с Linux |
 | OpenTrace Server: 19 модульных + 8 API-тестов, release-бинарник | ✅ |
+| Server: `service-run` из консоли / `service-install` без прав администратора | ✅ понятный отказ (код 1); **регистрация и запуск службы не проверены** — нужен повышенный PowerShell |
 | Desktop: сборка и самотест в WebView2 | ✅ PASS |
 | Desktop + Server по HTTP, два клиента (выгрузка и дедупликация FSA) | ✅ PASS |
-| Установщики NSIS/MSI, задача планировщика, 2 монитора, печать | не проверено |
+| Установщики NSIS (4,7 МБ) и MSI (6,7 МБ) | ✅ собраны; NSIS: тихая установка для текущего пользователя → самотест установленного exe (ресурсы из пакета, дерево исходников скрыто) PASS → тихое удаление; MSI не устанавливался (нужны права администратора) |
+| Пакетный анализ 1/48/96 синтетических FSA (`bench_batch`) | ✅ см. `ROADMAP.md` |
+| 2 монитора, печать, подпись установщиков | не проверено |

@@ -31,6 +31,7 @@ fn e(x: windows_service::Error) -> String {
         windows_service::Error::Winapi(io) if io.raw_os_error() == Some(5) => "access denied: run from an elevated (administrator) prompt".into(),
         windows_service::Error::Winapi(io) if io.raw_os_error() == Some(1073) => "the service already exists (service-uninstall first)".into(),
         windows_service::Error::Winapi(io) if io.raw_os_error() == Some(1060) => "no such service".into(),
+        windows_service::Error::Winapi(io) if io.raw_os_error() == Some(1063) => "this process was not launched by the SCM".into(),
         _ => format!("{} ({:?})", x, std::error::Error::source(&x)),
     }
 }
