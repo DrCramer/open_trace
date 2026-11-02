@@ -29,3 +29,5 @@ default = []
 # Pure-Rust libm (musl port) instead of the platform C library: identical bits on Windows/Linux. Opt-in until the
 # golden corpora prove it equal to glibc on Linux (see docs/desktop/BASELINE_AUDIT.md, "Numerical portability").
 portable-math = ["dep:libm"]
+# Platform C library for exp/log/pow too (results then depend on OS and CPU; for comparisons only).
+system-libm = []

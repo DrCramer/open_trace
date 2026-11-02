@@ -1,13 +1,15 @@
 //! Single entry point for the transcendental functions the analysis uses.
 //!
-//! Default build: the platform C library (`libm` of glibc on Linux — the platform the Python reference and the golden
-//! corpora were produced on). With the `portable-math` feature the pure-Rust `libm` crate (a port of musl's libm) is
-//! used instead, which gives the same bits on every OS/CPU. Windows' UCRT `exp`/`pow` differ from glibc by 1 ULP on some
-//! inputs (golden corpora `morphology`, `spike`), see docs/desktop/BASELINE_AUDIT.md. Exact operations (`frexp`,
-//! `ldexp`) are routed here too so that all libm traffic is in one place.
+//! `exp`, `log`, `pow` (default build): `libm_port`, a bit-exact Rust port of glibc's FMA variant of these functions —
+//! the variant that produced the golden corpora. Same bits on Linux, Windows, with or without FMA hardware (verified
+//! against glibc on 10^8 random arguments per function; `tests/libm_port.rs`).
+//! `expm1`, `sin`, `frexp`, `ldexp`: the platform C library (`frexp`/`ldexp` are exact; `expm1`/`sin` are still
+//! platform-dependent in principle and are on the list in docs/desktop/ROADMAP.md).
+//! Features: `system-libm` uses the C library for everything (old behaviour, for comparisons); `portable-math` uses the
+//! pure-Rust `libm` crate (musl port; differs from the reference in 6 golden corpora — experimental).
 
 #[cfg(not(feature = "portable-math"))]
-mod imp {
+mod sys {
     extern "C" {
         #[link_name = "exp"]
         fn c_exp(x: f64) -> f64;
@@ -55,6 +57,29 @@ mod imp {
         unsafe { c_ldexp(x, e) }
     }
     pub const BACKEND: &str = "system-libm";
+}
+
+#[cfg(all(not(feature = "portable-math"), feature = "system-libm"))]
+mod imp {
+    pub use super::sys::*;
+}
+
+#[cfg(all(not(feature = "portable-math"), not(feature = "system-libm")))]
+mod imp {
+    pub use super::sys::{expm1, frexp, ldexp, sin};
+    #[inline]
+    pub fn exp(x: f64) -> f64 {
+        crate::libm_port::exp(x)
+    }
+    #[inline]
+    pub fn log(x: f64) -> f64 {
+        crate::libm_port::log(x)
+    }
+    #[inline]
+    pub fn pow(x: f64, y: f64) -> f64 {
+        crate::libm_port::pow(x, y)
+    }
+    pub const BACKEND: &str = "glibc-fma-port";
 }
 
 #[cfg(feature = "portable-math")]
