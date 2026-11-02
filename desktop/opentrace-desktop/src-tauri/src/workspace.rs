@@ -36,6 +36,8 @@ pub struct Workspace {
     current: Mutex<Option<String>>,
     /// Serialises writes so revisions advance in order.
     write: Mutex<()>,
+    /// Analyses run in this session, posted as provenance when their sample is saved to a server project.
+    pub ledger: crate::provenance::Ledger,
 }
 
 #[derive(Debug)]
@@ -74,7 +76,7 @@ fn code(e: &RemoteError) -> Option<String> {
 
 impl Workspace {
     pub fn new(remote: Arc<Remote>, ca: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>) -> Workspace {
-        Workspace { remote, ca, held: Mutex::new(HashMap::new()), current: Mutex::new(None), write: Mutex::new(()) }
+        Workspace { remote, ca, held: Mutex::new(HashMap::new()), current: Mutex::new(None), write: Mutex::new(()), ledger: Default::default() }
     }
 
     fn ca(&self) -> Option<PathBuf> {
@@ -98,6 +100,7 @@ impl Workspace {
             "readonly": h.as_ref().and_then(|h| h.readonly.clone()),
             "revision": h.as_ref().map(|h| h.revision),
             "lease_expires_ms": h.as_ref().map(|h| h.expires_ms),
+            "provenance": self.ledger.status(),
         })
     }
 
@@ -276,7 +279,37 @@ impl Workspace {
             obj.insert("fsa_sha256".into(), json!(sha));
         }
         let r = self.guarded(name, &format!("/api/v1/projects/{}/idx", enc(name)), &body)?;
+        if let Some(fsa_sha) = req["data"]["analysis"]["source_sha256"].as_str() {
+            let id = req.get("id").map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string())).unwrap_or_default();
+            self.post_provenance(name, &id, fsa_sha);
+        }
         Ok(r["result"].clone())
+    }
+
+    /// Provenance of the saved sample's analysis (see `provenance.rs`). Never fails the save itself.
+    fn post_provenance(&self, name: &str, id: &str, fsa_sha: &str) {
+        let rec = match self.ledger.lookup(fsa_sha) {
+            Ok(r) => r,
+            Err(0) => return, // not analysed in this session (e.g. a project opened from the server)
+            Err(_) => {
+                if self.ledger.mark_posted(name, id, &format!("ambiguous:{}", fsa_sha)) {
+                    self.ledger.note(Ok(()), true);
+                }
+                return;
+            }
+        };
+        if !self.ledger.mark_posted(name, id, &rec.result_sha256) {
+            return;
+        }
+        let body = json!({"sample_id": id, "fsa_sha256": rec.fsa_sha256, "analysis_version": rec.analysis_version,
+                          "settings": rec.settings, "result_sha256": rec.result_sha256});
+        match self.guarded(name, &format!("/api/v1/projects/{}/analyses", enc(name)), &body) {
+            Ok(_) => self.ledger.note(Ok(()), false),
+            Err(e) => {
+                self.ledger.unmark_posted(name, id, &rec.result_sha256);
+                self.ledger.note(Err(e.body["error"].as_str().map(String::from).unwrap_or_else(|| e.body.to_string())), false);
+            }
+        }
     }
 
     pub fn release(&self, name: &str) {

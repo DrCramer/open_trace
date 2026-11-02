@@ -120,6 +120,9 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
         return json_response(413, &json!({"error": format!("Request too large: {} bytes (limit {} MiB)", req.body().len(), limit / (1024 * 1024))}));
     }
     let r = st.core.handle(&to_core(&req, st.core.bound_port()));
+    if path == "/api/analyze" && r.code == 200 && st.remote.session().is_some() {
+        st.workspace.ledger.record(req.uri().query(), req.body(), &r.body);
+    }
     let body = if r.code == 200 && r.kind.starts_with("text/html") { inject_scripts(r.body, st.selftest.is_some()) } else { r.body };
     response(r.code, &r.kind, body)
 }

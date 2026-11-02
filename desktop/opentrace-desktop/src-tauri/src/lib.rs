@@ -2,6 +2,7 @@
 //! `opentrace-core`, optional organisation features through OpenTrace Server API v1.
 mod bridge;
 pub mod config;
+pub mod provenance;
 mod pool;
 pub mod remote;
 mod selftest;

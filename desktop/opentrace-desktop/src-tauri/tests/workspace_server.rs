@@ -140,3 +140,37 @@ fn desktop_and_server_hash_standards_identically() {
         assert_eq!(opentrace_desktop_lib::canonical_json(&v), opentrace_server::standards::canonical(&v));
     }
 }
+
+#[test]
+fn provenance_of_saved_samples_is_posted_once_and_never_guessed() {
+    let s = server();
+    let (r, a) = client(&s, "Casework Analyst");
+    let fsa = opentrace_core::demo::demo_bytes();
+    let other = opentrace_core::demo::synthetic_run_fsa(7);
+    let sha = |b: &[u8]| opentrace_desktop_lib::provenance::sha256_hex(b);
+    // The bridge notes every analysis; here directly: one file once, another one with two different settings.
+    a.ledger.record(Some("threshold=100&filename=a.fsa&analysis_engine=residual"), &fsa, b"{\"result\":1}");
+    a.ledger.record(Some("threshold=100"), &other, b"r1");
+    a.ledger.record(Some("threshold=150"), &other, b"r2");
+    a.handle(&meta("v1", true)).unwrap();
+    let save = |id: &str, bytes: &[u8]| {
+        a.handle(&json!({"action": "save_sample", "name": "Case 1", "id": id, "fsa_b64": opentrace_core::matrix::b64encode(bytes),
+                         "data": {"analysis": {"source_sha256": sha(bytes), "channels": []}}}))
+            .unwrap()
+    };
+    save("1", &fsa);
+    save("1", &fsa); // saved again unchanged: not posted twice
+    save("2", &other); // ambiguous: nothing posted
+    let list = r.get_json(None, "/api/v1/projects/Case%201/analyses").unwrap();
+    let rows = list["analyses"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{}", list);
+    assert_eq!(rows[0]["sample_id"], "1");
+    assert_eq!(rows[0]["fsa_sha256"], sha(&fsa));
+    assert_eq!(rows[0]["result_sha256"], sha(b"{\"result\":1}"));
+    assert_eq!(rows[0]["settings"], json!({"analysis_engine": "residual", "threshold": "100"}));
+    assert_eq!(rows[0]["analysis_version"], opentrace_core::server_analyze::analysis_version());
+    assert_eq!(rows[0]["created_by"], "Casework Analyst");
+    assert!(rows[0]["lab_profile"].is_null());
+    let st = a.status()["provenance"].clone();
+    assert_eq!((st["posted"].as_u64(), st["ambiguous"].as_u64(), st["failed"].as_u64()), (Some(1), Some(1), Some(0)), "{}", st);
+}
