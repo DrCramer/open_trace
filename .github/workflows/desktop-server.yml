@@ -114,14 +114,18 @@ jobs:
         shell: pwsh
         run: |
           $env:OPENTRACE_DESKTOP_SELFTEST = "$PWD\selftest.json"
-          $p = Start-Process -FilePath desktop\opentrace-desktop\src-tauri\target\debug\opentrace-desktop.exe -PassThru -Wait
+          $env:OPENTRACE_DESKTOP_TRACE = "1"
+          $p = Start-Process -FilePath desktop\opentrace-desktop\src-tauri\target\debug\opentrace-desktop.exe -PassThru -Wait -RedirectStandardError selftest-stderr.txt
           Get-Content selftest.json
+          Get-Content selftest-stderr.txt -Tail 80
           if ($p.ExitCode -ne 0) { exit $p.ExitCode }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-selftest-${{ runner.os }}
-          path: selftest.json
+          path: |
+            selftest.json
+            selftest-stderr.txt
           if-no-files-found: ignore
       - name: Installers
         working-directory: desktop/opentrace-desktop

@@ -362,7 +362,14 @@ impl ProjectLibrary {
             });
             out.push((name.to_lowercase(), row));
         }
-        out.sort_by(|a, b| a.0.cmp(&b.0));
+        // Python sorts by the lower-cased name only, so names that differ just by case kept the file system's
+        // directory order (not reproducible across machines). Ties are broken deterministically: newer first, then
+        // by exact name — this reproduces the reference corpus and is the same on every file system.
+        out.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| b.1["created"].as_str().unwrap_or("").cmp(a.1["created"].as_str().unwrap_or("")))
+                .then_with(|| b.1["name"].as_str().unwrap_or("").cmp(a.1["name"].as_str().unwrap_or("")))
+        });
         Ok(Value::Array(out.into_iter().map(|(_, r)| r).collect()))
     }
 

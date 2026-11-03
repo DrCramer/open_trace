@@ -58,6 +58,8 @@ fn golden_corpora_match_python_reference() {
         if got != want {
             let (g, w) = (String::from_utf8_lossy(&got), String::from_utf8_lossy(&want));
             let first = g.lines().zip(w.lines()).position(|(a, b)| a != b).unwrap_or(g.lines().count().min(w.lines().count()));
+            let cut = |l: Option<&str>| l.unwrap_or("<missing>").chars().take(400).collect::<String>();
+            eprintln!("{} line {}:\n  got:  {}\n  want: {}", name, first + 1, cut(g.lines().nth(first)), cut(w.lines().nth(first)));
             failures.push(format!("{}: first differing line {}", name, first + 1));
         }
     }

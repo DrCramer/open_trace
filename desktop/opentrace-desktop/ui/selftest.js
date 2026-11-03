@@ -138,6 +138,12 @@
         window.OT.displayPlots();
         c.plot_opened = await wait(function () { return window.OT.state.plotWin && !window.OT.state.plotWin.closed; }, 15000);
         await sleep(300);
+        // Diagnostics for CI: what the opener can see of the popup (same origin).
+        await wait(function () { var w = window.OT.state.plotWin; return w && w.document && w.document.readyState === 'complete' && w.__otSelftestStarted; }, 15000);
+        try {
+          var pw = window.OT.state.plotWin;
+          c.plot_window = { location: String(pw.location.href), ready_state: pw.document.readyState, selftest_started: !!pw.__otSelftestStarted, has_opener: pw.opener === window, canvases: pw.document.querySelectorAll('#plotarea canvas').length };
+        } catch (e) { c.plot_window = { error: String(e) }; }
         if (window.__OT_SELFTEST_SERVER__) {
           // The analysed FSA must reach the server in the background (HEAD/PUT by SHA-256).
           var t1 = Date.now();
