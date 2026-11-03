@@ -246,6 +246,31 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_from_schema_2_keeps_data() {
+        // A database written by a server that knew migrations 1-2 only.
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = open(&dir.path().join("t.sqlite3")).unwrap();
+        schema_version(&c).unwrap();
+        for (version, description, sql) in &MIGRATIONS[..2] {
+            let tx = c.transaction().unwrap();
+            tx.execute_batch(sql).unwrap();
+            tx.execute("INSERT INTO schema_migrations (version, description, applied_ms) VALUES (?1, ?2, ?3)", params![version, description, 1]).unwrap();
+            tx.commit().unwrap();
+        }
+        c.execute("INSERT INTO project_state (name, revision) VALUES ('P', 7)", []).unwrap();
+        c.execute(
+            "INSERT INTO standard_versions (kind, name, version, status, content, content_sha256, created_by, created_ms) VALUES ('kit', 'K', 1, 'approved', '{}', 'h', 'a', 1)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(migrate(&mut c).unwrap(), vec![3]);
+        assert_eq!(c.query_row("SELECT revision FROM project_state WHERE name = 'P'", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
+        assert_eq!(c.query_row("SELECT status FROM standard_versions WHERE name = 'K'", [], |r| r.get::<_, String>(0)).unwrap(), "approved");
+        assert!(c.execute("UPDATE standard_versions SET content = '{\"x\":1}' WHERE name = 'K'", []).is_err(), "immutability trigger survives");
+        assert_eq!(c.query_row("SELECT COUNT(*) FROM web_views", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
     fn newer_schema_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let mut c = open(&dir.path().join("t.sqlite3")).unwrap();
