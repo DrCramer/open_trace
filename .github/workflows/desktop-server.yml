@@ -315,10 +315,15 @@ jobs:
           $msi = Get-ChildItem "$bundle\msi\*.msi" | Select-Object -First 1
           $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$($msi.FullName)`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 40; throw "MSI install exit $($p.ExitCode)" }
-          Test-Installed "$env:ProgramFiles\OpenTrace Desktop\opentrace-desktop.exe" 'msi'
+          Select-String -Path "$env:RUNNER_TEMP\msi-install.log" -Pattern 'Property\(S\): (INSTALLDIR|APPLICATIONFOLDER|ALLUSERS)' | Select-Object -First 5 | ForEach-Object { $_.Line }
+          $installed = @("$env:ProgramFiles\OpenTrace Desktop", "${env:ProgramFiles(x86)}\OpenTrace Desktop", "$env:LOCALAPPDATA\OpenTrace Desktop", "$env:LOCALAPPDATA\Programs\OpenTrace Desktop") |
+            ForEach-Object { Join-Path $_ 'opentrace-desktop.exe' } | Where-Object { Test-Path $_ } | Select-Object -First 1
+          "MSI installed: $installed"
+          if (-not $installed) { Get-ChildItem -Path $env:ProgramFiles, $env:LOCALAPPDATA -Filter opentrace-desktop.exe -Recurse -Depth 3 -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }; throw 'MSI: installed program not found' }
+          Test-Installed $installed 'msi'
           $p = Start-Process msiexec.exe -ArgumentList '/x', "`"$($msi.FullName)`"", '/qn', '/norestart' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "MSI uninstall exit $($p.ExitCode)" }
-          if (Test-Path "$env:ProgramFiles\OpenTrace Desktop\opentrace-desktop.exe") { throw 'MSI uninstall left the program' }
+          if (Test-Path $installed) { throw 'MSI uninstall left the program' }
           'Installed packages: OK'
       - uses: actions/upload-artifact@v4
         with:
