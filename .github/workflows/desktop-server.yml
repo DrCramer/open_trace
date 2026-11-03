@@ -196,3 +196,12 @@ jobs:
             desktop/opentrace-desktop/src-tauri/target/release/bundle/deb/*.deb
             desktop/opentrace-desktop/src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: ignore
+      # Debug symbols of the shipped Windows binary: needed to read stacks of hang/crash dumps from users.
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: opentrace-desktop-Windows-symbols
+          path: |
+            desktop/opentrace-desktop/src-tauri/target/release/opentrace_desktop.pdb
+            desktop/opentrace-desktop/src-tauri/target/release/opentrace-desktop.exe
+          if-no-files-found: warn
