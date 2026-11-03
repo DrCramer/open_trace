@@ -26,8 +26,14 @@
   // Samples Plot window. Measures wall time and, where the webview exposes it (Chromium/WebView2), the JS heap.
   // Genotyping through the UI (OPENTRACE_DESKTOP_SELFTEST_GENOTYPE=N): synthetic kit imported like the Panel Manager
   // does, an allelic ladder plus N samples, Add Samples + Analyze (sizing, ladder, genotyping), calls vs truth.
+  // Provenance counters of this step only (earlier self-test steps may have saved samples to the server too).
+  var provenanceNow = async function () { try { return (await (await fetch('/desktop/api/workspace/status')).json()).provenance || {}; } catch (e) { return {}; } };
+  var since = function (now, before) {
+    return Object.assign({}, now, { posted: (now.posted || 0) - (before.posted || 0), profile_mismatch: (now.profile_mismatch || 0) - (before.profile_mismatch || 0), recorded: (now.recorded || 0) - (before.recorded || 0) });
+  };
   var genotypeRun = async function (n) {
     var g = { samples: n };
+    var pv0 = await provenanceNow();
     var OT = window.OT;
     var kt = await (await fetch('/desktop/api/selftest/kit')).json();
     var parse = async function (body) {
@@ -89,7 +95,7 @@
       var pw = window.open('/desktop/provenance.html', 'opentrace-provenance', 'width=980,height=640');
       await wait(function () { return pw && pw.document && pw.document.querySelectorAll('#list tbody tr td.ok, #list tbody tr td span.ok').length >= g.server_rows_with_profile; }, 20000);
       try { g.page_rows = pw.document.querySelectorAll('#list tbody tr').length; g.page_profile_rows = pw.document.querySelectorAll('#list tbody tr span.ok').length; pw.close(); } catch (e) { g.page_rows = String(e); }
-      g.provenance = ws.provenance;
+      g.provenance = since(ws.provenance || {}, pv0);
       g.lab_profile = ws.lab_profile;
       await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
     }
@@ -124,6 +130,7 @@
 
   var batchRun = async function (n) {
     var b = { files: n };
+    var pv0b = await provenanceNow();
     var OT = window.OT;
     var t0 = performance.now();
     var blobs = await Promise.all(Array.from({ length: n }, function (_, k) {
@@ -199,7 +206,7 @@
       b.saved = await OT.writeProject('Selftest batch ' + Date.now(), { create: true });
       b.save_ms = Math.round(performance.now() - t0);
       var ws = await (await fetch('/desktop/api/workspace/status')).json();
-      b.provenance = ws.provenance;
+      b.provenance = since(ws.provenance || {}, pv0b);
       b.lab_profile = ws.lab_profile;
       await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
     }
