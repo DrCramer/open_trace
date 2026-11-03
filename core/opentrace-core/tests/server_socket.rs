@@ -17,8 +17,13 @@ impl Drop for Server {
     }
 }
 
+static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn start() -> Server {
-    let tmp = std::env::temp_dir().join(format!("opentrace-sock-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
+    // A counter, not the clock: tests start servers in parallel and the Windows clock is coarse, so two servers could
+    // share (and lock) one directory — seen once in CI as a server exiting without its banner.
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let tmp = std::env::temp_dir().join(format!("opentrace-sock-{}-{}-{}", std::process::id(), seq, std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos()));
     std::fs::create_dir_all(&tmp).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_opentrace"))
         .args(["serve", "--port", "0", "--projects-dir"])
@@ -26,12 +31,15 @@ fn start() -> Server {
         .arg("--security-dir")
         .arg(tmp.join("s"))
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(std::fs::File::create(tmp.join("stderr.txt")).map(Stdio::from).unwrap_or_else(|_| Stdio::null()))
         .spawn()
         .unwrap();
     let mut first = String::new();
     BufReader::new(child.stdout.as_mut().unwrap()).read_line(&mut first).unwrap();
-    let port: u16 = first.split("127.0.0.1:").nth(1).and_then(|s| s.trim_end_matches(&['/', '\n'][..]).parse().ok()).unwrap_or_else(|| panic!("banner: {}", first));
+    let port: u16 = first.split("127.0.0.1:").nth(1).and_then(|s| s.trim_end_matches(&['/', '\n'][..]).parse().ok()).unwrap_or_else(|| {
+        let _ = child.wait();
+        panic!("banner: {:?}; stderr: {}", first, std::fs::read_to_string(tmp.join("stderr.txt")).unwrap_or_default())
+    });
     let mut s = Server { child, port, token: String::new(), _tmp: tmp };
     let (_, body) = s.request("GET", "/", &[], b"");
     let text = String::from_utf8_lossy(&body).into_owned();
