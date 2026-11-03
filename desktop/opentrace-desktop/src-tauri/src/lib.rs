@@ -1,6 +1,8 @@
 //! OpenTrace Desktop (Tauri 2): the existing OpenTrace web UI in native windows, analysis in-process through
 //! `opentrace-core`, optional organisation features through OpenTrace Server API v1.
 mod bridge;
+#[macro_use]
+pub mod diag;
 pub mod config;
 mod drafts;
 mod geometry;
@@ -47,6 +49,7 @@ fn data_dir(app: &tauri::App, selftest: bool) -> Result<PathBuf, String> {
 fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Result<(), Box<dyn std::error::Error>> {
     let data = data_dir(app, selftest.is_some())?;
     std::fs::create_dir_all(&data)?;
+    diag::init(&data);
     let cfg_path = if selftest.is_some() { data.join("desktop.json") } else { app.path().app_config_dir()?.join("desktop.json") };
     let resources = app.path().resource_dir().ok().map(|d| d.join("resources")).filter(|d| d.join("web").join("index.html").is_file());
     let core_cfg = opentrace_core::server::Config {
@@ -91,6 +94,15 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
         popup_reloaded: Mutex::new(Default::default()),
         geometry: geometry::PopupGeometry::load(geometry_path),
         drafts: drafts::Drafts::new(&data),
+        watchdog: Arc::new(diag::WatchdogState::default()),
+    });
+    // The self-test checks the watchdog with a short threshold (it blocks the UI thread on purpose for a few seconds).
+    if selftest.is_some() && std::env::var_os("OPENTRACE_DESKTOP_HANG_SECONDS").is_none() {
+        std::env::set_var("OPENTRACE_DESKTOP_HANG_SECONDS", "4");
+    }
+    let wd_handle = app.handle().clone();
+    diag::start_watchdog(diag::logs_dir(&data), st.watchdog.clone(), move |f| {
+        let _ = wd_handle.run_on_main_thread(f);
     });
     app.manage(st.clone());
     let st_ca = st.clone();
@@ -103,7 +115,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
                 sync.resume();
                 st2.reload_lab_profile();
             }
-            Err(e) => eprintln!("[desktop] session not resumed: {}", e.to_json()["error"]),
+            Err(e) => crate::dlog!("[desktop] session not resumed: {}", e.to_json()["error"]),
         });
     }
     // Self-test against a real server (CI / manual E2E): log in before the UI runs, so the FSA analysed by the UI
@@ -207,7 +219,7 @@ pub fn run() {
                 let (m, path) = (req.method().to_string(), req.uri().path().to_string());
                 let r = bridge::handle(&app, &st2, &label, req);
                 if windows::trace() {
-                    eprintln!("[trace] {} {} {} -> {}", label, m, path, r.status());
+                    crate::dlog!("[trace] {} {} {} -> {}", label, m, path, r.status());
                 }
                 responder.respond(r);
             });

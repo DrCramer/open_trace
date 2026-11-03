@@ -270,7 +270,7 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
                 .and_then(|v| v["projects"].as_array().map(|a| a.iter().filter_map(|p| p["name"].as_str().map(String::from)).collect()))
                 .unwrap_or_default();
             let draft = st.drafts.begin(&project, |n| names.iter().any(|x| x.eq_ignore_ascii_case(n)));
-            eprintln!("[desktop] saving a local draft of server project ({} chars name)", project.chars().count());
+            crate::dlog!("[desktop] saving a local draft of server project ({} chars name)", project.chars().count());
             json_response(200, &json!({"draft": draft}))
         }
         ("api/drafts/finish", true) => {
@@ -289,6 +289,17 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
                 Ok(()) => json_response(200, &json!({"ok": true})),
                 Err(x) => json_response(400, &json!({"error": x})),
             }
+        }
+        ("api/diag", false) => json_response(200, &json!({
+            "log_dir": crate::diag::logs_dir(&st.data_dir).display().to_string(),
+            "hangs": st.watchdog.hangs.load(std::sync::atomic::Ordering::SeqCst),
+            "last_dump": st.watchdog.last_dump.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|p| p.display().to_string()),
+        })),
+        // Self-test of the watchdog: keep the UI thread busy for `ms` (the request itself runs on a worker thread).
+        ("api/selftest/block-ui", true) if st.selftest.is_some() => {
+            let ms = query_param(req, "ms").and_then(|v| v.parse::<u64>().ok()).unwrap_or(9000).min(30000);
+            let _ = app.run_on_main_thread(move || std::thread::sleep(std::time::Duration::from_millis(ms)));
+            json_response(200, &json!({"blocked_ms": ms}))
         }
         ("api/drafts", false) => json_response(200, &json!({"drafts": st.drafts.list()})),
         // Exports (tables, panels, bins, reports …): native "Save As" instead of a silent file in Downloads (shim).

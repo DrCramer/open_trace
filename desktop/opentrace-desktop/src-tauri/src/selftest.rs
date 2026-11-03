@@ -5,7 +5,7 @@
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 pub const SELFTEST_JS: &str = include_str!("../../ui/selftest.js");
 
@@ -92,6 +92,7 @@ impl SelfTest {
     }
 
     pub fn finish(&self, app: &AppHandle, reports: &[(String, Value)]) {
+        let data_dir = app.try_state::<std::sync::Arc<crate::state::DesktopState>>().map(|s| s.data_dir.clone()).unwrap_or_default();
         let main = reports.iter().find(|(_, v)| v["window"] == "main").map(|r| r.1["checks"].clone()).unwrap_or(Value::Null);
         let plot = reports.iter().find(|(_, v)| v["window"] == "plot").map(|r| r.1["checks"].clone()).unwrap_or(Value::Null);
         let pass = main["ot_loaded"] == true
@@ -100,6 +101,9 @@ impl SelfTest {
             && main["analyze_channels"].as_u64().unwrap_or(0) > 0
             && main["plot_opened"] == true
             && main["popup_reopen"]["pass"] == true
+            && main["watchdog"]["hangs"].as_u64().unwrap_or(0) >= 1
+            && (!cfg!(windows) || main["watchdog"]["last_dump"].as_str().map(|p| std::fs::metadata(p).map(|m| m.len() > 1000).unwrap_or(false)).unwrap_or(false))
+            && std::fs::read_to_string(crate::diag::logs_dir(&data_dir).join("desktop.log")).map(|l| l.contains("UI thread not responding")).unwrap_or(false)
             && main["export"]["saved"].as_str().map(|p| p.ends_with("selftest-export.txt") && std::fs::read(p).ok().as_deref() == Some(&b"OpenTrace export\n"[..])).unwrap_or(false)
             && plot["opener_ot"] == true
             && plot["canvas"] == true
@@ -150,7 +154,7 @@ impl SelfTest {
             "windows": reports.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>(),
         });
         let _ = std::fs::write(&self.out, serde_json::to_vec_pretty(&report).unwrap());
-        eprintln!("[selftest] {} -> {}", if pass { "PASS" } else { "FAIL" }, self.out.display());
+        crate::dlog!("[selftest] {} -> {}", if pass { "PASS" } else { "FAIL" }, self.out.display());
         app.exit(if pass { 0 } else { 1 });
     }
 

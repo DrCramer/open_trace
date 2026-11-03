@@ -68,14 +68,14 @@ fn decorate<'a>(app: &AppHandle, st: &Arc<DesktopState>, b: WebviewWindowBuilder
         .on_navigation(|u| {
             let ok = allowed(u);
             if !ok {
-                eprintln!("[desktop] blocked navigation to {}", u);
+                crate::dlog!("[desktop] blocked navigation to {}", u);
             }
             ok
         })
         .on_new_window(move |url, features| popup(&app_nw, url, features))
         .on_page_load(|w, p| {
             if trace() {
-                eprintln!("[trace] page {} {:?} {}", w.label(), p.event(), p.url());
+                crate::dlog!("[trace] page {} {:?} {}", w.label(), p.event(), p.url());
             }
             reload_if_scheme_missed(&w, &p);
         })
@@ -91,7 +91,7 @@ fn decorate<'a>(app: &AppHandle, st: &Arc<DesktopState>, b: WebviewWindowBuilder
                         *destination = unique_path(&dir, &name);
                     }
                 }
-                eprintln!("[desktop] download {} -> {}", url.scheme(), destination.display());
+                crate::dlog!("[desktop] download {} -> {}", url.scheme(), destination.display());
                 true
             }
             DownloadEvent::Finished { path, success, .. } => {
@@ -122,7 +122,7 @@ fn reload_if_scheme_missed(w: &WebviewWindow, p: &tauri::webview::PageLoadPayloa
         return;
     }
     if !st.popup_reloaded.lock().unwrap_or_else(|e| e.into_inner()).insert(label.clone()) {
-        eprintln!("[desktop] window {} still has no app content after a reload", label);
+        crate::dlog!("[desktop] window {} still has no app content after a reload", label);
         // Tell the user instead of leaving an empty or error window (seen with WebView2 Runtime 131, not with 142).
         let ver = tauri::webview_version().unwrap_or_else(|_| "?".into());
         let text = format!(
@@ -137,7 +137,7 @@ fn reload_if_scheme_missed(w: &WebviewWindow, p: &tauri::webview::PageLoadPayloa
         let _ = w.close();
         return;
     }
-    eprintln!("[desktop] window {} loaded {} without reaching the app scheme; loading it again", label, p.url());
+    crate::dlog!("[desktop] window {} loaded {} without reaching the app scheme; loading it again", label, p.url());
     let _ = w.navigate(p.url().clone());
 }
 
@@ -189,14 +189,14 @@ pub fn create_main(app: &AppHandle) -> tauri::Result<WebviewWindow> {
 
 fn popup(app: &AppHandle, url: Url, features: NewWindowFeatures) -> NewWindowResponse<Wry> {
     if !allowed(&url) {
-        eprintln!("[desktop] window.open denied for {}", url);
+        crate::dlog!("[desktop] window.open denied for {}", url);
         return NewWindowResponse::Deny;
     }
     let st = app.state::<Arc<DesktopState>>().inner().clone();
     let n = st.popup_seq.fetch_add(1, Ordering::SeqCst) + 1;
     let label = format!("{}-{}", kind_of(&url), n);
     if trace() {
-        eprintln!("[trace] window.open {} -> {} (features: size {:?})", url, label, features.size());
+        crate::dlog!("[trace] window.open {} -> {} (features: size {:?})", url, label, features.size());
     }
     let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::External("about:blank".parse().unwrap())).window_features(features).title("OpenTrace");
     // Remembered geometry of this kind goes into the builder: the window is created at its place, nothing moves it later.
@@ -218,7 +218,7 @@ fn popup(app: &AppHandle, url: Url, features: NewWindowFeatures) -> NewWindowRes
                 .unwrap_or(1.0);
             b = b.position(g.x as f64 / scale, g.y as f64 / scale).inner_size(g.width as f64 / scale, g.height as f64 / scale);
             if trace() {
-                eprintln!("[trace] window {} placed at remembered {:?} (scale {})", label, g, scale);
+                crate::dlog!("[trace] window {} placed at remembered {:?} (scale {})", label, g, scale);
             }
         }
     }
@@ -228,7 +228,7 @@ fn popup(app: &AppHandle, url: Url, features: NewWindowFeatures) -> NewWindowRes
             NewWindowResponse::Create { window }
         }
         Err(e) => {
-            eprintln!("[desktop] cannot create window {}: {}", label, e);
+            crate::dlog!("[desktop] cannot create window {}: {}", label, e);
             NewWindowResponse::Deny
         }
     }

@@ -33,6 +33,8 @@ pub struct DesktopState {
     pub geometry: crate::geometry::PopupGeometry,
     /// Local drafts of server projects whose save failed (see `drafts.rs`).
     pub drafts: crate::drafts::Drafts,
+    /// UI-thread watchdog (hang log and dumps, see `diag.rs`).
+    pub watchdog: Arc<crate::diag::WatchdogState>,
 }
 
 impl DesktopState {

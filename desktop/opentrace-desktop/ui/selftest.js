@@ -258,6 +258,15 @@
         // Same popup kind opened, closed and opened again: the second window is created at the remembered geometry.
         // (On Windows the window-state plugin used to restore popups under a Tauri lock and hung the UI thread here.)
         c.popup_reopen = await popupReopen();
+        // UI-thread watchdog: the UI thread is kept busy for 9 s (threshold 4 s in the self-test): logged, dumped on
+        // Windows, recovery logged.
+        await fetch('/desktop/api/selftest/block-ui?ms=9000', { method: 'POST' });
+        var dg = null;
+        for (var tw = Date.now(); Date.now() - tw < 30000; await sleep(500)) {
+          dg = await (await fetch('/desktop/api/diag')).json();
+          if (dg.hangs >= 1) break;
+        }
+        c.watchdog = dg;
         if (window.__OT_SELFTEST_SERVER__) {
           // The analysed FSA must reach the server in the background (HEAD/PUT by SHA-256).
           var t1 = Date.now();

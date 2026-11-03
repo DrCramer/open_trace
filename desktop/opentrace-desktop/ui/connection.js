@@ -105,6 +105,24 @@
         (s.failed_items || []).map(function (f) { return '<br><span class="err">' + esc(f.name) + ': ' + esc(f.error) + '</span>'; }).join('');
     } catch (e) { $('sync').textContent = e.message; }
   }
+  async function diagShow() {
+    try {
+      var d = await api('diag');
+      $('diag').innerHTML = 'Журнал и дампы зависаний: ' + esc(d.log_dir) + '<br>Зависаний интерфейса в этом сеансе: ' + d.hangs +
+        (d.last_dump ? '<br>Последний дамп: ' + esc(d.last_dump) + ' (может содержать фрагменты данных из памяти; передавайте только разработчикам)' : '');
+    } catch (e) { $('diag').textContent = e.message; }
+  }
+  $('drafts').addEventListener('click', async function () {
+    try {
+      var r = await api('drafts');
+      var rows = (r.drafts || []).slice(-20).reverse();
+      $('draftsOut').innerHTML = rows.length ? rows.map(function (d) {
+        return esc(d.created) + ' · «' + esc(d.draft) + '» из «' + esc(d.server_project) + '» · образцов ' + d.samples + ' (с FSA ' + d.samples_with_fsa + ')' +
+          (d.samples_failed ? ' · <span class="err">не сохранено ' + d.samples_failed + '</span>' : '') + '<br><span class="note">' + esc(d.reason) + '</span>';
+      }).join('<br>') + '<br>Открыть: «Проекты: на этом компьютере» → Файл → Открыть проект.' : 'Черновиков нет.';
+    } catch (e) { $('draftsOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  });
+  diagShow();
   load().catch(function (e) { $('checkOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
   syncTick();
   setInterval(syncTick, 2000);

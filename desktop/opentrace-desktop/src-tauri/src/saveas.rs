@@ -76,7 +76,7 @@ pub fn save_as(app: &AppHandle, st: &DesktopState, label: &str, name: &str, data
     if let Some(dir) = path.parent() {
         *LAST_DIR.lock().unwrap_or_else(|e| e.into_inner()) = Some(dir.to_path_buf());
     }
-    eprintln!("[desktop] export saved ({} bytes)", data.len());
+    crate::dlog!("[desktop] export saved ({} bytes)", data.len());
     Ok(Some(path))
 }
 
