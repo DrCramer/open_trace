@@ -243,6 +243,11 @@
           var pw = window.OT.state.plotWin;
           c.plot_window = { location: String(pw.location.href), ready_state: pw.document.readyState, selftest_started: !!pw.__otSelftestStarted, has_opener: pw.opener === window, canvases: pw.document.querySelectorAll('#plotarea canvas').length };
         } catch (e) { c.plot_window = { error: String(e) }; }
+        // Export through the UI's own download helper -> native Save As (no dialog in the self-test).
+        window.__otDesktopLastSave = null;
+        Methods.download('selftest-export.txt', 'OpenTrace export\n', 'text/plain');
+        await wait(function () { return window.__otDesktopLastSave; }, 15000);
+        c.export = window.__otDesktopLastSave;
         // Same popup kind opened, closed and opened again: the second window is created at the remembered geometry.
         // (On Windows the window-state plugin used to restore popups under a Tauri lock and hung the UI thread here.)
         c.popup_reopen = await popupReopen();

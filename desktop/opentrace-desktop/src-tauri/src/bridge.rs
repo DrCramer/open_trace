@@ -291,6 +291,15 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             }
         }
         ("api/drafts", false) => json_response(200, &json!({"drafts": st.drafts.list()})),
+        // Exports (tables, panels, bins, reports …): native "Save As" instead of a silent file in Downloads (shim).
+        ("api/save-as", true) => {
+            let name = query_param(req, "name").unwrap_or_else(|| "export".into());
+            match crate::saveas::save_as(app, st, label, &name, req.body()) {
+                Ok(Some(p)) => json_response(200, &json!({"saved": p.display().to_string()})),
+                Ok(None) => json_response(200, &json!({"cancelled": true})),
+                Err(e) => json_response(500, &json!({"error": e})),
+            }
+        }
         ("api/info", false) => {
             let cfg = st.config();
             let s = st.remote.session();

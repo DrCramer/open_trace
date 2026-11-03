@@ -159,6 +159,43 @@
   window.close = function () {
     origFetch('/desktop/api/window/close-confirmed', { method: 'POST' }).catch(function () { try { nativeClose(); } catch (e) {} });
   };
+  // ---- Exports: native "Save As" (saveas.rs) ----
+  // The UI exports by clicking a temporary <a download href="blob:…">. Keep the Blob behind each object URL (the UI
+  // revokes it a second later) and turn such a click into a save request; one dialog at a time.
+  var blobs = new Map();
+  var createURL = URL.createObjectURL.bind(URL), revokeURL = URL.revokeObjectURL.bind(URL);
+  URL.createObjectURL = function (obj) { var u = createURL(obj); if (obj instanceof Blob) blobs.set(u, obj); return u; };
+  URL.revokeObjectURL = function (u) { blobs.delete(u); return revokeURL(u); };
+  var saveChain = Promise.resolve();
+  function nativeDownload(name, blob) {
+    var u = createURL(blob);
+    var a = document.createElement('a');
+    a.href = u; a.download = name; a.setAttribute('data-ot-native', '1');
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { revokeURL(u); }, 5000);
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[download]') : null;
+    if (!a || a.hasAttribute('data-ot-native')) return;
+    var blob = blobs.get(a.href);
+    if (!blob) return; // not an export blob: leave it to the engine
+    e.preventDefault();
+    var name = a.getAttribute('download') || 'export';
+    saveChain = saveChain.then(function () {
+      return blob.arrayBuffer().then(function (buf) {
+        return origFetch('/desktop/api/save-as?name=' + encodeURIComponent(name), { method: 'POST', body: buf });
+      }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw Error(j.error || ('HTTP ' + r.status)); return j; }); })
+        .then(function (j) {
+          window.__otDesktopLastSave = j;
+          if (j.saved) window.__otDesktopDownloaded(j.saved, true);
+        })
+        .catch(function (err) {
+          // Dialog unavailable: fall back to the engine's download into the Downloads folder.
+          window.__otDesktopLastSave = { error: String((err && err.message) || err) };
+          nativeDownload(name, blob);
+        });
+    });
+  }, true);
   window.__otDesktopDownloaded = function (path, ok) {
     var el = document.getElementById('statusText') || document.getElementById('markerInfo');
     if (el) el.textContent = ok ? ((document.documentElement.lang || 'ru').indexOf('en') === 0 ? 'Saved: ' : 'Сохранено: ') + path : 'Download failed';

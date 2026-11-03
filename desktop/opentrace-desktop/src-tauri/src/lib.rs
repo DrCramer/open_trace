@@ -4,6 +4,7 @@ mod bridge;
 pub mod config;
 mod drafts;
 mod geometry;
+mod saveas;
 pub mod labprofile;
 pub mod provenance;
 mod pool;
@@ -193,6 +194,7 @@ pub fn run() {
     }
     tauri::Builder::default()
         .plugin(state_plugin.build())
+        .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol("opentrace", |ctx, req, responder| {
             let app = ctx.app_handle().clone();
             let label = ctx.webview_label().to_string();

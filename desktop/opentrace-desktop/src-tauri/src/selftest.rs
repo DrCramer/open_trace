@@ -100,6 +100,7 @@ impl SelfTest {
             && main["analyze_channels"].as_u64().unwrap_or(0) > 0
             && main["plot_opened"] == true
             && main["popup_reopen"]["pass"] == true
+            && main["export"]["saved"].as_str().map(|p| p.ends_with("selftest-export.txt") && std::fs::read(p).ok().as_deref() == Some(&b"OpenTrace export\n"[..])).unwrap_or(false)
             && plot["opener_ot"] == true
             && plot["canvas"] == true
             && plot["colored_pixels"].as_u64().unwrap_or(0) > 100
