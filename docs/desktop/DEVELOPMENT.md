@@ -96,6 +96,8 @@ OPENTRACE_SELFTEST_PROFILE='Lab GF:1' OPENTRACE_DESKTOP_SELFTEST_BATCH=8 OPENTRA
 
 Ядро без webview: `cargo run --release --example bench_batch -- 1 48 96` (в `core/`).
 
+Генотипирование через интерфейс — `OPENTRACE_DESKTOP_SELFTEST_GENOTYPE=N` (1…96): синтетический набор (24 маркера, `demo::synthetic_kit_texts`) импортируется тем же кодом, что «Менеджер панелей», добавляются аллельная лестница и N образцов, «Анализ» выполняет калибровку размеров, лестницу и генотипирование, затем каждый вызов сравнивается с аллелями, заложенными в файлы. С сервером и профилем (`desktop/opentrace-desktop/tests/e2e/setup_lab_profile.py URL PASSWORD resources/data/shipped_methods.json kit.json`, где `kit.json` — вывод `cargo run --example synthetic_kit_store` в `core/`) профиль активируется до сборки набора, проект сохраняется на сервер, и для лестницы и каждого образца требуется запись происхождения со ссылкой на профиль. Без интерфейса тот же путь проверяет `cargo run --release --example synthetic_genotype -- 8` (8 образцов × 24 маркера). Всё это — выдуманные сигналы, не лабораторные данные.
+
 ## Server
 
 ```bash

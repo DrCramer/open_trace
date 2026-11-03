@@ -99,6 +99,8 @@ jobs:
           BIN=server/opentrace-server/target/release/opentrace-server
           export OPENTRACE_SERVER_DATA_DIR=$RUNNER_TEMP/ots OPENTRACE_SERVER_TRANSPORT=http OPENTRACE_SERVER_LISTEN=127.0.0.1:18770
           OPENTRACE_NEW_PASSWORD=e2e-secret-1 $BIN set-password "Casework Analyst"
+          OPENTRACE_NEW_PASSWORD=e2e-secret-1 $BIN set-password "Lab Director"
+          $BIN grant-approver "Lab Director"
           $BIN serve > $RUNNER_TEMP/server.log 2>&1 &
           for i in $(seq 1 50); do curl -fs http://127.0.0.1:18770/api/v1/health && break; sleep 0.5; done
           for run in 1 2; do
@@ -109,6 +111,15 @@ jobs:
           # first client uploads, second one is deduplicated by SHA-256: exactly one stored file
           test "$(find $RUNNER_TEMP/ots/fsa -type f | wc -l)" = 1
           grep -q '"deduplicated": 1' e2e2.json
+          # Laboratory profile with the synthetic kit; genotyping through the UI, saved to the server: every sample's
+          # provenance must be attributed to the profile.
+          cargo run -q --manifest-path core/opentrace-core/Cargo.toml --example synthetic_kit_store > $RUNNER_TEMP/kit.json
+          PROFILE=$(python3 desktop/opentrace-desktop/tests/e2e/setup_lab_profile.py http://127.0.0.1:18770 e2e-secret-1 resources/data/shipped_methods.json $RUNNER_TEMP/kit.json)
+          OPENTRACE_DESKTOP_SELFTEST=$PWD/e2e-genotype.json OPENTRACE_SELFTEST_SERVER_URL=http://127.0.0.1:18770 \
+            OPENTRACE_SELFTEST_USER="Casework Analyst" OPENTRACE_SELFTEST_PASSWORD=e2e-secret-1 \
+            OPENTRACE_SELFTEST_PROFILE="$PROFILE" OPENTRACE_DESKTOP_SELFTEST_GENOTYPE=4 \
+            timeout 600 xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
+          python3 -c "import json; g=json.load(open('e2e-genotype.json'))['main']['genotype']; print({k: g.get(k) for k in ('markers_ok', 'mismatches', 'provenance')})"
       - name: WebView2 runtime (Windows, update to current Evergreen)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -129,12 +140,19 @@ jobs:
           Get-Content selftest.json
           Get-Content selftest-stderr.txt | Select-String -NotMatch 'sync/status|workspace/status' | Select-Object -First 200
           if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          # Genotyping through the UI with the synthetic kit and ladder (calls compared with the truth).
+          $env:OPENTRACE_DESKTOP_SELFTEST = "$PWD\selftest-genotype.json"
+          $env:OPENTRACE_DESKTOP_SELFTEST_GENOTYPE = "4"
+          $p = Start-Process -FilePath desktop\opentrace-desktop\src-tauri\target\debug\opentrace-desktop.exe -PassThru -Wait
+          Get-Content selftest-genotype.json | Select-String -Pattern '"pass"|markers_ok|mismatches'
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-selftest-${{ runner.os }}
           path: |
             selftest.json
+            selftest-genotype.json
             selftest-stderr.txt
           if-no-files-found: ignore
       - name: Installers

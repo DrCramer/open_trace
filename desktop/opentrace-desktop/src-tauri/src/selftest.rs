@@ -54,6 +54,13 @@ pub fn process_tree_rss_mib() -> Option<u64> {
     None
 }
 
+/// `OPENTRACE_DESKTOP_SELFTEST_GENOTYPE=N` (1..=96): import the synthetic kit through the Panel Manager's own store,
+/// add an allelic ladder and N synthetic samples, analyse and genotype them through the UI and compare every call with
+/// the alleles the files were made with.
+pub fn genotype_size() -> Option<u64> {
+    std::env::var("OPENTRACE_DESKTOP_SELFTEST_GENOTYPE").ok().and_then(|v| v.parse::<u64>().ok()).filter(|n| (1..=96).contains(n))
+}
+
 /// `OPENTRACE_SELFTEST_PROFILE=<name>:<version>` (with a server and a batch): activate this approved lab profile, save
 /// the batch as a server project and require provenance attributed to the profile for every sample.
 pub fn profile() -> Option<(String, i64)> {
@@ -109,7 +116,16 @@ impl SelfTest {
                     && (profile().is_none()
                         || (main["batch"]["provenance"]["posted"].as_u64() == batch_size()
                             && main["batch"]["provenance"]["profile_mismatch"] == 0
-                            && main["batch"]["lab_profile"]["verified"] == true))));
+                            && main["batch"]["lab_profile"]["verified"] == true))))
+            && (genotype_size().is_none()
+                || (main["genotype"]["samples_genotyped"].as_u64() == genotype_size()
+                    && main["genotype"]["markers_ok"].as_u64() == genotype_size().map(|n| n * 24)
+                    && main["genotype"]["mismatches"].as_u64() == Some(0)
+                    // With a server and a profile: the ladder and every sample saved with provenance attributed to it.
+                    && (profile().is_none()
+                        || std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()
+                        || (main["genotype"]["provenance"]["posted"].as_u64() == genotype_size().map(|n| n + 1)
+                            && main["genotype"]["provenance"]["profile_mismatch"] == 0))));
         let report = json!({
             "pass": pass,
             "platform": std::env::consts::OS,

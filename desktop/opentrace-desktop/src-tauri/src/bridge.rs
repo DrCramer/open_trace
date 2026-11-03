@@ -165,6 +165,9 @@ pub fn inject_scripts(html: Vec<u8>, selftest: bool) -> Vec<u8> {
         if let Some((name, version)) = crate::selftest::profile() {
             tags.push_str(&format!("window.__OT_SELFTEST_PROFILE__={};", json!({"name": name, "version": version})));
         }
+        if let Some(n) = crate::selftest::genotype_size() {
+            tags.push_str(&format!("window.__OT_SELFTEST_GENOTYPE__={};", n));
+        }
         if let Some(n) = crate::selftest::batch_size() {
             tags.push_str(&format!("window.__OT_SELFTEST_BATCH__={};", n));
         }
@@ -387,11 +390,26 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
         }
         ("api/selftest/fsa", false) if st.selftest.is_some() => {
             // `?seed=N`: a 10 000-scan run file for the batch measurement; otherwise the small demo file.
-            let body = match query_param(req, "seed").and_then(|v| v.parse::<u64>().ok()) {
-                Some(seed) => opentrace_core::demo::synthetic_run_fsa(seed),
-                None => opentrace_core::demo::demo_bytes(),
+            let body = if query_param(req, "ladder").is_some() {
+                opentrace_core::demo::synthetic_ladder_fsa()
+            } else if let Some(seed) = query_param(req, "genotype").and_then(|v| v.parse::<u64>().ok()) {
+                opentrace_core::demo::synthetic_genotype_fsa(seed).0
+            } else {
+                match query_param(req, "seed").and_then(|v| v.parse::<u64>().ok()) {
+                    Some(seed) => opentrace_core::demo::synthetic_run_fsa(seed),
+                    None => opentrace_core::demo::demo_bytes(),
+                }
             };
             response(200, "application/octet-stream", body)
+        }
+        ("api/selftest/kit", false) if st.selftest.is_some() => {
+            let (kit, panel, panels, bins, stutter) = opentrace_core::demo::synthetic_kit_texts();
+            json_response(200, &json!({"kit": kit, "panel": panel, "panels": panels, "bins": bins, "stutter": stutter}))
+        }
+        ("api/selftest/expected", false) if st.selftest.is_some() => {
+            let seed = query_param(req, "seed").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+            let exp: serde_json::Map<String, Value> = opentrace_core::demo::synthetic_genotype_fsa(seed).1.into_iter().map(|(m, l)| (m, json!(l))).collect();
+            json_response(200, &Value::Object(exp))
         }
         ("api/selftest/memory", false) if st.selftest.is_some() => json_response(200, &json!({"process_tree_rss_mib": crate::selftest::process_tree_rss_mib()})),
         ("api/selftest/report", true) if st.selftest.is_some() => {

@@ -482,8 +482,65 @@ fn run_scan_of(bp: f64) -> f64 {
 /// with two alleles, stutter and +A per dye, noise peaks, an off-scale peak in every 16th file, GS500 on DATA105.
 /// Deterministic per `seed` and identical on every platform (math through `cmath`). Not lab data.
 pub fn synthetic_run_fsa(seed: u64) -> Vec<u8> {
+    synthetic_run(seed, RunKind::Bench).0
+}
+
+/// Like `synthetic_run_fsa` but clean enough to genotype with `synthetic_kit_texts`: two alleles per marker on the
+/// bins, 6 % back stutter, no +A, no noise. Returns the file and the expected genotype per marker (labels).
+pub fn synthetic_genotype_fsa(seed: u64) -> (Vec<u8>, Vec<(String, Vec<String>)>) {
+    synthetic_run(seed, RunKind::Clean)
+}
+
+/// Allelic ladder for `synthetic_kit_texts`: every bin of every marker.
+pub fn synthetic_ladder_fsa() -> Vec<u8> {
+    synthetic_run(0, RunKind::Ladder).0
+}
+
+const SYNTH_DYES: [&str; 4] = ["blue", "green", "yellow", "red"];
+const SYNTH_KIT: &str = "OpenTrace Synthetic";
+const SYNTH_PANEL: &str = "Synthetic_P1";
+
+fn synth_marker(dye: usize, m: usize) -> (String, f64) {
+    // Between the smallest fragment of the size standard (75 bp) and the end of the method's sizing range (400 bp).
+    (format!("S{}{}", ["B", "G", "Y", "R"][dye], m + 1), 90.0 + 50.0 * m as f64)
+}
+
+/// GeneMapper panels, bins and stutter texts of the invented kit the synthetic genotype files are made for
+/// (24 markers, alleles "10".."19" every 4 bp). Returns (kit name, panel name, panels, bins, stutter).
+pub fn synthetic_kit_texts() -> (String, String, String, String, String) {
+    let mut panels = format!("Version\tGMID-X v 1.4\r\nKit type:\tMICROSATELLITE\r\nChemistry Kit\t{}\tnull\r\nPanel\t{}\tnull\r\n", SYNTH_KIT, SYNTH_PANEL);
+    let mut bins = format!("Version\tGMID-X v 1.2\r\nChemistry Kit\t{}\r\nBinSet Name\tSynthetic_Bins\r\nPanel Name\t{}\r\n", SYNTH_KIT, SYNTH_PANEL);
+    let mut stutter = format!("Version\tSSFv1.2\r\nChemistry Kit\t{}\r\nPanel Name\t{}\r\n", SYNTH_KIT, SYNTH_PANEL);
+    for (d, dye) in SYNTH_DYES.iter().enumerate() {
+        for m in 0..6 {
+            let (name, lo) = synth_marker(d, m);
+            let ladder: Vec<String> = (10..20).map(|k| k.to_string()).collect();
+            panels.push_str(&format!("{}\t{}\t{:.1}\t{:.1}\tnone\t4\tnone\tfalse\t{}, \r\n", name, dye, lo - 5.0, lo + 40.0, ladder.join(", ")));
+            bins.push_str(&format!("Marker Name\t{}\r\n", name));
+            for k in 0..10 {
+                bins.push_str(&format!("{}\t{}\t0.5\t0.5\r\n", 10 + k, lo + 4.0 * k as f64 + 0.3));
+            }
+            stutter.push_str(&format!("Marker Name\t{}\r\n0.15\t3.25\t4.75\tMinus\t\r\n", name));
+        }
+    }
+    (SYNTH_KIT.into(), SYNTH_PANEL.into(), panels, bins, stutter)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum RunKind {
+    Bench,
+    Clean,
+    Ladder,
+}
+
+fn synthetic_run(seed: u64, kind: RunKind) -> (Vec<u8>, Vec<(String, Vec<String>)>) {
     let mut r = RunRng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
-    let name = format!("Synthetic bench {}", seed);
+    let name = match kind {
+        RunKind::Bench => format!("Synthetic bench {}", seed),
+        RunKind::Clean => format!("Synthetic sample {}", seed),
+        RunKind::Ladder => "Synthetic allelic ladder".to_string(),
+    };
+    let mut expected = Vec::new();
     let mut items = vec![item("SMPL", 1, 18, 1, name.len() + 1, pstr(name.as_bytes())), item("Dye#", 1, 4, 2, 1, 5i16.to_be_bytes().to_vec())];
     for (i, (number, dye)) in [(1, "6-FAM"), (2, "VIC"), (3, "NED"), (4, "PET"), (105, "LIZ")].iter().enumerate() {
         items.push(item("DyeN", (i + 1) as i32, 18, 1, dye.len() + 1, pstr(dye.as_bytes())));
@@ -495,20 +552,38 @@ pub fn synthetic_run_fsa(seed: u64) -> Vec<u8> {
             }
         } else {
             for m in 0..6 {
-                let lo = 70.0 + 60.0 * m as f64;
-                for _ in 0..2 {
-                    let bp = lo + 4.0 * (r.next() % 10) as f64 + 0.3;
-                    let h = 300.0 + 2700.0 * r.u01();
-                    peaks.push((bp, h, 4.5));
-                    peaks.push((bp - 4.0, 0.08 * h, 4.5)); // stutter
-                    peaks.push((bp + 1.0, 0.05 * h, 4.5)); // +A
+                let lo = if kind == RunKind::Bench { 70.0 + 60.0 * m as f64 } else { synth_marker(i, m).1 };
+                if kind == RunKind::Ladder {
+                    for k in 0..10 {
+                        peaks.push((lo + 4.0 * k as f64 + 0.3, 1500.0, 4.5));
+                    }
+                    continue;
                 }
+                let mut labels = Vec::new();
+                for _ in 0..2 {
+                    let k = r.next() % 10;
+                    let bp = lo + 4.0 * k as f64 + 0.3;
+                    let h = 300.0 + 2700.0 * r.u01();
+                    labels.push((10 + k).to_string());
+                    peaks.push((bp, h, 4.5));
+                    if kind == RunKind::Bench {
+                        peaks.push((bp - 4.0, 0.08 * h, 4.5)); // stutter
+                        peaks.push((bp + 1.0, 0.05 * h, 4.5)); // +A
+                    } else {
+                        peaks.push((bp - 4.0, 0.06 * h, 4.5));
+                    }
+                }
+                labels.sort();
+                labels.dedup();
+                expected.push((synth_marker(i, m).0, labels));
             }
-            for _ in 0..8 {
-                peaks.push((60.0 + 400.0 * r.u01(), 40.0 + 80.0 * r.u01(), 4.0)); // noise peaks
-            }
-            if seed % 16 == 3 && *number == 1 {
-                peaks.push((180.3, 40_000.0, 5.0)); // off-scale
+            if kind == RunKind::Bench {
+                for _ in 0..8 {
+                    peaks.push((60.0 + 400.0 * r.u01(), 40.0 + 80.0 * r.u01(), 4.0)); // noise peaks
+                }
+                if seed % 16 == 3 && *number == 1 {
+                    peaks.push((180.3, 40_000.0, 5.0)); // off-scale
+                }
             }
         }
         let mut values = vec![0f64; SYNTHETIC_RUN_SCANS];
@@ -527,5 +602,5 @@ pub fn synthetic_run_fsa(seed: u64) -> Vec<u8> {
         let data: Vec<u8> = values.iter().flat_map(|v| (v.round().clamp(-32768.0, 32767.0) as i16).to_be_bytes()).collect();
         items.push(item("DATA", *number, 4, 2, SYNTHETIC_RUN_SCANS, data));
     }
-    build_abif(&items)
+    (build_abif(&items), expected)
 }

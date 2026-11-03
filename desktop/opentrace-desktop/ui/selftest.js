@@ -24,6 +24,69 @@
   // Batch mode (OPENTRACE_DESKTOP_SELFTEST_BATCH=N): N invented 10 000-scan run files through the UI's own
   // "Add Samples" + "Analyze" code (4 requests in flight, slimAnalysis, table render), then all of them in the
   // Samples Plot window. Measures wall time and, where the webview exposes it (Chromium/WebView2), the JS heap.
+  // Genotyping through the UI (OPENTRACE_DESKTOP_SELFTEST_GENOTYPE=N): synthetic kit imported like the Panel Manager
+  // does, an allelic ladder plus N samples, Add Samples + Analyze (sizing, ladder, genotyping), calls vs truth.
+  var genotypeRun = async function (n) {
+    var g = { samples: n };
+    var OT = window.OT;
+    var kt = await (await fetch('/desktop/api/selftest/kit')).json();
+    var parse = async function (body) {
+      var r = await fetch('/api/import-gm-kit', { method: 'POST', headers: { 'X-Session-Token': window.OT_TOKEN, 'X-User-Ticket': window.Sec ? Sec.ticket() : '', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var j = await r.json();
+      if (!r.ok) throw new Error('import-gm-kit: ' + (j.error || r.status));
+      return j;
+    };
+    var db = KitStore.load();
+    KitStore.addPanels(db, (await parse({ panels: kt.panels })).panels);
+    KitStore.addBinSet(db, kt.kit, (await parse({ bins: kt.bins })).bins);
+    KitStore.setStutter(db, kt.kit, (await parse({ stutter: kt.stutter })).stutter);
+    KitStore.save(db);
+    var names = (window.Methods ? Methods.list() : []).map(function (r) { return r.method.name; });
+    var meth = names.find(function (x) { return /MiniFiler_GS500/.test(x); }) || names[0];
+    var files = [new File([await (await fetch('/desktop/api/selftest/fsa?ladder=1')).blob()], 'Synthetic allelic ladder.fsa')];
+    for (var k = 0; k < n; k++) files.push(new File([await (await fetch('/desktop/api/selftest/fsa?genotype=' + k)).blob()], 'gt' + String(k).padStart(3, '0') + '.fsa'));
+    Object.assign(OT.state.project, { name: 'Selftest genotype', runFolders: [], samples: [], dirty: false });
+    OT.state.selected.clear();
+    if (window.ProjectOptions) ProjectOptions.get().ars = 'continue';
+    OT.addSampleFiles(files, 'Genotype run', meth, kt.kit + '\u0001' + kt.panel, 'CE_G5_HID_GS500');
+    if (window.__OT_SELFTEST_SERVER__ && window.__OT_SELFTEST_PROFILE__) {
+      // Before any kit is built: genotyping only counts for the profile with kits built while it is active.
+      g.lab_profile_status = (await fetch('/desktop/api/lab-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(window.__OT_SELFTEST_PROFILE__) })).status;
+    }
+    var t0 = performance.now();
+    await OT.analyze('pending');
+    g.analyze_genotype_ms = Math.round(performance.now() - t0);
+    g.message = OT.state.lastMessage || null;
+    g.genotype_errors = (OT.state.genotypeErrors || []).slice(0, 5);
+    var smp = OT.state.project.samples;
+    g.ladder_types = smp.filter(function (x) { return x.type === 'ladder'; }).length;
+    g.samples_genotyped = 0;
+    g.markers_ok = 0;
+    g.mismatches = 0;
+    g.first_mismatches = [];
+    for (var s of smp) {
+      if (s.type === 'ladder') continue;
+      var seed = parseInt(s.file.replace(/\D/g, ''), 10);
+      var exp = await (await fetch('/desktop/api/selftest/expected?seed=' + seed)).json();
+      var calls = (s.report && s.report.calls) || [];
+      if (calls.length) g.samples_genotyped++;
+      Object.keys(exp).forEach(function (m) {
+        var got = Array.from(new Set(calls.filter(function (c) { return c.marker === m && c.label; }).map(function (c) { return c.label; }))).sort();
+        if (JSON.stringify(got) === JSON.stringify(exp[m])) g.markers_ok++;
+        else { g.mismatches++; if (g.first_mismatches.length < 5) g.first_mismatches.push({ file: s.file, marker: m, expected: exp[m], called: got }); }
+      });
+    }
+    if (window.__OT_SELFTEST_SERVER__ && window.__OT_SELFTEST_PROFILE__) {
+      await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'server' }) });
+      g.saved = await OT.writeProject('Selftest genotype ' + Date.now(), { create: true });
+      var ws = await (await fetch('/desktop/api/workspace/status')).json();
+      g.provenance = ws.provenance;
+      g.lab_profile = ws.lab_profile;
+      await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
+    }
+    return g;
+  };
+
   var batchRun = async function (n) {
     var b = { files: n };
     var OT = window.OT;
@@ -179,6 +242,10 @@
           }
         } else {
           c.sync = await (await fetch('/desktop/api/sync/status')).json();
+        }
+        if (window.__OT_SELFTEST_GENOTYPE__) {
+          await sleep(3000);
+          c.genotype = await genotypeRun(window.__OT_SELFTEST_GENOTYPE__);
         }
         if (window.__OT_SELFTEST_BATCH__) {
           await sleep(3000); // the example plot window reports first
