@@ -77,7 +77,7 @@ jobs:
           Copy-Item server/opentrace-server/target/release/opentrace-server.exe $d
           Copy-Item -Recurse resources "$d/resources"
           Copy-Item server/opentrace-server/packaging/opentrace-server.example.toml $d
-          Copy-Item server/opentrace-server/packaging/windows/* $d
+          Copy-Item server/opentrace-server/packaging/windows/* $d -Exclude *.nsi
           & "$d/opentrace-server.exe" version
       - name: Windows service under the Service Control Manager (install, start, API, restart after a crash, stop, uninstall)
         if: runner.os == 'Windows'
@@ -130,6 +130,49 @@ jobs:
           if (Get-Service $name -ErrorAction SilentlyContinue) { throw 'service still registered' }
           if (-not (Test-Path (Join-Path $data 'opentrace.sqlite3'))) { throw 'data directory not kept' }
           'Windows service: OK'
+      - name: Windows server installer (NSIS) - silent install, start, upgrade in place, uninstall keeps data
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = (Resolve-Path server/opentrace-server/target/release/opentrace-server-windows).Path
+          $ver = (Select-String -Path server/opentrace-server/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $out = Join-Path (Resolve-Path server/opentrace-server/target/release).Path "OpenTrace-Server-$ver-x64-setup.exe"
+          $nsis = @("${env:ProgramFiles(x86)}\NSIS\makensis.exe", "$env:ProgramFiles\NSIS\makensis.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $nsis) { choco install nsis -y --no-progress | Out-Null; $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe" }
+          & $nsis /V2 "/DVERSION=$ver" "/DSRC=$src" "/DOUT=$out" server/opentrace-server/packaging/windows/opentrace-server.nsi
+          if ($LASTEXITCODE -ne 0) { throw 'makensis failed' }
+          $p = Start-Process -FilePath $out -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exit code $($p.ExitCode)" }
+          $inst = Join-Path $env:ProgramFiles 'OpenTrace Server'
+          $cfg = Join-Path $env:ProgramData 'OpenTrace\server.toml'
+          foreach ($f in @("$inst\opentrace-server.exe", "$inst\resources\web\index.html", "$inst\uninstall.exe", $cfg)) { if (-not (Test-Path $f)) { throw "missing $f" } }
+          $svc = Get-CimInstance Win32_Service -Filter "Name='OpenTraceServer'"
+          "service: $($svc.StartName) $($svc.StartMode) $($svc.State)"
+          if (-not $svc -or $svc.State -ne 'Stopped') { throw 'service not registered or not stopped after the first install' }
+          $env:OPENTRACE_NEW_PASSWORD = 'ci-secret-2'
+          & "$inst\opentrace-server.exe" set-password Administrator --config $cfg
+          Remove-Item Env:OPENTRACE_NEW_PASSWORD
+          sc.exe start OpenTraceServer | Out-Null
+          function Wait-Up { for ($i = 0; $i -lt 60; $i++) { try { return Invoke-RestMethod http://127.0.0.1:8770/api/v1/health } catch { Start-Sleep 1 } }; return $null }
+          if (-not (Wait-Up)) { Get-Content "$env:ProgramData\OpenTrace\server\logs\server.log" -ErrorAction SilentlyContinue; throw 'installed service did not answer' }
+          $t = (Invoke-RestMethod -Method Post http://127.0.0.1:8770/api/v1/auth/login -ContentType 'application/json' -Body '{"username":"Administrator","password":"ci-secret-2"}').token
+          if (-not $t) { throw 'login failed' }
+          # Upgrade in place while running: configuration and data kept, service running again.
+          Add-Content $cfg "`n# local edit kept on upgrade"
+          $p = Start-Process -FilePath $out -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "upgrade exit code $($p.ExitCode)" }
+          if (-not (Select-String -Path $cfg -Pattern 'local edit kept on upgrade' -Quiet)) { throw 'configuration overwritten by the upgrade' }
+          if (-not (Wait-Up)) { throw 'service not running after the upgrade' }
+          $t = (Invoke-RestMethod -Method Post http://127.0.0.1:8770/api/v1/auth/login -ContentType 'application/json' -Body '{"username":"Administrator","password":"ci-secret-2"}').token
+          if (-not $t) { throw 'login after the upgrade failed (password lost?)' }
+          # Uninstall: service and program files removed, laboratory data kept.
+          $p = Start-Process -FilePath "$inst\uninstall.exe" -ArgumentList '/S', "_?=$inst" -Wait -PassThru
+          if (Get-Service OpenTraceServer -ErrorAction SilentlyContinue) { throw 'service still registered after uninstall' }
+          if (Test-Path "$inst\opentrace-server.exe") { throw 'program files left' }
+          if (-not (Test-Path "$env:ProgramData\OpenTrace\server\opentrace.sqlite3")) { throw 'laboratory data removed' }
+          if (-not (Test-Path $cfg)) { throw 'configuration removed' }
+          'Windows installer: OK'
       - uses: actions/upload-artifact@v4
         with:
           name: opentrace-server-${{ runner.os }}
@@ -138,6 +181,7 @@ jobs:
             server/opentrace-server/target/release/opentrace-server.exe
             server/opentrace-server/target/release/opentrace-server_*.deb
             server/opentrace-server/target/release/opentrace-server-windows/
+            server/opentrace-server/target/release/OpenTrace-Server-*-setup.exe
           if-no-files-found: ignore
 
   desktop:

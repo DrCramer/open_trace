@@ -1,0 +1,14 @@
+# OpenTrace Server - configuration written by the Windows installer (kept on upgrade and uninstall).
+# Research software, not validated for diagnostic or forensic use.
+#
+# Default: loopback only, TLS terminated by a reverse proxy on this machine (see docs/desktop/DEPLOY_WINDOWS.md).
+# For an isolated trusted network without TLS set:  transport = "http", listen = "0.0.0.0:8770",
+# allow_insecure_http = true  (passwords, tokens, genotypes and FSA then travel unencrypted).
+listen = "127.0.0.1:8770"
+transport = "proxy"
+data_dir = 'C:\ProgramData\OpenTrace\server'
+backup_dir = 'C:\ProgramData\OpenTrace\backups'
+# Host names clients use to reach this server (add the server's DNS name).
+allowed_hosts = ["localhost", "127.0.0.1"]
+session_ttl_hours = 12
+lease_ttl_seconds = 90

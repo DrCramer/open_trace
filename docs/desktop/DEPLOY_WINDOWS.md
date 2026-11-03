@@ -49,6 +49,21 @@ Remove-Item Env:\OPENTRACE_DESKTOP_SELFTEST
 
 ## 3. Server
 
+### Установщик (рекомендуется)
+
+Артефакт `opentrace-server-Windows` запуска GitHub Actions содержит `OpenTrace-Server-<версия>-x64-setup.exe` (NSIS; сценарий `server/opentrace-server/packaging/windows/opentrace-server.nsi`). Запуск от администратора:
+
+* программа — в `C:\Program Files\OpenTrace Server` (exe, `resources\`, скрипты);
+* конфигурация — `C:\ProgramData\OpenTrace\server.toml`, создаётся один раз из `server.windows.toml` и **не перезаписывается** при обновлении (по умолчанию: только этот компьютер, `127.0.0.1:8770`, TLS через обратный прокси; для HTTP в изолированной сети см. комментарии в файле и §4 DEPLOY_LINUX);
+* данные — `C:\ProgramData\OpenTrace\server`, копии — `C:\ProgramData\OpenTrace\backups`;
+* служба `OpenTraceServer` регистрируется (`service-install`: `NT SERVICE\OpenTraceServer`, автозапуск, перезапуск при сбое) и **остаётся остановленной**, пока не задан пароль администратора: последняя страница установщика запускает `set-admin-password.cmd` (пароль `Administrator`, затем запуск службы). Позже — тот же файл из папки программы от администратора.
+
+Обновление — тот же установщик поверх: работающая служба останавливается, файлы заменяются, служба запускается снова; конфигурация, пользователи и данные сохраняются. Удаление — «Приложения» Windows или `uninstall.exe`: служба и файлы программы удаляются, `C:\ProgramData\OpenTrace` остаётся (удалите сами после последней резервной копии). Тихий режим: `setup.exe /S`, удаление `uninstall.exe /S`.
+
+Проверено в CI (windows-2022) при каждом запуске: тихая установка → служба зарегистрирована и остановлена → пароль → запуск, health и вход → установка поверх работающей службы (правка в `server.toml` сохранилась, вход тем же паролем) → тихое удаление (служба и программа удалены, база и конфигурация на месте). Установщик не подписан: SmartScreen покажет предупреждение (подпись — вместе с подписью десктопа).
+
+### Ручная установка
+
 Готовая папка без сборки: артефакт `opentrace-server-Windows` запуска GitHub Actions содержит `opentrace-server-windows\` (exe, `resources\`, пример конфигурации, скрипты из `packaging\windows`). Скопируйте её в `C:\Program Files\OpenTrace Server` и продолжайте с настройки `server.toml` ниже. Сборка из исходников:
 
 ```powershell
