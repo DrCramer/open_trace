@@ -96,6 +96,10 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
+    env:
+      # Windows: line tables go into the separate PDB (the exe is unchanged in size), so stacks of user hang/crash dumps
+      # can be read; Linux keeps release binaries without debug info.
+      CARGO_PROFILE_RELEASE_DEBUG: ${{ matrix.os == 'windows-2022' && 'line-tables-only' || 'none' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
