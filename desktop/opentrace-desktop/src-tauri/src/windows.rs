@@ -123,6 +123,18 @@ fn reload_if_scheme_missed(w: &WebviewWindow, p: &tauri::webview::PageLoadPayloa
     }
     if !st.popup_reloaded.lock().unwrap_or_else(|e| e.into_inner()).insert(label.clone()) {
         eprintln!("[desktop] window {} still has no app content after a reload", label);
+        // Tell the user instead of leaving an empty or error window (seen with WebView2 Runtime 131, not with 142).
+        let ver = tauri::webview_version().unwrap_or_else(|_| "?".into());
+        let text = format!(
+            "Окно не открылось: компонент Microsoft Edge WebView2 Runtime (версия {}) не передал приложению запрос нового окна. \
+             Обновите WebView2 Runtime (https://developer.microsoft.com/microsoft-edge/webview2/) и перезапустите OpenTrace Desktop.",
+            ver
+        );
+        if let Some(main) = w.app_handle().get_webview_window("main") {
+            let js = format!("(window.message||window.alert)({})", serde_json::to_string(&text).unwrap());
+            let _ = main.eval(&js);
+        }
+        let _ = w.close();
         return;
     }
     eprintln!("[desktop] window {} loaded {} without reaching the app scheme; loading it again", label, p.url());
