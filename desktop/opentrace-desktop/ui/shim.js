@@ -113,7 +113,10 @@
     var ws = document.createElement('div');
     ws.className = 'cell';
     ws.id = 'otWs';
-    ws.style.cssText = 'white-space:nowrap;min-width:150px';
+    ws.style.cssText = 'white-space:nowrap;min-width:150px;cursor:pointer';
+    ws.addEventListener('click', function () {
+      window.open('/desktop/provenance.html', 'opentrace-provenance', 'width=980,height=640');
+    });
     bar.insertBefore(ws, cell);
     var banner = null;
     function wsTick() {
@@ -133,7 +136,7 @@
             (p.profile_mismatch ? '; без ссылки на профиль: ' + p.profile_mismatch + ' (' + (p.last_mismatch || '') + ')' : ''));
         }
         if (lines.length) {
-          ws.title = (ws.title ? ws.title + '\n' : '') + lines.join('\n');
+          ws.title = (ws.title ? ws.title + '\n' : '') + lines.join('\n') + '\nЩелчок — происхождение анализов проекта';
           if ((p.failed || p.ambiguous || p.profile_mismatch || (lp && lp.verified === false)) && ws.textContent.indexOf('⚠') < 0) ws.textContent += ' ⚠';
         }
         var ro = w.source === 'server' && w.project && !w.editing ? (w.readonly || 'только чтение') : null;

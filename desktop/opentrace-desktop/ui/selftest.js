@@ -78,8 +78,17 @@
     }
     if (window.__OT_SELFTEST_SERVER__ && window.__OT_SELFTEST_PROFILE__) {
       await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'server' }) });
-      g.saved = await OT.writeProject('Selftest genotype ' + Date.now(), { create: true });
+      var gname = 'Selftest genotype ' + Date.now();
+      g.saved = await OT.writeProject(gname, { create: true });
       var ws = await (await fetch('/desktop/api/workspace/status')).json();
+      // What the provenance page shows (same proxied request).
+      var an = (await (await fetch('/desktop/api/v1/projects/' + encodeURIComponent(gname) + '/analyses')).json()).analyses || [];
+      g.server_rows = an.length;
+      g.server_rows_with_profile = an.filter(function (a) { return a.lab_profile === window.__OT_SELFTEST_PROFILE__.name; }).length;
+      // The provenance page itself (opened like the status cell does) lists them while the project is still current.
+      var pw = window.open('/desktop/provenance.html', 'opentrace-provenance', 'width=980,height=640');
+      await wait(function () { return pw && pw.document && pw.document.querySelectorAll('#list tbody tr td.ok, #list tbody tr td span.ok').length >= g.server_rows_with_profile; }, 20000);
+      try { g.page_rows = pw.document.querySelectorAll('#list tbody tr').length; g.page_profile_rows = pw.document.querySelectorAll('#list tbody tr span.ok').length; pw.close(); } catch (e) { g.page_rows = String(e); }
       g.provenance = ws.provenance;
       g.lab_profile = ws.lab_profile;
       await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });

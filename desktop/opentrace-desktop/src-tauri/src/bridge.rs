@@ -16,6 +16,8 @@ const CONNECTION_HTML: &str = include_str!("../../ui/connection.html");
 const CONNECTION_JS: &str = include_str!("../../ui/connection.js");
 const STANDARDS_HTML: &str = include_str!("../../ui/standards.html");
 const STANDARDS_JS: &str = include_str!("../../ui/standards.js");
+const PROVENANCE_HTML: &str = include_str!("../../ui/provenance.html");
+const PROVENANCE_JS: &str = include_str!("../../ui/provenance.js");
 
 /// Canonical JSON (object keys sorted recursively, compact) — must equal OpenTrace Server's `standards::canonical`,
 /// whose SHA-256 identifies a standard version (checked against the server crate in tests/workspace_server.rs).
@@ -41,7 +43,11 @@ pub fn canonical(v: &Value) -> String {
 /// API v1 paths the desktop pages may call through Rust (the token never reaches JavaScript).
 fn proxy_allowed(path: &str, method: &str) -> bool {
     let p = path.trim_start_matches('/');
-    (p == "me" && method == "GET") || p == "standards" || p.starts_with("standards/") || p == "lab-profiles"
+    (p == "me" && method == "GET")
+        || p == "standards"
+        || p.starts_with("standards/")
+        || p == "lab-profiles"
+        || (method == "GET" && p.starts_with("projects/") && p.ends_with("/analyses") && p.matches('/').count() == 2)
 }
 
 /// CSP for HTML pages: own scheme only (no remote scripts, frames or form targets); inline code is what the
@@ -355,6 +361,8 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
         }
         ("standards.html", false) => response(200, "text/html; charset=utf-8", inject_scripts(STANDARDS_HTML.as_bytes().to_vec(), false)),
         ("standards.js", false) => response(200, "text/javascript; charset=utf-8", STANDARDS_JS.as_bytes().to_vec()),
+        ("provenance.html", false) => response(200, "text/html; charset=utf-8", inject_scripts(PROVENANCE_HTML.as_bytes().to_vec(), false)),
+        ("provenance.js", false) => response(200, "text/javascript; charset=utf-8", PROVENANCE_JS.as_bytes().to_vec()),
         ("api/standards/hash", true) => {
             use sha2::Digest;
             let items = body_json(req)["items"].as_array().cloned().unwrap_or_default();
@@ -459,6 +467,9 @@ mod tests {
         assert!(proxy_allowed("/lab-profiles", "GET"));
         assert!(proxy_allowed("/me", "GET"));
         assert!(!proxy_allowed("/projects/P/idx", "POST"));
+        assert!(proxy_allowed("/projects/Case%201/analyses", "GET"));
+        assert!(!proxy_allowed("/projects/P/analyses", "POST"));
+        assert!(!proxy_allowed("/projects/P/x/analyses", "GET"));
         assert!(!proxy_allowed("/fsa/abc", "GET"));
         assert!(!proxy_allowed("/auth/logout", "POST"));
         assert!(!proxy_allowed("/audit", "GET"));

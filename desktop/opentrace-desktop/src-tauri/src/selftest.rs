@@ -125,7 +125,8 @@ impl SelfTest {
                     && (profile().is_none()
                         || std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()
                         || (main["genotype"]["provenance"]["posted"].as_u64() == genotype_size().map(|n| n + 1)
-                            && main["genotype"]["provenance"]["profile_mismatch"] == 0))));
+                            && main["genotype"]["provenance"]["profile_mismatch"] == 0
+                            && main["genotype"]["server_rows_with_profile"].as_u64() == genotype_size().map(|n| n + 1)))));
         let report = json!({
             "pass": pass,
             "platform": std::env::consts::OS,
