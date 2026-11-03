@@ -1,4 +1,4 @@
-; OpenTrace Server - Windows installer (NSIS 3, Unicode).
+﻿; OpenTrace Server - Windows installer (NSIS 3, Unicode).
 ;   makensis /DVERSION=0.1.0 /DSRC=<folder with opentrace-server.exe and resources\> /DOUT=<setup.exe> opentrace-server.nsi
 ; Installs into "Program Files\OpenTrace Server", writes %ProgramData%\OpenTrace\server.toml once (never overwritten),
 ; registers the Windows service OpenTraceServer (NT SERVICE\OpenTraceServer, automatic start, restart on failure) and

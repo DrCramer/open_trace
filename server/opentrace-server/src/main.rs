@@ -69,32 +69,40 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         "set-password" => {
             let user = args.first().ok_or("set-password USER")?.clone();
-            let pw = match std::env::var("OPENTRACE_NEW_PASSWORD") {
-                Ok(p) if !p.is_empty() => p,
-                _ => {
-                    eprintln!("New password for {} (one line on stdin):", user);
-                    let mut line = String::new();
-                    std::io::stdin().lock().read_line(&mut line).map_err(|e| e.to_string())?;
-                    line.trim_end_matches(['\r', '\n']).to_string()
-                }
-            };
-            if pw.is_empty() {
-                return Err("empty password".into());
-            }
+            // Check where the password goes before asking for it (no prompt that ends in "access denied").
             let cfg = load()?;
             std::fs::create_dir_all(cfg.security_dir()).map_err(|e| e.to_string())?;
-            let _lock = opentrace_server::take_instance_lock(&cfg).map_err(|e| format!("{} — stop the server first", e))?;
+            let _lock = opentrace_server::take_instance_lock(&cfg)?;
             let mut store = opentrace_core::security::SecurityStore::open(&cfg.security_dir().to_string_lossy()).map_err(|e| format!("{:?}", e))?;
-            let mut u = store.user(&json!(user)).ok_or_else(|| format!("unknown user {}", user))?;
-            u["password"] = json!(pw);
-            store.save_user(&u, &json!(user)).map_err(|e| format!("{:?}", e))?;
-            println!("password set for {}", user);
-            Ok(())
+            let from_env = std::env::var("OPENTRACE_NEW_PASSWORD").ok().filter(|p| !p.is_empty());
+            let interactive = from_env.is_none() && { use std::io::IsTerminal; std::io::stdin().is_terminal() };
+            for attempt in 1..=3 {
+                let pw = match &from_env {
+                    Some(p) => p.clone(),
+                    None => read_new_password(&user)?,
+                };
+                if pw.is_empty() {
+                    return Err("empty password".into());
+                }
+                let mut u = store.user(&json!(user)).ok_or_else(|| format!("unknown user {}", user))?;
+                u["password"] = json!(pw);
+                match store.save_user(&u, &json!(user)) {
+                    Ok(_) => {
+                        println!("password set for {}", user);
+                        return Ok(());
+                    }
+                    // Password policy (length, history …): ask again at the console.
+                    Err(opentrace_core::idx_projects::LErr::Value(m)) if interactive && attempt < 3 => eprintln!("{}", m),
+                    Err(opentrace_core::idx_projects::LErr::Value(m)) => return Err(m),
+                    Err(e) => return Err(format!("{:?}", e)),
+                }
+            }
+            Err("password not set".into())
         }
         "grant-approver" => {
             let user = args.first().ok_or("grant-approver USER")?.clone();
             let cfg = load()?;
-            let _lock = opentrace_server::take_instance_lock(&cfg).map_err(|e| format!("{} — stop the server first", e))?;
+            let _lock = opentrace_server::take_instance_lock(&cfg)?;
             let mut store = opentrace_core::security::SecurityStore::open(&cfg.security_dir().to_string_lossy()).map_err(|e| format!("{:?}", e))?;
             let u = store.user(&json!(user)).ok_or_else(|| format!("unknown user {}", user))?;
             let group = opentrace_server::auth::APPROVER_GROUP;
@@ -132,7 +140,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             let dir = PathBuf::from(args.first().ok_or("restore DIR")?);
             let cfg = load()?;
             std::fs::create_dir_all(&cfg.data_dir).map_err(|e| e.to_string())?;
-            let _lock = opentrace_server::take_instance_lock(&cfg).map_err(|e| format!("{} — stop the server first", e))?;
+            let _lock = opentrace_server::take_instance_lock(&cfg)?;
             println!("restored {} files into {}", backup::restore(&dir, &cfg)?, cfg.data_dir.display());
             Ok(())
         }
@@ -168,4 +176,29 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             }
         }
     }
+}
+
+/// New password from the console: hidden input, typed twice, empty refused, three attempts. From a pipe: one line.
+fn read_new_password(user: &str) -> Result<String, String> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        eprintln!("New password for {} (one line on stdin):", user);
+        let mut line = String::new();
+        std::io::stdin().lock().read_line(&mut line).map_err(|e| e.to_string())?;
+        return Ok(line.trim_end_matches(['\r', '\n']).to_string());
+    }
+    for _ in 0..3 {
+        let a = rpassword::prompt_password(format!("New password for {} (not shown): ", user)).map_err(|e| e.to_string())?;
+        if a.is_empty() {
+            eprintln!("The password must not be empty.");
+            continue;
+        }
+        let b = rpassword::prompt_password("Repeat the password: ").map_err(|e| e.to_string())?;
+        if a != b {
+            eprintln!("The passwords differ.");
+            continue;
+        }
+        return Ok(a);
+    }
+    Err("password not set (three attempts)".into())
 }

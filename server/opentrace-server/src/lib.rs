@@ -61,10 +61,16 @@ pub fn build_state(cfg: ServerConfig, port: u16, lock: bool) -> Result<Shared, S
 
 pub fn take_instance_lock(cfg: &ServerConfig) -> Result<std::fs::File, String> {
     let p = cfg.data_dir.join("server.lock");
-    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&p).map_err(|e| format!("{}: {}", p.display(), e))?;
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&p).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            format!("no write access to {} — run as administrator (Windows) or as the service user (Linux: sudo -u opentrace)", cfg.data_dir.display())
+        } else {
+            format!("{}: {}", p.display(), e)
+        }
+    })?;
     match f.try_lock() {
         Ok(()) => Ok(f),
-        Err(_) => Err(format!("{} is in use by another opentrace-server process (one server per data directory)", cfg.data_dir.display())),
+        Err(_) => Err(format!("{} is in use by another opentrace-server process (one server per data directory) — stop the server first", cfg.data_dir.display())),
     }
 }
 
