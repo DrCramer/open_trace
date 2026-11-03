@@ -98,6 +98,20 @@ OPENTRACE_SELFTEST_PROFILE='Lab GF:1' OPENTRACE_DESKTOP_SELFTEST_BATCH=8 OPENTRA
 
 Генотипирование через интерфейс — `OPENTRACE_DESKTOP_SELFTEST_GENOTYPE=N` (1…96): синтетический набор (24 маркера, `demo::synthetic_kit_texts`) импортируется тем же кодом, что «Менеджер панелей», добавляются аллельная лестница и N образцов, «Анализ» выполняет калибровку размеров, лестницу и генотипирование, затем каждый вызов сравнивается с аллелями, заложенными в файлы. С сервером и профилем (`desktop/opentrace-desktop/tests/e2e/setup_lab_profile.py URL PASSWORD resources/data/shipped_methods.json kit.json`, где `kit.json` — вывод `cargo run --example synthetic_kit_store` в `core/`) профиль активируется до сборки набора, проект сохраняется на сервер, и для лестницы и каждого образца требуется запись происхождения со ссылкой на профиль. Без интерфейса тот же путь проверяет `cargo run --release --example synthetic_genotype -- 8` (8 образцов × 24 маркера). Всё это — выдуманные сигналы, не лабораторные данные.
 
+### Диагностика зависания на Windows
+
+Если окно стало белым и «Не отвечает», снимите дамп процесса до того, как закрывать его (PowerShell от того же пользователя, права администратора не нужны):
+
+```powershell
+$sig='using System;using System.Runtime.InteropServices;using Microsoft.Win32.SafeHandles;public static class MD{[DllImport("dbghelp.dll",SetLastError=true)]public static extern bool MiniDumpWriteDump(IntPtr h,uint pid,SafeFileHandle f,uint t,IntPtr e,IntPtr u,IntPtr c);}'
+Add-Type -TypeDefinition $sig
+$p = Get-Process opentrace-desktop
+$f = [IO.File]::Create("$env:USERPROFILE\Desktop\opentrace-hang.dmp")
+[MD]::MiniDumpWriteDump($p.Handle, [uint32]$p.Id, $f.SafeFileHandle, 0x1045, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero); $f.Close()
+```
+
+В дампе нет данных проектов, кроме того, что было в памяти процесса (могут быть фрагменты FSA и генотипов) — передавайте его как служебную информацию. Разбор: `minidump-stackwalk` (crate `minidump-stackwalk`) с символами из `dump_syms` для `opentrace_desktop.pdb` (артефакт CI `opentrace-desktop-Windows-symbols` той же сборки) и для системных DLL, скопированных с той же машины (`C:\Windows\System32\ntdll.dll` и др.): без символов системных DLL стек главного потока не раскручивается.
+
 ## Server
 
 ```bash
