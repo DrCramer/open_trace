@@ -49,6 +49,8 @@ Remove-Item Env:\OPENTRACE_DESKTOP_SELFTEST
 
 ## 3. Server
 
+Готовая папка без сборки: артефакт `opentrace-server-Windows` запуска GitHub Actions содержит `opentrace-server-windows\` (exe, `resources\`, пример конфигурации, скрипты из `packaging\windows`). Скопируйте её в `C:\Program Files\OpenTrace Server` и продолжайте с настройки `server.toml` ниже. Сборка из исходников:
+
 ```powershell
 cargo build --release --locked --manifest-path server\opentrace-server\Cargo.toml
 $dst = "C:\Program Files\OpenTrace Server"

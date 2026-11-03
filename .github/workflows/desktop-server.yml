@@ -68,6 +68,17 @@ jobs:
           sleep 1
           sudo dpkg --purge opentrace-server
           sudo test -f /var/lib/opentrace-server/opentrace.sqlite3   # data survives purge
+      - name: Windows server folder (exe + resources + configuration example + scripts)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $d = "server/opentrace-server/target/release/opentrace-server-windows"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Copy-Item server/opentrace-server/target/release/opentrace-server.exe $d
+          Copy-Item -Recurse resources "$d/resources"
+          Copy-Item server/opentrace-server/packaging/opentrace-server.example.toml $d
+          Copy-Item server/opentrace-server/packaging/windows/* $d
+          & "$d/opentrace-server.exe" version
       - uses: actions/upload-artifact@v4
         with:
           name: opentrace-server-${{ runner.os }}
@@ -75,6 +86,7 @@ jobs:
             server/opentrace-server/target/release/opentrace-server
             server/opentrace-server/target/release/opentrace-server.exe
             server/opentrace-server/target/release/opentrace-server_*.deb
+            server/opentrace-server/target/release/opentrace-server-windows/
           if-no-files-found: ignore
 
   desktop:
