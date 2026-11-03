@@ -17,7 +17,23 @@ cargo build --release --locked --manifest-path server/opentrace-server/Cargo.tom
 ./server/opentrace-server/target/release/opentrace-server version
 ```
 
-## 2. Установка как службы systemd (рекомендуется)
+## 2. Пакет .deb (Ubuntu/Debian, рекомендуется)
+
+```bash
+cargo build --release --locked --manifest-path server/opentrace-server/Cargo.toml
+sh server/opentrace-server/packaging/deb/build-deb.sh          # → server/opentrace-server/target/release/opentrace-server_<версия>_amd64.deb
+sudo apt install ./server/opentrace-server/target/release/opentrace-server_*.deb
+sudo editor /etc/opentrace/server.toml                          # allowed_hosts; transport "proxy" за HTTPS
+sudo -u opentrace opentrace-server set-password Administrator --config /etc/opentrace/server.toml
+sudo -u opentrace opentrace-server grant-approver "Lab Director" --config /etc/opentrace/server.toml
+sudo systemctl enable --now opentrace-server
+```
+
+Пакет ставит `/usr/bin/opentrace-server`, ресурсы веб-интерфейса в `/usr/share/opentrace-server/resources`, конфигурацию `/etc/opentrace/server.toml` (conffile: ваши правки сохраняются при обновлении), unit `opentrace-server.service` (с ограничениями systemd: `ProtectSystem=strict`, запись только в каталоги данных и копий), системного пользователя `opentrace` и каталоги `/var/lib/opentrace-server`, `/var/backups/opentrace-server` (0750). Служба **не запускается сама** при первой установке — сначала пароль администратора. Обновление: `apt install ./новый.deb` (запущенная служба перезапускается). Удаление, в том числе `purge`, **не удаляет данные лаборатории** и пользователя `opentrace` — после финальной резервной копии удалите их сами.
+
+Проверено (Ubuntu 24.04, контейнер без systemd): установка, `set-password`, запуск от `opentrace`, `/api/v1/health`, вход, `/idx/`; повторная установка сохраняет изменённую конфигурацию; `purge` оставляет данные; `systemd-analyze verify` для unit без замечаний. В CI (ubuntu-24.04) — то же при каждом запуске, пакет — артефакт `opentrace-server-Linux`.
+
+## 2a. Ручная установка как службы systemd
 
 ```bash
 sudo useradd --system --home /var/lib/opentrace-server --shell /usr/sbin/nologin opentrace

@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+    if ! getent passwd opentrace >/dev/null; then
+        adduser --system --group --home /var/lib/opentrace-server --no-create-home --shell /usr/sbin/nologin opentrace
+    fi
+    install -d -m 0750 -o opentrace -g opentrace /var/lib/opentrace-server /var/backups/opentrace-server
+    chown root:opentrace /etc/opentrace/server.toml
+    chmod 0640 /etc/opentrace/server.toml
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload >/dev/null || true
+        # Already running (upgrade): restart on the new binary. A new install is not started automatically.
+        if systemctl is-active --quiet opentrace-server; then systemctl restart opentrace-server || true; fi
+    fi
+    if [ -z "$2" ]; then
+        cat <<MSG
+OpenTrace Server installed (research software, not validated for diagnostic or forensic use).
+Next steps:
+  sudo editor /etc/opentrace/server.toml        # allowed_hosts, transport (keep "proxy" behind HTTPS)
+  sudo -u opentrace opentrace-server set-password Administrator --config /etc/opentrace/server.toml
+  sudo -u opentrace opentrace-server grant-approver "Lab Director" --config /etc/opentrace/server.toml
+  sudo systemctl enable --now opentrace-server
+MSG
+    fi
+fi
+exit 0

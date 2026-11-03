@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+# Laboratory data (/var/lib/opentrace-server) and backups are kept on remove and purge; delete them yourself after
+# taking a final backup. Only the service registration is cleaned up.
+if [ -d /run/systemd/system ]; then systemctl daemon-reload >/dev/null 2>&1 || true; fi
+if [ "$1" = purge ]; then
+    echo "OpenTrace Server removed. Data kept: /var/lib/opentrace-server, /var/backups/opentrace-server (and the 'opentrace' user)."
+fi
+exit 0
