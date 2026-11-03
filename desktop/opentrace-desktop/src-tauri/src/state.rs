@@ -29,6 +29,8 @@ pub struct DesktopState {
     /// Windows whose page reached the app scheme handler (see `windows::decorate`, popup reload).
     pub scheme_seen: Mutex<HashSet<String>>,
     pub popup_reloaded: Mutex<HashSet<String>>,
+    /// Size and position of popups per window kind (see `geometry.rs`).
+    pub geometry: crate::geometry::PopupGeometry,
 }
 
 impl DesktopState {

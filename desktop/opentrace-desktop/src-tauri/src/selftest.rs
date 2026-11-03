@@ -99,6 +99,7 @@ impl SelfTest {
             && main["analyze_status"] == 200
             && main["analyze_channels"].as_u64().unwrap_or(0) > 0
             && main["plot_opened"] == true
+            && main["popup_reopen"]["pass"] == true
             && plot["opener_ot"] == true
             && plot["canvas"] == true
             && plot["colored_pixels"].as_u64().unwrap_or(0) > 100

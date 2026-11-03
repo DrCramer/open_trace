@@ -96,6 +96,25 @@
     return g;
   };
 
+  var popupReopen = async function () {
+    var out = { rounds: [] };
+    for (var i = 0; i < 3; i++) {
+      var w = window.open('/idx/panels.html', 'opentrace-selftest-panels', 'width=' + (820 + 40 * i) + ',height=560');
+      var ok = await wait(function () { try { return w && w.document && w.document.readyState === 'complete' && w.document.body && w.document.body.children.length > 0; } catch (e) { return false; } }, 15000);
+      var r = { loaded: !!ok };
+      try { r.size = w.outerWidth + 'x' + w.outerHeight; } catch (e) { r.size = String(e); }
+      try { w.close(); } catch (e) {}
+      r.closed = !!(await wait(function () { return w.closed; }, 10000));
+      // The app scheme must still answer (a hung UI thread stops every response).
+      r.scheme_alive = (await fetch('/api/health')).ok;
+      out.rounds.push(r);
+      if (!r.loaded || !r.closed) break;
+      await sleep(300);
+    }
+    out.pass = out.rounds.length === 3 && out.rounds.every(function (r) { return r.loaded && r.closed && r.scheme_alive; });
+    return out;
+  };
+
   var batchRun = async function (n) {
     var b = { files: n };
     var OT = window.OT;
@@ -217,6 +236,9 @@
           var pw = window.OT.state.plotWin;
           c.plot_window = { location: String(pw.location.href), ready_state: pw.document.readyState, selftest_started: !!pw.__otSelftestStarted, has_opener: pw.opener === window, canvases: pw.document.querySelectorAll('#plotarea canvas').length };
         } catch (e) { c.plot_window = { error: String(e) }; }
+        // Same popup kind opened, closed and opened again: the second window is created at the remembered geometry.
+        // (On Windows the window-state plugin used to restore popups under a Tauri lock and hung the UI thread here.)
+        c.popup_reopen = await popupReopen();
         if (window.__OT_SELFTEST_SERVER__) {
           // The analysed FSA must reach the server in the background (HEAD/PUT by SHA-256).
           var t1 = Date.now();

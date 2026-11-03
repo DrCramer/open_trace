@@ -198,7 +198,30 @@ fn popup(app: &AppHandle, url: Url, features: NewWindowFeatures) -> NewWindowRes
     if trace() {
         eprintln!("[trace] window.open {} -> {} (features: size {:?})", url, label, features.size());
     }
-    let b = WebviewWindowBuilder::new(app, &label, WebviewUrl::External("about:blank".parse().unwrap())).window_features(features).title("OpenTrace");
+    let mut b = WebviewWindowBuilder::new(app, &label, WebviewUrl::External("about:blank".parse().unwrap())).window_features(features).title("OpenTrace");
+    // Remembered geometry of this kind goes into the builder: the window is created at its place, nothing moves it later.
+    if let Some(g) = st.geometry.get(state_key(&label)) {
+        let monitors: Vec<(i32, i32, u32, u32)> = app
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
+            .collect();
+        if crate::geometry::on_some_monitor(&g, &monitors) {
+            // The builder takes logical units; use the scale of the monitor the window will be on.
+            let scale = app
+                .available_monitors()
+                .unwrap_or_default()
+                .iter()
+                .find(|m| crate::geometry::on_some_monitor(&g, &[(m.position().x, m.position().y, m.size().width, m.size().height)]))
+                .map(|m| m.scale_factor())
+                .unwrap_or(1.0);
+            b = b.position(g.x as f64 / scale, g.y as f64 / scale).inner_size(g.width as f64 / scale, g.height as f64 / scale);
+            if trace() {
+                eprintln!("[trace] window {} placed at remembered {:?} (scale {})", label, g, scale);
+            }
+        }
+    }
     match decorate(app, &st, b).build() {
         Ok(window) => {
             platform_tweaks(&window);

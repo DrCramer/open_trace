@@ -2,6 +2,7 @@
 //! `opentrace-core`, optional organisation features through OpenTrace Server API v1.
 mod bridge;
 pub mod config;
+mod geometry;
 pub mod labprofile;
 pub mod provenance;
 mod pool;
@@ -57,6 +58,8 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
     };
     let core = Arc::new(opentrace_core::server::App::new(&core_cfg)?);
     let cfg = config::DesktopConfig::load(&cfg_path);
+    // Self-test: popup geometry in memory only (deterministic start, nothing written outside the test directory).
+    let geometry_path = if selftest.is_some() { None } else { cfg_path.parent().map(|d| d.join("popup-geometry.json")) };
     let remote = Arc::new(remote::Remote::new(selftest.is_none()));
     let sync = sync::SyncQueue::open(data.join("fsa-cache"), cfg.fsa_cache_max_mib.saturating_mul(1024 * 1024));
     *sync.enabled.lock().unwrap_or_else(|e| e.into_inner()) = cfg.sync_fsa;
@@ -84,6 +87,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
         popup_seq: AtomicUsize::new(0),
         scheme_seen: Mutex::new(Default::default()),
         popup_reloaded: Mutex::new(Default::default()),
+        geometry: geometry::PopupGeometry::load(geometry_path),
     });
     app.manage(st.clone());
     let st_ca = st.clone();
@@ -149,9 +153,26 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                 let _ = w.eval("window.__otDesktopRequestClose ? window.__otDesktopRequestClose() : fetch('/desktop/api/window/close-confirmed', {method: 'POST'})");
             }
         }
+        // Popup geometry: record only (no window calls besides a getter), applied when the next popup of the kind is built.
+        WindowEvent::Moved(p) if label != "main" => {
+            if let Some(st) = app.try_state::<Arc<DesktopState>>() {
+                if !window.is_maximized().unwrap_or(false) && !window.is_minimized().unwrap_or(false) {
+                    st.geometry.moved(windows::state_key(&label), p.x, p.y);
+                }
+            }
+        }
+        WindowEvent::Resized(s) if label != "main" => {
+            if let Some(st) = app.try_state::<Arc<DesktopState>>() {
+                if !window.is_maximized().unwrap_or(false) && !window.is_minimized().unwrap_or(false) {
+                    st.geometry.resized(windows::state_key(&label), s.width, s.height);
+                }
+            }
+        }
         WindowEvent::Destroyed => {
             if label == "main" {
                 app.exit(0);
+            } else if let Some(st) = app.try_state::<Arc<DesktopState>>() {
+                st.geometry.save();
             }
         }
         _ => {}
@@ -161,7 +182,9 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 pub fn run() {
     let selftest = selftest::SelfTest::from_env().map(Arc::new);
     let st_setup = selftest.clone();
-    let mut state_plugin = tauri_plugin_window_state::Builder::new().map_label(windows::state_key);
+    // The window-state plugin handles the main window only: restoring a popup from the plugin deadlocks the UI thread on
+    // Windows (see geometry.rs); popups use `geometry::PopupGeometry`.
+    let mut state_plugin = tauri_plugin_window_state::Builder::new().map_label(windows::state_key).with_filter(|label| label == "main");
     if selftest.is_some() {
         // Deterministic geometry for the self-test: do not restore or persist window state.
         state_plugin = state_plugin.with_denylist(&["main"]).with_filter(|_| false);
@@ -193,6 +216,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 // Free server project locks right away instead of letting them expire.
                 if let Some(st) = app.try_state::<Arc<DesktopState>>() {
+                    st.geometry.save();
                     st.workspace.release_all();
                 }
             }
