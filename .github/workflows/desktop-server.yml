@@ -79,6 +79,57 @@ jobs:
           Copy-Item server/opentrace-server/packaging/opentrace-server.example.toml $d
           Copy-Item server/opentrace-server/packaging/windows/* $d
           & "$d/opentrace-server.exe" version
+      - name: Windows service under the Service Control Manager (install, start, API, restart after a crash, stop, uninstall)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $d = (Resolve-Path server/opentrace-server/target/release/opentrace-server-windows).Path
+          $exe = Join-Path $d 'opentrace-server.exe'
+          $name = 'OpenTraceServerCI'
+          $data = Join-Path $env:RUNNER_TEMP 'ots-svc-data'
+          $cfgDir = Join-Path $env:RUNNER_TEMP 'ots-svc-config'
+          New-Item -ItemType Directory -Force $data, $cfgDir | Out-Null
+          $cfg = Join-Path $cfgDir 'server.toml'
+          "listen = `"127.0.0.1:18790`"`ntransport = `"http`"`nallow_insecure_http = true`ndata_dir = '$data'`nallowed_hosts = [`"127.0.0.1`", `"localhost`"]`n" | Set-Content -Encoding utf8NoBOM $cfg
+          $env:OPENTRACE_NEW_PASSWORD = 'ci-secret-1'
+          & $exe set-password Administrator --config $cfg
+          Remove-Item Env:OPENTRACE_NEW_PASSWORD
+          & $exe service-install --config $cfg --name $name
+          if ($LASTEXITCODE -ne 0) { throw "service-install failed" }
+          $svc = Get-CimInstance Win32_Service -Filter "Name='$name'"
+          "account: $($svc.StartName); start: $($svc.StartMode); path: $($svc.PathName)"
+          if ($svc.StartName -ne "NT SERVICE\$name") { throw "unexpected service account $($svc.StartName)" }
+          sc.exe qfailure $name
+          function Wait-Health([int]$seconds) {
+            for ($i = 0; $i -lt $seconds; $i++) {
+              try { return Invoke-RestMethod http://127.0.0.1:18790/api/v1/health } catch { Start-Sleep 1 }
+            }
+            return $null
+          }
+          function Show-Logs { sc.exe query $name; Get-Content (Join-Path $data 'logs\server.log') -ErrorAction SilentlyContinue | Select-Object -Last 40 }
+          sc.exe start $name | Out-Null
+          if (-not (Wait-Health 60)) { Show-Logs; throw 'service did not answer' }
+          # Login writes a session into the database: the virtual account can write its data directory.
+          $login = Invoke-RestMethod -Method Post http://127.0.0.1:18790/api/v1/auth/login -ContentType 'application/json' -Body '{"username":"Administrator","password":"ci-secret-1"}'
+          if (-not $login.token) { throw 'login failed' }
+          if (-not (Test-Path (Join-Path $data 'logs\server.log'))) { throw 'no service log' }
+          # A crash (process killed) must be followed by the configured restart (first action: after 10 s).
+          $pid1 = (Get-CimInstance Win32_Service -Filter "Name='$name'").ProcessId
+          Stop-Process -Id $pid1 -Force
+          Start-Sleep 3
+          if (-not (Wait-Health 60)) { Show-Logs; throw 'service was not restarted after a crash' }
+          $pid2 = (Get-CimInstance Win32_Service -Filter "Name='$name'").ProcessId
+          if ($pid2 -eq $pid1) { throw 'same process after the crash?' }
+          "restarted after crash: pid $pid1 -> $pid2"
+          sc.exe stop $name | Out-Null
+          for ($i = 0; $i -lt 30 -and (Get-Service $name).Status -ne 'Stopped'; $i++) { Start-Sleep 1 }
+          if ((Get-Service $name).Status -ne 'Stopped') { Show-Logs; throw 'service did not stop' }
+          Get-Content (Join-Path $data 'logs\server.log') | Select-String 'stop requested' | Select-Object -Last 1
+          & $exe service-uninstall --name $name
+          if (Get-Service $name -ErrorAction SilentlyContinue) { throw 'service still registered' }
+          if (-not (Test-Path (Join-Path $data 'opentrace.sqlite3'))) { throw 'data directory not kept' }
+          'Windows service: OK'
       - uses: actions/upload-artifact@v4
         with:
           name: opentrace-server-${{ runner.os }}
