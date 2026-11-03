@@ -419,6 +419,12 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             let exp: serde_json::Map<String, Value> = opentrace_core::demo::synthetic_genotype_fsa(seed).1.into_iter().map(|(m, l)| (m, json!(l))).collect();
             json_response(200, &Value::Object(exp))
         }
+        // Native windows the app still has (a popup closed by script must not survive as an empty native window).
+        ("api/selftest/windows", false) if st.selftest.is_some() => {
+            let mut labels: Vec<String> = app.webview_windows().keys().cloned().collect();
+            labels.sort();
+            json_response(200, &json!({"windows": labels}))
+        }
         ("api/selftest/memory", false) if st.selftest.is_some() => json_response(200, &json!({"process_tree_rss_mib": crate::selftest::process_tree_rss_mib()})),
         ("api/selftest/report", true) if st.selftest.is_some() => {
             let v = body_json(req);

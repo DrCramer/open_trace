@@ -67,6 +67,13 @@
     if (window.__otDesktopIsDirty() && !window.confirm(msg)) return;
     origFetch('/desktop/api/window/close-confirmed', { method: 'POST' }).catch(function () {});
   };
+  // window.close() from the page (its own Close/OK buttons, after its own unsaved-changes check) or from the opener:
+  // WebView2 (wry) answers it by destroying only the webview, which leaves an empty white native window behind
+  // (Windows; seen with the Panel Manager). Close the native window through the app instead.
+  var nativeClose = window.close.bind(window);
+  window.close = function () {
+    origFetch('/desktop/api/window/close-confirmed', { method: 'POST' }).catch(function () { try { nativeClose(); } catch (e) {} });
+  };
   window.__otDesktopDownloaded = function (path, ok) {
     var el = document.getElementById('statusText') || document.getElementById('markerInfo');
     if (el) el.textContent = ok ? ((document.documentElement.lang || 'ru').indexOf('en') === 0 ? 'Saved: ' : 'Сохранено: ') + path : 'Download failed';

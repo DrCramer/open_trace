@@ -111,7 +111,14 @@
       if (!r.loaded || !r.closed) break;
       await sleep(300);
     }
-    out.pass = out.rounds.length === 3 && out.rounds.every(function (r) { return r.loaded && r.closed && r.scheme_alive; });
+    // Closed by script: no native panels window may remain (WebView2 used to leave an empty white one).
+    var left = [];
+    for (var t = Date.now(); Date.now() - t < 10000; await sleep(250)) {
+      left = ((await (await fetch('/desktop/api/selftest/windows')).json()).windows || []).filter(function (l) { return l.indexOf('panels') === 0; });
+      if (!left.length) break;
+    }
+    out.native_panels_left = left;
+    out.pass = out.rounds.length === 3 && out.rounds.every(function (r) { return r.loaded && r.closed && r.scheme_alive; }) && left.length === 0;
     return out;
   };
 
