@@ -294,13 +294,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $bundle = (Resolve-Path desktop/opentrace-desktop/src-tauri/target/release/bundle).Path
           function Test-Installed([string]$exe, [string]$tag) {
-            if (-not (Test-Path $exe)) { throw "$tag: $exe missing" }
+            if (-not (Test-Path $exe)) { throw "${tag}: $exe missing" }
             $env:OPENTRACE_DESKTOP_DATA_DIR = Join-Path $env:RUNNER_TEMP "ot-installed-$tag"
             $env:OPENTRACE_DESKTOP_SELFTEST = Join-Path $env:RUNNER_TEMP "selftest-installed-$tag.json"
             $p = Start-Process -FilePath $exe -PassThru -Wait
             $j = Get-Content $env:OPENTRACE_DESKTOP_SELFTEST -Raw | ConvertFrom-Json
             "$tag self-test pass: $($j.pass) (exit $($p.ExitCode))"
-            if (-not $j.pass) { Get-Content $env:OPENTRACE_DESKTOP_SELFTEST; throw "$tag: self-test of the installed app failed" }
+            if (-not $j.pass) { Get-Content $env:OPENTRACE_DESKTOP_SELFTEST; throw "${tag}: self-test of the installed app failed" }
             Remove-Item Env:OPENTRACE_DESKTOP_DATA_DIR, Env:OPENTRACE_DESKTOP_SELFTEST
           }
           # NSIS (per user, %LOCALAPPDATA%)
