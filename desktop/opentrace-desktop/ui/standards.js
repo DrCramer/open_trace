@@ -14,6 +14,23 @@
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     return j;
   }
+  // Differences between two JSON values as [{path, old, new}] (first 300); numbers compared by value.
+  window.OTStdDiff = function (a, b) {
+    var out = [];
+    var show = function (x) { return x === undefined ? '—' : (typeof x === 'object' && x !== null ? JSON.stringify(x).slice(0, 120) : String(x)); };
+    (function walk(x, y, path) {
+      if (out.length >= 300) return;
+      var ox = x !== null && typeof x === 'object', oy = y !== null && typeof y === 'object';
+      if (ox && oy && Array.isArray(x) === Array.isArray(y)) {
+        var keys = Array.isArray(x) ? Array.from({ length: Math.max(x.length, y.length) }, function (_, i) { return i; })
+          : Array.from(new Set(Object.keys(x).concat(Object.keys(y)))).sort();
+        keys.forEach(function (k) { walk(x[k], y[k], path + (Array.isArray(x) ? '[' + k + ']' : (path ? '.' : '') + k)); });
+        return;
+      }
+      if (x !== y && !(typeof x === 'number' && typeof y === 'number' && x === y)) out.push({ path: path || '(всё)', old: show(x), new: show(y) });
+    })(a, b, '');
+    return out;
+  };
   var all = [];
   var selected = null;
 
@@ -64,6 +81,14 @@
   // item with the same name is replaced only after confirmation.
   function putLocal(kind, content) {
     var L = LOCAL[kind];
+    if (kind === 'size_standard' && window.SizeStd) {
+      // The library module itself (keeps the shipped default standards when the library does not exist yet).
+      var cur = window.SizeStd.get(content.name);
+      if (cur && JSON.stringify([cur.dye, cur.sizes]) !== JSON.stringify([content.dye, content.sizes]) &&
+          !window.confirm('На этом компьютере уже есть ' + L.label + ' «' + content.name + '», и он отличается от утверждённой версии. Заменить локальный утверждённым?')) return false;
+      window.SizeStd.put(JSON.parse(JSON.stringify(content)));
+      return true;
+    }
     var db = ls(L.key);
     if (!db || !Array.isArray(db[L.list])) {
       if (!L.empty) throw new Error('Откройте один раз главное окно (библиотека стандартов длин ещё не создана)');
@@ -175,7 +200,26 @@
       if (v.status === 'approved' && LOCAL[v.kind]) acts.push(['local', 'Загрузить в этот компьютер']);
       d.innerHTML = '<h3 style="font-size:13px;margin:10px 0 4px">' + esc(KINDS[v.kind] || v.kind) + ' «' + esc(v.name) + '», версия ' + v.version + ' — ' + esc(STATUS[v.status]) + '</h3>' +
         '<div class="note">SHA-256: <code>' + esc(v.content_sha256) + '</code><br>Автор: ' + esc(v.created_by) + (v.submitted_by ? ' · отправил: ' + esc(v.submitted_by) : '') + (v.approved_by ? ' · утвердил: ' + esc(v.approved_by) + ' ' + new Date(v.approved_ms).toLocaleString() : '') + (v.note ? '<br>Примечание: ' + esc(v.note) : '') + '</div>' +
-        '<div class="row" id="acts"></div><div id="actOut"></div><pre>' + esc(JSON.stringify(v.content, null, 1).slice(0, 20000)) + '</pre>';
+        '<div class="row" id="acts"></div><div id="actOut"></div><div class="row" id="cmpRow"></div><div id="cmpOut"></div><pre>' + esc(JSON.stringify(v.content, null, 1).slice(0, 20000)) + '</pre>';
+      // Compare with another version of the same standard (what an approver needs to see before approving).
+      var others = all.filter(function (x) { return x.kind === v.kind && x.name === v.name && x.version !== v.version; }).sort(function (a, b) { return b.version - a.version; });
+      if (others.length) {
+        var sel = document.createElement('select');
+        sel.append(new Option('— сравнить с версией —', ''));
+        others.forEach(function (o) { sel.append(new Option('v' + o.version + ' (' + (STATUS[o.status] || o.status) + ')', String(o.version))); });
+        sel.addEventListener('change', async function () {
+          if (!sel.value) { $('cmpOut').innerHTML = ''; return; }
+          try {
+            var o = await v1('GET', '/standards/' + enc(v.kind) + '/' + enc(v.name) + '/' + sel.value);
+            var d = window.OTStdDiff(o.content, v.content);
+            $('cmpOut').innerHTML = d.length
+              ? '<div class="note">Отличия v' + o.version + ' → v' + v.version + ' (' + d.length + (d.length >= 300 ? '+' : '') + '):</div><table class="g"><thead><tr><th>Поле</th><th>v' + o.version + '</th><th>v' + v.version + '</th></tr></thead><tbody>' +
+                d.map(function (x) { return '<tr><td><code>' + esc(x.path) + '</code></td><td>' + esc(x.old) + '</td><td>' + esc(x.new) + '</td></tr>'; }).join('') + '</tbody></table>'
+              : '<div class="note">Содержимое версий v' + o.version + ' и v' + v.version + ' совпадает.</div>';
+          } catch (e) { $('cmpOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+        });
+        $('cmpRow').append(sel);
+      }
       acts.forEach(function (a) {
         var b = document.createElement('button');
         b.className = 'btn';
