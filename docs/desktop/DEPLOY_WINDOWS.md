@@ -9,7 +9,7 @@ Windows 10/11 x64 (клиент) и Windows Server 2019+/Windows 10/11 x64 (се
 1. Visual Studio Build Tools 2022 с компонентом «Разработка классических приложений на C++» (MSVC + Windows SDK).
 2. Rust: https://rustup.rs → `rustup-init.exe` (toolchain `stable-x86_64-pc-windows-msvc`).
 3. Git for Windows; Node.js 18+ (только для сборки установщика десктопа).
-4. WebView2 Runtime (в Windows 11 уже есть; на Windows 10 установщик десктопа скачает его сам).
+4. WebView2 Runtime (в Windows 11 уже есть; на Windows 10 установщик десктопа скачает его сам). **Нужна актуальная версия**: с WebView2 Runtime 131 (образ GitHub windows-2022) окна графиков/отчётов не получают содержимое приложения; со 142 работает. Обычно Evergreen обновляется сам; если в организации обновления WebView2 заблокированы, обновите его вручную. При такой ошибке десктоп закрывает пустое окно и сообщает версию WebView2.
 
 Проверка в PowerShell:
 
