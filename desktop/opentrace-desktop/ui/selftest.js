@@ -114,6 +114,7 @@
       try {
         c.ot_loaded = await wait(function () { return window.OT && window.OT.state && typeof window.OT.plotPayload === 'function'; });
         c.desktop_shim = !!window.OT_DESKTOP;
+        c.user_agent = navigator.userAgent;
         c.local_storage = (function () { try { localStorage.setItem('ot.selftest', '1'); return localStorage.getItem('ot.selftest') === '1'; } catch (e) { return String(e); } })();
         var h = await (await fetch('/api/health')).json();
         c.health = h.status === 'ok';

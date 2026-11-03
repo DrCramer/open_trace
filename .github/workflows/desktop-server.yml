@@ -109,6 +109,13 @@ jobs:
           # first client uploads, second one is deduplicated by SHA-256: exactly one stored file
           test "$(find $RUNNER_TEMP/ots/fsa -type f | wc -l)" = 1
           grep -q '"deduplicated": 1' e2e2.json
+      - name: WebView2 runtime version (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($k in 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}') {
+            if (Test-Path $k) { "WebView2 runtime: " + (Get-ItemProperty $k).pv }
+          }
       - name: Self-test in a real webview (Windows, WebView2)
         if: runner.os == 'Windows'
         shell: pwsh
