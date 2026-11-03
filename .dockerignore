@@ -1,8 +1,7 @@
 .git
 .env
 runtime
-**/__pycache__
-**/*.pyc
 core/target
-tests
+core/opentrace-core/tests
+core/opentrace-core/examples
 *.md

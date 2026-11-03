@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["opentrace-core", "opentrace-py"]
+members = ["opentrace-core"]
 
 [profile.release]
 opt-level = 3

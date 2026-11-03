@@ -1,0 +1,32 @@
+adjust adjust_dump
+calibration calibration_dump
+codis cd_dump
+control cw_dump
+ew ew_dump
+gm_kit_import gk_dump
+iso iso_dump
+kit kit_dump
+ladder ld_dump
+mixture mix_dump
+morphology morphology_dump
+marker_quality mq_dump
+marker_quality_workflow mqw_dump
+matrix mx_dump
+peaks peaks_dump
+pick pick_dump
+post_sizing_quality post_dump
+pullup pullup_dump
+quality_control quality_dump
+restore restore_dump
+run_offsets ro_dump
+sample_info sample_dump
+spike spike_dump
+small_svd svd_dump
+sg_weights sw_dump
+analysis_method analysis_method_dump
+sizing_value sv_dump
+sizing_residual sr_dump
+idx_projects ip_dump dir
+security sec_dump dir
+project_api pa_dump
+project_runs pr_dump

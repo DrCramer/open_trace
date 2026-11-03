@@ -16,7 +16,7 @@ set_env() {  # set_env KEY VALUE — меняет или добавляет ст
   if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi
 }
 # Значения из окружения при запуске, например: WEB_BIND_IP=0.0.0.0 ALLOWED_HOSTS=192.168.1.16 ./scripts/install.sh
-for key in WEB_BIND_IP WEB_PORT ALLOWED_HOSTS TZ WITH_RUST_CORE; do
+for key in WEB_BIND_IP WEB_PORT ALLOWED_HOSTS TZ; do
   [ -n "${!key:-}" ] && set_env "$key" "${!key}"
 done
 set_env OPENTRACE_UID "$(id -u)"
