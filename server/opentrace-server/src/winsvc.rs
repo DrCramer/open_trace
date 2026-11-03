@@ -99,6 +99,11 @@ fn run_service() -> Result<(), String> {
 
 pub fn install(name: &str, config: &Path) -> Result<(), String> {
     let config = std::fs::canonicalize(config).map_err(|x| format!("{}: {}", config.display(), x))?;
+    // `canonicalize` returns `\\?\D:\…`; keep the plain drive form for services.msc and the SCM command line.
+    let config = match config.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(plain) if plain.len() > 2 && plain.as_bytes()[1] == b':' => PathBuf::from(plain),
+        _ => config,
+    };
     let cfg = ServerConfig::load(Some(&config))?;
     std::fs::create_dir_all(&cfg.data_dir).map_err(|x| format!("{}: {}", cfg.data_dir.display(), x))?;
     let exe = std::env::current_exe().map_err(|x| x.to_string())?;

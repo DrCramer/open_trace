@@ -95,6 +95,8 @@ Get-Content C:\ProgramData\OpenTrace\server\logs\server.log -Tail 20
 
 `service-run` запускает только SCM; из консоли команда сразу завершается с сообщением. Для пробного запуска используйте `serve`.
 
+Проверено в CI (GitHub windows-2022, PowerShell от администратора) на каждом запуске: `service-install` (учётная запись `NT SERVICE\<имя>`, автозапуск, перезапуск 10 с / 60 с / 5 мин), `sc.exe start` → `/api/v1/health` и вход администратора, принудительное завершение процесса → SCM перезапускает службу, `sc.exe stop` → в журнале «stop requested by the Service Control Manager», `service-uninstall` → служба удалена, `opentrace.sqlite3` на месте. На сервере с доменными групповыми политиками выполните ту же пробу до внедрения.
+
 Альтернатива без регистрации службы — задача планировщика (`packaging\windows\install-scheduled-task.ps1`, запуск под `NT AUTHORITY\LOCAL SERVICE`); удаление: `Unregister-ScheduledTask -TaskName "OpenTrace Server" -Confirm:$false`.
 
 ### HTTPS на Windows
