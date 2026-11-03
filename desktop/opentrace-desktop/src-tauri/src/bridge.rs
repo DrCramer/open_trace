@@ -98,6 +98,9 @@ pub fn body_length_ok(req: &Request<Vec<u8>>) -> Result<(), String> {
 }
 
 pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<u8>>) -> Response<Vec<u8>> {
+    if label != "main" {
+        st.scheme_seen.lock().unwrap_or_else(|e| e.into_inner()).insert(label.to_string());
+    }
     if let Err(e) = body_length_ok(&req) {
         return json_response(400, &json!({"error": e}));
     }

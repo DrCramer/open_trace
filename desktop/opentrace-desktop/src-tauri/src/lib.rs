@@ -82,6 +82,8 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
         close_ok: Mutex::new(Default::default()),
         close_asked: Mutex::new(Default::default()),
         popup_seq: AtomicUsize::new(0),
+        scheme_seen: Mutex::new(Default::default()),
+        popup_reloaded: Mutex::new(Default::default()),
     });
     app.manage(st.clone());
     let st_ca = st.clone();

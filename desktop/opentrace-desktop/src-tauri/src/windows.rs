@@ -77,6 +77,7 @@ fn decorate<'a>(app: &AppHandle, st: &Arc<DesktopState>, b: WebviewWindowBuilder
             if trace() {
                 eprintln!("[trace] page {} {:?} {}", w.label(), p.event(), p.url());
             }
+            reload_if_scheme_missed(&w, &p);
         })
         .on_document_title_changed(|w, title| {
             let _ = w.set_title(if title.trim().is_empty() { "OpenTrace" } else { &title });
@@ -101,6 +102,31 @@ fn decorate<'a>(app: &AppHandle, st: &Arc<DesktopState>, b: WebviewWindowBuilder
             }
             _ => true,
         })
+}
+
+/// Observed on a GitHub Windows Server 2022 runner (WebView2 there, not on Windows 11 with WebView2 142): the popup
+/// webview handed over through `SetNewWindow` loaded its first page before the app scheme handler was attached, so the
+/// page became an error document (cross-origin to the opener). If a popup finished loading one of our pages without a
+/// single request reaching the scheme handler, navigate it to the same URL once more; `window.opener` survives a
+/// navigation of the popup.
+fn reload_if_scheme_missed(w: &WebviewWindow, p: &tauri::webview::PageLoadPayload<'_>) {
+    use tauri::webview::PageLoadEvent;
+    let label = w.label().to_string();
+    let ours = (p.url().scheme() == "http" && p.url().host_str() == Some("opentrace.localhost"))
+        || (p.url().scheme() == "opentrace" && p.url().host_str() == Some("localhost"));
+    if label == "main" || p.event() != PageLoadEvent::Finished || !ours {
+        return;
+    }
+    let st = w.app_handle().state::<Arc<DesktopState>>().inner().clone();
+    if st.scheme_seen.lock().unwrap_or_else(|e| e.into_inner()).contains(&label) {
+        return;
+    }
+    if !st.popup_reloaded.lock().unwrap_or_else(|e| e.into_inner()).insert(label.clone()) {
+        eprintln!("[desktop] window {} still has no app content after a reload", label);
+        return;
+    }
+    eprintln!("[desktop] window {} loaded {} without reaching the app scheme; loading it again", label, p.url());
+    let _ = w.navigate(p.url().clone());
 }
 
 fn unique_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {

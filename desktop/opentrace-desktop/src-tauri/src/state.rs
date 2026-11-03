@@ -26,6 +26,9 @@ pub struct DesktopState {
     pub close_ok: Mutex<HashSet<String>>,
     pub close_asked: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     pub popup_seq: AtomicUsize,
+    /// Windows whose page reached the app scheme handler (see `windows::decorate`, popup reload).
+    pub scheme_seen: Mutex<HashSet<String>>,
+    pub popup_reloaded: Mutex<HashSet<String>>,
 }
 
 impl DesktopState {
