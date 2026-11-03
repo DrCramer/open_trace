@@ -116,9 +116,17 @@ pub fn install(name: &str, config: &Path) -> Result<(), String> {
         account_name: Some(account.clone().into()),
         account_password: None,
     };
-    let svc = mgr.create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::QUERY_STATUS).map_err(e)?;
+    // SERVICE_START is required as well: failure actions with SC_ACTION_RESTART are refused without it (error 5),
+    // found by the CI test under the real SCM.
+    let svc = mgr
+        .create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::QUERY_STATUS | ServiceAccess::START | ServiceAccess::DELETE)
+        .map_err(|x| format!("create service: {}", e(x)))?;
+    let undo = |why: String| -> String {
+        let _ = svc.delete();
+        format!("{} (service registration undone)", why)
+    };
     svc.set_description("OpenTrace Server: projects, FSA store and laboratory standards (research software, not validated for diagnostic or forensic use)")
-        .map_err(e)?;
+        .map_err(|x| undo(format!("set description: {}", e(x))))?;
     let restart = |s| ServiceAction { action_type: ServiceActionType::Restart, delay: Duration::from_secs(s) };
     svc.update_failure_actions(ServiceFailureActions {
         reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(24 * 3600)),
@@ -126,8 +134,8 @@ pub fn install(name: &str, config: &Path) -> Result<(), String> {
         command: None,
         actions: Some(vec![restart(10), restart(60), restart(300)]),
     })
-    .map_err(e)?;
-    svc.set_failure_actions_on_non_crash_failures(true).map_err(e)?;
+    .map_err(|x| undo(format!("failure actions: {}", e(x))))?;
+    svc.set_failure_actions_on_non_crash_failures(true).map_err(|x| undo(format!("failure actions flag: {}", e(x))))?;
     // Least privilege: the virtual account may modify the data directory and nothing else we create.
     let grant = |p: &Path, spec: &str| -> Result<(), String> {
         let out = std::process::Command::new("icacls").arg(p).arg("/grant").arg(format!("{}:{}", account, spec)).output().map_err(|x| x.to_string())?;
@@ -137,9 +145,9 @@ pub fn install(name: &str, config: &Path) -> Result<(), String> {
             Err(format!("icacls {}: {}", p.display(), String::from_utf8_lossy(&out.stdout).trim()))
         }
     };
-    grant(&cfg.data_dir, "(OI)(CI)M")?;
+    grant(&cfg.data_dir, "(OI)(CI)M").map_err(undo)?;
     if !config.starts_with(&cfg.data_dir) {
-        grant(&config, "R")?;
+        grant(&config, "R").map_err(undo)?;
     }
     println!("installed service {} (account {}, automatic start, restart on failure)", name, account);
     println!("data directory {} (modify rights granted to {})", cfg.data_dir.display(), account);
