@@ -287,6 +287,39 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx tauri build ${{ runner.os == 'Windows' && '--bundles nsis msi' || '--bundles deb appimage' }}
+      - name: Installed NSIS and MSI packages pass the self-test, then uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = (Resolve-Path desktop/opentrace-desktop/src-tauri/target/release/bundle).Path
+          function Test-Installed([string]$exe, [string]$tag) {
+            if (-not (Test-Path $exe)) { throw "$tag: $exe missing" }
+            $env:OPENTRACE_DESKTOP_DATA_DIR = Join-Path $env:RUNNER_TEMP "ot-installed-$tag"
+            $env:OPENTRACE_DESKTOP_SELFTEST = Join-Path $env:RUNNER_TEMP "selftest-installed-$tag.json"
+            $p = Start-Process -FilePath $exe -PassThru -Wait
+            $j = Get-Content $env:OPENTRACE_DESKTOP_SELFTEST -Raw | ConvertFrom-Json
+            "$tag self-test pass: $($j.pass) (exit $($p.ExitCode))"
+            if (-not $j.pass) { Get-Content $env:OPENTRACE_DESKTOP_SELFTEST; throw "$tag: self-test of the installed app failed" }
+            Remove-Item Env:OPENTRACE_DESKTOP_DATA_DIR, Env:OPENTRACE_DESKTOP_SELFTEST
+          }
+          # NSIS (per user, %LOCALAPPDATA%)
+          $setup = Get-ChildItem "$bundle\nsis\*-setup.exe" | Select-Object -First 1
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "NSIS install exit $($p.ExitCode)" }
+          $dir = Join-Path $env:LOCALAPPDATA 'OpenTrace Desktop'
+          Test-Installed "$dir\opentrace-desktop.exe" 'nsis'
+          $p = Start-Process -FilePath "$dir\uninstall.exe" -ArgumentList '/S', "_?=$dir" -Wait -PassThru
+          if (Test-Path "$dir\opentrace-desktop.exe") { throw 'NSIS uninstall left the program' }
+          # MSI (per machine, Program Files)
+          $msi = Get-ChildItem "$bundle\msi\*.msi" | Select-Object -First 1
+          $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$($msi.FullName)`"", '/qn', '/norestart', '/l*v', "`"$env:RUNNER_TEMP\msi-install.log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 40; throw "MSI install exit $($p.ExitCode)" }
+          Test-Installed "$env:ProgramFiles\OpenTrace Desktop\opentrace-desktop.exe" 'msi'
+          $p = Start-Process msiexec.exe -ArgumentList '/x', "`"$($msi.FullName)`"", '/qn', '/norestart' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "MSI uninstall exit $($p.ExitCode)" }
+          if (Test-Path "$env:ProgramFiles\OpenTrace Desktop\opentrace-desktop.exe") { throw 'MSI uninstall left the program' }
+          'Installed packages: OK'
       - uses: actions/upload-artifact@v4
         with:
           name: opentrace-desktop-${{ runner.os }}
