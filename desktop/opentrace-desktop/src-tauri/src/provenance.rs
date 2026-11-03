@@ -9,7 +9,9 @@
 //! Honesty rules: a record is only posted when it is unambiguous — if the same FSA was analysed with different
 //! settings in this session, nothing is guessed and the sample is counted as `ambiguous`. The active laboratory profile
 //! is attached only when the sent settings are exactly the ones its approved method and size standard produce
-//! (`labprofile.rs`); otherwise the record goes without a profile and the mismatch is counted with its reason.
+//! (`labprofile.rs`) and every kit the sample was genotyped with (seen in `/api/str-run`) was built from the profile's
+//! approved kit, bin set, stutter and method (checked at `/api/import-gm-kit`); otherwise the record goes without a
+//! profile and the mismatch is counted with its reason.
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -37,6 +39,10 @@ struct Inner {
     last_error: Option<String>,
     profile_mismatch: u64,
     last_mismatch: Option<String>,
+    /// Kit builds seen while a profile was active: normalised kit hash -> verdict against the profile.
+    kits: HashMap<String, Result<(), String>>,
+    /// Genotyping runs per FSA: the kit hashes used.
+    genotyped: HashMap<String, Vec<String>>,
 }
 
 #[derive(Default)]
@@ -125,6 +131,32 @@ impl Ledger {
                 g.last_error = Some(e);
             }
         }
+    }
+
+    pub fn note_kit_build(&self, kit_hash: String, verdict: Result<(), String>) {
+        self.lock().kits.insert(kit_hash, verdict);
+    }
+
+    pub fn note_genotyping(&self, fsa_sha256: &str, kit_hash: String) {
+        let mut g = self.lock();
+        let v = g.genotyped.entry(fsa_sha256.to_string()).or_default();
+        if !v.contains(&kit_hash) {
+            v.push(kit_hash);
+        }
+    }
+
+    /// `Ok` when every kit this FSA was genotyped with was checked against the active profile and matched (or it was
+    /// not genotyped in this session); otherwise why not.
+    pub fn genotyping_verdict(&self, fsa_sha256: &str) -> Result<(), String> {
+        let g = self.lock();
+        for k in g.genotyped.get(fsa_sha256).map(|v| v.as_slice()).unwrap_or(&[]) {
+            match g.kits.get(k) {
+                Some(Ok(())) => {}
+                Some(Err(why)) => return Err(format!("генотипирование: {}", why)),
+                None => return Err("генотипирование набором, собранным до выбора профиля (перезапустите OpenTrace Desktop и повторите анализ)".into()),
+            }
+        }
+        Ok(())
     }
 
     pub fn note_profile_mismatch(&self, why: &str) {

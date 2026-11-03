@@ -123,11 +123,33 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
         return json_response(413, &json!({"error": format!("Request too large: {} bytes (limit {} MiB)", req.body().len(), limit / (1024 * 1024))}));
     }
     let r = st.core.handle(&to_core(&req, st.core.bound_port()));
-    if path == "/api/analyze" && r.code == 200 && st.remote.session().is_some() {
-        st.workspace.ledger.record(req.uri().query(), req.body(), &r.body);
+    if r.code == 200 && st.remote.session().is_some() {
+        if path == "/api/analyze" {
+            st.workspace.ledger.record(req.uri().query(), req.body(), &r.body);
+        } else if path == "/api/import-gm-kit" || path == "/api/str-run" {
+            note_genotyping(st, &path, req.body(), &r.body);
+        }
     }
     let body = if r.code == 200 && r.kind.starts_with("text/html") { inject_scripts(r.body, st.selftest.is_some()) } else { r.body };
     response(r.code, &r.kind, body)
+}
+
+/// With an active laboratory profile: which kits the UI builds (checked against the profile) and which kit each
+/// sample is genotyped with (see `provenance.rs`).
+fn note_genotyping(st: &DesktopState, path: &str, req: &[u8], resp: &[u8]) {
+    let profile = st.workspace.profile.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Ok(Some(active)) = profile else { return };
+    let Ok(body) = serde_json::from_slice::<Value>(req) else { return };
+    if path == "/api/import-gm-kit" {
+        if body["panel"].is_null() {
+            return;
+        }
+        let Ok(out) = serde_json::from_slice::<Value>(resp) else { return };
+        let verdict = crate::labprofile::check_kit_build(&active, &body);
+        st.workspace.ledger.note_kit_build(crate::labprofile::norm_hash(&out["kit"]), verdict);
+    } else if let Some(fsa) = body["sample"]["source_sha256"].as_str() {
+        st.workspace.ledger.note_genotyping(fsa, crate::labprofile::norm_hash(&body["kit"]));
+    }
 }
 
 /// Desktop scripts go into every HTML page as the first element of `<head>`, so they run before the page's own

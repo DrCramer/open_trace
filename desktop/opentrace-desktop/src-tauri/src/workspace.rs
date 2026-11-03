@@ -307,7 +307,7 @@ impl Workspace {
         let mut body = json!({"sample_id": id, "fsa_sha256": rec.fsa_sha256, "analysis_version": rec.analysis_version,
                               "settings": rec.settings, "result_sha256": rec.result_sha256});
         if let Ok(Some(p)) = &*self.profile.lock().unwrap_or_else(|e| e.into_inner()) {
-            match crate::labprofile::check(p, &rec.settings) {
+            match crate::labprofile::check(p, &rec.settings).and_then(|_| self.ledger.genotyping_verdict(&rec.fsa_sha256)) {
                 Ok(()) => body["lab_profile"] = json!({"name": p.name, "version": p.version}),
                 Err(why) => self.ledger.note_profile_mismatch(&format!("образец {}: {}", id, why)),
             }

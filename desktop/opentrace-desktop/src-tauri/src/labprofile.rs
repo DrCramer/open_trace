@@ -18,6 +18,11 @@ pub struct Active {
     pub size_standard: String,
     /// Settings the profile's method + size standard produce (nulls dropped).
     pub expected: Map<String, Value>,
+    /// Approved contents used to check genotyping kits (`check_kit_build`).
+    pub method_content: Value,
+    pub kit: Value,
+    pub bin_set: Value,
+    pub stutter: Option<Value>,
 }
 
 fn enc(s: &str) -> String {
@@ -57,6 +62,12 @@ pub fn resolve(remote: &Remote, ca: Option<&std::path::Path>, core: &opentrace_c
     let sm = member(&members, "size_standard")?;
     let method = fetch_pinned(remote, ca, mm)?;
     let std = fetch_pinned(remote, ca, sm)?;
+    let kit = fetch_pinned(remote, ca, member(&members, "kit")?)?;
+    let bin_set = fetch_pinned(remote, ca, member(&members, "bin_set")?)?;
+    let stutter = match member(&members, "stutter") {
+        Ok(m) => Some(fetch_pinned(remote, ca, m)?),
+        Err(_) => None,
+    };
     let body = json!({"action": "analyze_settings", "method": method, "standard_bp": std["sizes"], "standard_dye": std["dye"]});
     let req = opentrace_core::server::Request {
         method: "POST".into(),
@@ -77,6 +88,10 @@ pub fn resolve(remote: &Remote, ca: Option<&std::path::Path>, core: &opentrace_c
         method: mm["name"].as_str().unwrap_or("").to_string(),
         size_standard: sm["name"].as_str().unwrap_or("").to_string(),
         expected,
+        method_content: method,
+        kit,
+        bin_set,
+        stutter,
     })
 }
 
@@ -116,13 +131,108 @@ pub fn check(active: &Active, sent: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Canonical JSON with every number written from its f64 value, so a structure that went through JavaScript
+/// (`100.0` comes back as `100`) hashes the same as the original.
+pub fn norm_hash(v: &Value) -> String {
+    fn walk(v: &Value, out: &mut String) {
+        match v {
+            Value::Number(n) => {
+                let f = n.as_f64().unwrap_or(f64::NAN);
+                if f.fract() == 0.0 && f.abs() < 1e15 {
+                    out.push_str(&format!("{}", f as i64));
+                } else {
+                    out.push_str(&format!("{:e}", f));
+                }
+            }
+            Value::Array(a) => {
+                out.push('[');
+                for (i, x) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    walk(x, out);
+                }
+                out.push(']');
+            }
+            Value::Object(m) => {
+                let mut keys: Vec<&String> = m.keys().collect();
+                keys.sort();
+                out.push('{');
+                for (i, k) in keys.into_iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::to_string(k).unwrap());
+                    out.push(':');
+                    walk(&m[k], out);
+                }
+                out.push('}');
+            }
+            other => out.push_str(&other.to_string()),
+        }
+    }
+    let mut s = String::new();
+    walk(v, &mut s);
+    crate::provenance::sha256_hex(s.as_bytes())
+}
+
+/// A kit build the UI asked for (`/api/import-gm-kit` with a panel: GeneMapper panels/bins/stutter text it generated
+/// from its local library, plus the analysis method) against the approved kit, bin set, stutter and method of the
+/// profile. The texts are parsed with the core's own parsers and compared structure by structure.
+pub fn check_kit_build(active: &Active, req: &Value) -> Result<(), String> {
+    use opentrace_core::gm_kit_import::{parse_bins, parse_panels, parse_stutter};
+    if norm_hash(&req["analysis_method"]) != norm_hash(&active.method_content) {
+        return Err("метод анализа набора не совпадает с методом профиля".into());
+    }
+    let panels = parse_panels(&req["panels"]).map_err(|e| format!("панели: {}", e))?;
+    let kit_name = active.kit["name"].as_str().unwrap_or("");
+    let parsed_kit = panels["kits"].as_array().and_then(|k| k.iter().find(|k| k["name"] == kit_name)).ok_or_else(|| format!("набор «{}» не из профиля", kit_name))?;
+    let strip = |ps: &Value| -> Vec<Value> {
+        ps.as_array().cloned().unwrap_or_default().into_iter().map(|p| json!({"name": p["name"], "markers": p["markers"]})).collect()
+    };
+    if !num_eq(&Value::Array(strip(&parsed_kit["panels"])), &Value::Array(strip(&active.kit["panels"]))) {
+        return Err(format!("панели набора «{}» отличаются от утверждённой версии", kit_name));
+    }
+    let panel = req["panel"].as_str().unwrap_or("");
+    if !active.kit["panels"].as_array().map(|ps| ps.iter().any(|p| p["name"] == panel)).unwrap_or(false) {
+        return Err(format!("панель «{}» не входит в набор профиля", panel));
+    }
+    let bins = parse_bins(&req["bins"]).map_err(|e| format!("бины: {}", e))?;
+    if !num_eq(&bins["panels"], &active.bin_set["panels"]) {
+        return Err("бины отличаются от утверждённого набора бинов профиля".into());
+    }
+    match (&active.stutter, req["stutter"].as_str()) {
+        (None, None) => {}
+        (Some(st), Some(_)) => {
+            let parsed = parse_stutter(&req["stutter"]).map_err(|e| format!("статтеры: {}", e))?;
+            if !num_eq(&parsed["panels"], &st["stutter"]["panels"]) {
+                return Err("статтеры отличаются от утверждённой версии профиля".into());
+            }
+        }
+        (None, Some(_)) => return Err("использованы статтеры, которых нет в профиле".into()),
+        (Some(_), None) => return Err("статтеры профиля не использованы".into()),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn active() -> Active {
         let expected = json!({"threshold": 50, "standard_bp": [75, 100.5], "channel_thresholds": {"DATA1": 50}, "sizing_mode": "auto", "smooth": true});
-        Active { name: "P".into(), version: 1, content_sha256: "x".into(), method: "M".into(), size_standard: "S".into(), expected: expected.as_object().unwrap().clone() }
+        Active {
+            name: "P".into(),
+            version: 1,
+            content_sha256: "x".into(),
+            method: "M".into(),
+            size_standard: "S".into(),
+            expected: expected.as_object().unwrap().clone(),
+            method_content: json!({}),
+            kit: json!({}),
+            bin_set: json!({}),
+            stutter: None,
+        }
     }
 
     #[test]

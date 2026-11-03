@@ -83,19 +83,56 @@
     localStorage.setItem(L.key, JSON.stringify(db));
     return true;
   }
+  // Kit, bin set and stutter of a profile go into the Panel Manager library (`opentrace.kits.v1`) in the same shape
+  // the standards import reads them from: the kit entry gets the approved panels, the approved bin set (other bin sets
+  // of the kit are kept) and exactly the profile's stutter (none if the profile has none).
+  function putLocalKit(kit, binSet, stutter) {
+    var db = ls('opentrace.kits.v1');
+    if (!db || db.schema !== 1 || !Array.isArray(db.kits)) db = { schema: 1, revision: 0, kits: [] };
+    var i = db.kits.findIndex(function (k) { return k && k.name === kit.name; });
+    var old = i >= 0 ? db.kits[i] : null;
+    var set = {};
+    Object.keys(binSet).forEach(function (f) { if (f !== 'kit') set[f] = binSet[f]; });
+    var entry = {};
+    Object.keys(kit).forEach(function (f) { entry[f] = kit[f]; });
+    entry.binSets = (old && Array.isArray(old.binSets) ? old.binSets.filter(function (b) { return b.name !== set.name; }) : []).concat([set]);
+    entry.stutter = stutter ? stutter.stutter : null;
+    if (old) {
+      var canon = function (x) {
+        if (Array.isArray(x)) return '[' + x.map(canon).join(',') + ']';
+        if (x && typeof x === 'object') return '{' + Object.keys(x).sort().map(function (k) { return JSON.stringify(k) + ':' + canon(x[k]); }).join(',') + '}';
+        return JSON.stringify(x);
+      };
+      var oldSet = (old.binSets || []).find(function (b) { return b.name === set.name; });
+      var differs = canon(old.panels) !== canon(kit.panels) || !oldSet || canon(oldSet.panels) !== canon(set.panels) || canon(old.stutter || null) !== canon(entry.stutter);
+      if (differs && !window.confirm('Набор «' + kit.name + '» на этом компьютере отличается от утверждённого (панели, бины «' + set.name + '» или статтеры). Заменить их утверждёнными? Другие наборы бинов этого набора сохранятся.')) return false;
+      db.kits[i] = entry;
+    } else {
+      db.kits.push(entry);
+    }
+    db.revision = (db.revision || 0) + 1;
+    localStorage.setItem('opentrace.kits.v1', JSON.stringify(db));
+    return true;
+  }
   async function useProfile(v) {
     var out = $('actOut');
     try {
       var members = (v.content && v.content.members) || [];
-      for (var k of ['analysis_method', 'size_standard']) {
-        var m = members.find(function (x) { return x.kind === k; });
-        if (!m) throw new Error('в профиле нет ' + LOCAL[k].label);
+      var got = {};
+      for (var m of members) {
         var mv = await v1('GET', '/standards/' + enc(m.kind) + '/' + enc(m.name) + '/' + m.version);
         if (mv.content_sha256 !== m.content_sha256) throw new Error(m.name + ': SHA-256 не совпадает с закреплённым в профиле');
-        if (!putLocal(k, mv.content)) { out.innerHTML = '<span class="note">Отменено.</span>'; return; }
+        got[m.kind] = mv.content;
       }
+      ['analysis_method', 'size_standard', 'kit', 'bin_set'].forEach(function (k) { if (!got[k]) throw new Error('в профиле нет «' + (KINDS[k] || k) + '»'); });
+      for (var k of ['analysis_method', 'size_standard']) {
+        if (!putLocal(k, got[k])) { out.innerHTML = '<span class="note">Отменено.</span>'; return; }
+      }
+      if (!putLocalKit(got.kit, got.bin_set, got.stutter || null)) { out.innerHTML = '<span class="note">Отменено.</span>'; return; }
       var r = await desk('POST', 'lab-profile', { name: v.name, version: v.version });
-      out.innerHTML = '<span class="ok">Профиль «' + esc(v.name) + '» v' + v.version + ' активен. Метод «' + esc(r.active.method) + '» и стандарт длин «' + esc(r.active.size_standard) + '» загружены в этот компьютер — выбирайте их в диалоге «Добавить образцы».</span>';
+      out.innerHTML = '<span class="ok">Профиль «' + esc(v.name) + '» v' + v.version + ' активен. Метод «' + esc(r.active.method) + '», стандарт длин «' + esc(r.active.size_standard) + '», набор «' + esc(got.kit.name) + '» с бинами «' + esc(got.bin_set.name) + '» загружены в этот компьютер. ' +
+        'В диалоге «Добавить образцы» выберите этот метод, стандарт длин и панель набора; в методе указан набор бинов «' + esc((got.analysis_method.allele || {}).bin_set || '') + '». ' +
+        'Если анализ уже выполнялся в этом сеансе, перезапустите OpenTrace Desktop: наборы, собранные до выбора профиля, не считаются профильными.</span>';
       showActive();
     } catch (e) { out.innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
   }

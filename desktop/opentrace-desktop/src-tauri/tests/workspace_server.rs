@@ -248,3 +248,96 @@ fn analyses_are_attributed_to_the_lab_profile_only_with_its_exact_settings() {
     assert_eq!(st["profile_mismatch"], 1);
     assert!(st["last_mismatch"].as_str().unwrap().contains("threshold"), "{}", st);
 }
+
+const PANELS: &str = "Version\tGMID-X v 1.4\r\nKit type:\tMICROSATELLITE\r\nChemistry Kit\tKit G\tnull\r\nPanel\tP1\tnull\r\nM1\tblue\t100.0\t140.0\tnone\t4\tnone\tfalse\t10, 11, 12, \r\n";
+fn bins_text(center: &str) -> String {
+    format!("Version\tGMID-X v 1.2\r\nChemistry Kit\tKit G\r\nBinSet Name\tBins G\r\nPanel Name\tP1\r\nMarker Name\tM1\r\n10\t{}\t0.5\t0.5\r\n11\t108.0\t0.5\t0.5\r\n12\t112.0\t0.5\t0.5\r\n", center)
+}
+
+/// JSON round trip through JavaScript: integral floats lose their `.0`.
+fn via_js(v: &Value) -> Value {
+    fn walk(v: &Value) -> Value {
+        match v {
+            Value::Number(n) => match n.as_f64() {
+                Some(f) if f.fract() == 0.0 && f.abs() < 1e15 => json!(f as i64),
+                _ => v.clone(),
+            },
+            Value::Array(a) => Value::Array(a.iter().map(walk).collect()),
+            Value::Object(m) => Value::Object(m.iter().map(|(k, x)| (k.clone(), walk(x))).collect()),
+            _ => v.clone(),
+        }
+    }
+    walk(v)
+}
+
+#[test]
+fn genotyping_is_attributed_to_the_profile_only_with_its_kit_bins_and_method() {
+    use opentrace_core::gm_kit_import::{import_request, parse_bins, parse_panels};
+    let s = server();
+    let (ra, a) = client(&s, "Casework Analyst");
+    let director = Remote::new(false);
+    director.login(&s.url, None, "Lab Director", "ws-secret-1").unwrap();
+    let shipped: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../resources/data/shipped_methods.json")).unwrap()).unwrap();
+    let method = shipped["methods"][0].clone();
+    // Library contents exactly as the Panel Manager stores parsed files (KitStore) and the standards page imports them.
+    let p = parse_panels(&json!(PANELS)).unwrap();
+    let pk = &p["kits"][0];
+    let kit = json!({"name": "Kit G", "type": "MICROSATELLITE", "comment": "", "panelsVersion": p["version"],
+                     "panels": pk["panels"].as_array().unwrap().iter().map(|x| json!({"name": x["name"], "comment": "", "markers": x["markers"]})).collect::<Vec<_>>()});
+    let b = parse_bins(&json!(bins_text("104.0"))).unwrap();
+    let bin_set = json!({"kit": "Kit G", "name": "Bins G", "version": b["version"], "panels": b["panels"]});
+    approved(&ra, &director, "analysis_method", method["name"].as_str().unwrap(), method.clone());
+    approved(&ra, &director, "size_standard", "CE_G5_HID_GS500", json!({"name": "CE_G5_HID_GS500", "dye": "orange", "sizes": [75, 100, 139, 150, 160, 200, 300, 340, 350, 400, 450], "description": ""}));
+    approved(&ra, &director, "kit", "Kit G", kit);
+    approved(&ra, &director, "bin_set", "Kit G · Bins G", bin_set);
+    let members = json!([
+        {"kind": "analysis_method", "name": method["name"], "version": 1}, {"kind": "size_standard", "name": "CE_G5_HID_GS500", "version": 1},
+        {"kind": "kit", "name": "Kit G", "version": 1}, {"kind": "bin_set", "name": "Kit G · Bins G", "version": 1}]);
+    approved(&ra, &director, "lab_profile", "Lab G", json!({"members": members}));
+    let dir = tempfile::tempdir().unwrap();
+    let core = opentrace_core::server::App::new(&opentrace_core::server::Config {
+        projects_dir: Some(dir.path().join("p")), security_dir: Some(dir.path().join("s")), ..Default::default()
+    })
+    .unwrap();
+    let active = opentrace_desktop_lib::labprofile::resolve(&ra, None, &core, "Lab G", 1).unwrap();
+    *a.profile.lock().unwrap() = Ok(Some(active.clone()));
+
+    // Two kit builds as the UI sends them (texts as KitStore.panelsText/binsText write them: `104`, not `104.0`;
+    // checked against the real kits.js): from the approved library, and with one bin moved by 0.5 bp.
+    let build = |bins: String| json!({"panels": PANELS, "bins": bins, "stutter": null, "panel": "P1", "analysis_method": method});
+    let (good, bad) = (build(bins_text("104").replace("\t108.0\t", "\t108\t").replace("\t112.0\t", "\t112\t")), build(bins_text("104.5")));
+    assert_eq!(opentrace_desktop_lib::labprofile::check_kit_build(&active, &good), Ok(()));
+    assert!(opentrace_desktop_lib::labprofile::check_kit_build(&active, &bad).unwrap_err().contains("бины"));
+    let norm = opentrace_desktop_lib::labprofile::norm_hash;
+    for req in [&good, &bad] {
+        let kit = import_request(req).unwrap()["kit"].clone();
+        a.ledger.note_kit_build(norm(&kit), opentrace_desktop_lib::labprofile::check_kit_build(&active, req));
+    }
+    let kit_good = via_js(&import_request(&good).unwrap()["kit"]);
+    let kit_bad = via_js(&import_request(&bad).unwrap()["kit"]);
+    assert_ne!(norm(&kit_good), norm(&kit_bad));
+
+    // Sample 1: profile settings, genotyped with the approved kit. Sample 2: same settings, genotyped with the moved bin.
+    // Sample 3: genotyped with a kit never built while the profile was active.
+    let files: Vec<Vec<u8>> = (11..14).map(opentrace_core::demo::synthetic_run_fsa).collect();
+    for f in &files {
+        a.ledger.record(Some(&ui_query(&active.expected)), f, f);
+    }
+    let sha = |b: &[u8]| opentrace_desktop_lib::provenance::sha256_hex(b);
+    a.ledger.note_genotyping(&sha(&files[0]), norm(&kit_good));
+    a.ledger.note_genotyping(&sha(&files[1]), norm(&kit_bad));
+    a.ledger.note_genotyping(&sha(&files[2]), norm(&json!({"name": "other"})));
+    a.handle(&meta("v1", true)).unwrap();
+    for (i, f) in files.iter().enumerate() {
+        a.handle(&json!({"action": "save_sample", "name": "Case 1", "id": (i + 1).to_string(), "fsa_b64": opentrace_core::matrix::b64encode(f),
+                         "data": {"analysis": {"source_sha256": sha(f)}}}))
+            .unwrap();
+    }
+    let rows = ra.get_json(None, "/api/v1/projects/Case%201/analyses").unwrap()["analyses"].as_array().unwrap().clone();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["lab_profile"], "Lab G", "{}", rows[0]);
+    assert!(rows[1]["lab_profile"].is_null() && rows[2]["lab_profile"].is_null());
+    let st = a.status()["provenance"].clone();
+    assert_eq!(st["profile_mismatch"], 2, "{}", st);
+    assert!(st["last_mismatch"].as_str().unwrap().contains("до выбора профиля"), "{}", st);
+}
