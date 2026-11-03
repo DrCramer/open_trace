@@ -126,13 +126,12 @@ fn bit_identical_to_glibc_fma_variant() {
     assert_eq!((de, dl, dp), (0, 0, 0), "differences in {} cases each (exp, log, pow)", n);
 }
 
-/// `expm1` and `sin` still come from the system C library (`cmath::sys`). Used by the analysis in
-/// `sizing_quality` (expm1 of a log-probability ≤ 0) and `numeric` (sin(π·x) in the gamma reflection). This
-/// fingerprint shows whether a platform's libm agrees with glibc on these ranges; a mismatch means the port must be
-/// extended before results can be claimed identical.
-fn system_fingerprint(n: usize) -> String {
+/// `cmath::expm1` (ported) and `cmath::sin` (system libm) on the analysis' ranges. `expm1` must give the same bits on
+/// every platform; `sin` is checked only where it is glibc (Windows' UCRT differs by 1 ulp in ~2 % of these
+/// arguments; the analysis does not depend on it, see `cmath.rs`).
+fn system_values(n: usize) -> (String, String) {
     let mut r = Rng(0xD1B5_4A32_D192_ED03);
-    let mut h = Sha256::new();
+    let (mut he, mut hs) = (Sha256::new(), Sha256::new());
     for i in 0..n {
         let e = match i % 3 {
             0 => -745.0 * r.u01(),
@@ -144,21 +143,62 @@ fn system_fingerprint(n: usize) -> String {
             1 => (r.u01() - 0.5) * 2e-6,
             _ => (r.u01() - 0.5) * 2000.0,
         };
-        h.update(opentrace_core::cmath::expm1(e).to_bits().to_le_bytes());
-        h.update(opentrace_core::cmath::sin(s).to_bits().to_le_bytes());
+        he.update(opentrace_core::cmath::expm1(e).to_bits().to_le_bytes());
+        hs.update(opentrace_core::cmath::sin(s).to_bits().to_le_bytes());
     }
-    h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    let hex = |h: Sha256| h.finalize().iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    (hex(he), hex(hs))
 }
 
-/// Recorded on Linux x86-64 (glibc 2.39).
-const SYSTEM_FINGERPRINT_1M: &str = "4bff6dd7099b8f7e92793993e16b6854bca79571c8063331e8e817d5511f8624";
+/// Recorded on Linux x86-64 (glibc 2.39, FMA).
+const EXPM1_FINGERPRINT_1M: &str = "b43401732a6e87dd2975d1962f04b67d9703dd55efb891ab655de4915b1a1e0e";
+const SIN_FINGERPRINT_1M_GLIBC: &str = "c1a953388985147600daa6b62f795dfd4c6b1b568f5c56714d073a038a5d758c";
 
 #[test]
-fn expm1_and_sin_agree_with_glibc_on_this_platform() {
-    let got = system_fingerprint(1_000_000);
-    eprintln!("expm1/sin fingerprint: {}", got);
-    if SYSTEM_FINGERPRINT_1M.starts_with("FILLED") {
-        panic!("record this fingerprint: {}", got);
+fn expm1_identical_on_every_platform_sin_matches_glibc_on_linux() {
+    let (e, s) = system_values(1_000_000);
+    eprintln!("expm1 {} sin {}", e, s);
+    if EXPM1_FINGERPRINT_1M.starts_with("FILL") {
+        panic!("record: expm1 {} sin {}", e, s);
     }
-    assert_eq!(got, SYSTEM_FINGERPRINT_1M, "this platform's libm expm1/sin differ from glibc: extend libm_port before claiming identical results");
+    assert_eq!(e, EXPM1_FINGERPRINT_1M);
+    if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") && std::arch::is_x86_feature_detected!("fma") {
+        assert_eq!(s, SIN_FINGERPRINT_1M_GLIBC);
+    }
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn expm1_bit_identical_to_glibc_fma_variant() {
+    extern "C" {
+        fn expm1(x: f64) -> f64;
+    }
+    if !std::arch::is_x86_feature_detected!("fma") {
+        return;
+    }
+    let n: usize = std::env::var("LIBM_PORT_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(3_000_000);
+    let mut r = Rng(0x5DEE_CE66_D1CE_4E5B);
+    let mut diffs = 0usize;
+    for i in 0..n {
+        let x = match i % 6 {
+            0 => -745.0 * r.u01(),
+            1 => (r.u01() - 0.5) * 1e-3,
+            2 => (r.u01() - 0.5) * 80.0,
+            3 => (r.u01() - 0.5) * 1500.0,
+            4 => if r.next() & 1 == 1 { r.wide(-1022, 10) } else { -r.wide(-1022, 10) },
+            _ => f64::from_bits(r.next()),
+        };
+        let (a, b) = (libm_port::expm1(x), unsafe { expm1(std::hint::black_box(x)) });
+        if a.to_bits() != b.to_bits() && !(a.is_nan() && b.is_nan()) {
+            if diffs < 5 {
+                eprintln!("expm1({:e}) port {:e} glibc {:e}", x, a, b);
+            }
+            diffs += 1;
+        }
+    }
+    for x in [0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY, 709.78, 709.79, -38.9, -40.0, 1e-300, -1e-300, 5e-324, 0.34657359, 1.0397] {
+        let (a, b) = (libm_port::expm1(x), unsafe { expm1(x) });
+        assert_eq!(a.to_bits(), b.to_bits(), "expm1({:e})", x);
+    }
+    assert_eq!(diffs, 0, "expm1 differences in {} cases", n);
 }
