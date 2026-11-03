@@ -27,6 +27,8 @@ SetCompressor /SOLID lzma
 ShowInstDetails show
 
 !include "MUI2.nsh"
+!define MUI_ICON "${SRC}\opentrace.ico"
+!define MUI_UNICON "${SRC}\opentrace.ico"
 !include "x64.nsh"
 !include "LogicLib.nsh"
 
