@@ -117,7 +117,7 @@ jobs:
           $env:OPENTRACE_DESKTOP_TRACE = "1"
           $p = Start-Process -FilePath desktop\opentrace-desktop\src-tauri\target\debug\opentrace-desktop.exe -PassThru -Wait -RedirectStandardError selftest-stderr.txt
           Get-Content selftest.json
-          Get-Content selftest-stderr.txt -Tail 80
+          Get-Content selftest-stderr.txt | Select-String -NotMatch 'sync/status|workspace/status' | Select-Object -First 200
           if ($p.ExitCode -ne 0) { exit $p.ExitCode }
       - uses: actions/upload-artifact@v4
         if: always()

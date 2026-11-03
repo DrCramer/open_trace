@@ -13,6 +13,7 @@
 | Показать графики (Ctrl+L) из Samples/Genotypes | отдельное окно графиков | `window.open('/idx/plot.html')` → `on_new_window` → нативное окно `plot-N` | самотест: `plot_opened`, окно `plot-1` создано | ✅ Linux (Xvfb), ✅ Windows (WebView2) |
 | Окно графиков читает данные проекта | общие данные с проектом | `window.opener.OT.plotPayload()` синхронно | самотест: `opener_ot`, `samples_in_payload ≥ 1` | ✅ Linux, ✅ Windows |
 | Отрисовка электрофореграммы | поле с кривыми каналов | Canvas 2D `plot.js` без изменений | самотест: 5 canvas, 2633 (Linux) / 10265 (Windows, HiDPI) цветных пикселей | ✅ Linux, ✅ Windows |
+| Много образцов (96 × 4 панели) | прокрутка без задержек | панели рисуются при приближении к видимой области (`IntersectionObserver`), печать рисует свои canvas сразу | самотест `OPENTRACE_DESKTOP_SELFTEST_BATCH=96`: окно готово за 0,2 с (Windows), 0,4 с (Linux; было 6,8 с) | ✅ Linux, ✅ Windows; 🔍 «Масштабировать до маркера» берёт первую *нарисованную* панель, а не первую в списке — при прокрутке вниз это видимая |
 | Правки аллелей из окна графиков попадают в проект | да, с Undo | `opener.OT.edit/editItems/undoLast` | Playwright (WEB) | 🟡 |
 | Второй монитор, сохранение размера/положения | окно запоминает место | плагин window-state, ключ по виду окна (`plot`) | — | 🔍 ручная проверка на 2 мониторах |
 | Esc закрывает окно графиков | да | `plot.js` (`window.close()` для окна с opener) | — | 🔍 |
