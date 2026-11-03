@@ -31,6 +31,8 @@ pub struct DesktopState {
     pub popup_reloaded: Mutex<HashSet<String>>,
     /// Size and position of popups per window kind (see `geometry.rs`).
     pub geometry: crate::geometry::PopupGeometry,
+    /// Local drafts of server projects whose save failed (see `drafts.rs`).
+    pub drafts: crate::drafts::Drafts,
 }
 
 impl DesktopState {

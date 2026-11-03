@@ -109,6 +109,15 @@ impl SelfTest {
                     && main["ws_saved"] == true
                     && main["ws_loaded_samples"].as_u64().unwrap_or(0) >= 1
                     && main["ws_after_open"]["editing"] == true
+                    && main["draft_lease_dropped"] == true
+                    && main["draft_save_refused"] == true
+                    && main["draft"]["samples"].as_u64().unwrap_or(0) >= 1
+                    && main["draft"]["samples_failed"] == 0
+                    && main["draft_loaded_samples"] == main["draft"]["samples"]
+                    && main["draft_expected_fsa"].as_u64().unwrap_or(0) >= 1
+                    && main["draft"]["samples_with_fsa"] == main["draft_expected_fsa"]
+                    && main["draft_index"].as_u64().unwrap_or(0) >= 1
+                    && main["draft_bypass_refused"] == true
                     && (main["local_methods"].as_u64().unwrap_or(0) == 0 || main["std_hash_match"] == true)))
             && (batch_size().is_none()
                 || (main["batch"]["analyzed"].as_u64() == batch_size()

@@ -259,6 +259,13 @@
           await sleep(5000); // let the plot window finish its checks on the example project first
           var src = await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'server' }) });
           c.ws_source_status = src.status;
+          // One sample with a real (synthetic) FSA, so the project on the server references a stored original.
+          var mnames = (window.Methods ? Methods.list() : []).map(function (r) { return r.method.name; });
+          var fsaFile = new File([await (await fetch('/desktop/api/selftest/fsa?genotype=0')).blob()], 'draft-fsa.fsa');
+          window.OT.addSampleFiles([fsaFile], 'Draft run', mnames.find(function (x) { return /MiniFiler_GS500/.test(x); }) || mnames[0], '', 'CE_G5_HID_GS500');
+          if (window.ProjectOptions) ProjectOptions.get().ars = 'continue';
+          c.draft_fsa_analyze = await Promise.race([window.OT.analyze('pending').then(function () { return 'done'; }, function (e) { return String(e); }), sleep(30000).then(function () { return 'timeout'; })]);
+          c.draft_fsa_dialog = (document.querySelector('.dialog, dialog[open], .modal') || {}).textContent || null;
           var pname = 'Selftest ' + Date.now();
           c.ws_saved = await window.OT.writeProject(pname, { create: true });
           c.ws_after_save = await (await fetch('/desktop/api/workspace/status')).json();
@@ -266,7 +273,30 @@
           await window.OT.loadProject(pname);
           c.ws_loaded_samples = window.OT.state.project.samples.length;
           c.ws_after_open = await (await fetch('/desktop/api/workspace/status')).json();
+          // Lease lost while editing: the save is refused and a full copy goes into the local library as a draft.
+          var dl = await (await fetch('/desktop/api/selftest/drop-lease', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: pname }) })).json();
+          c.draft_lease_dropped = dl.dropped;
+          window.__otDesktopLastDraft = null;
+          // Example samples carry hashes of demo data that was never stored; only the real FSA must come back.
+          c.draft_expected_fsa = window.OT.state.project.samples.filter(function (x) { return x.blob || x.file === 'draft-fsa.fsa'; }).length;
+          // As for a sample opened from the server without its file: the draft must take the original from the cache.
+          window.OT.state.project.samples.forEach(function (x) { if (x.file === 'draft-fsa.fsa') delete x.blob; });
+          c.draft_blobs_in_window = window.OT.state.project.samples.filter(function (x) { return x.blob; }).length;
+          window.OT.state.project.samples.forEach(function (x) { x.rev = (x.rev || 0) + 1; });
+          window.OT.state.project.dirty = true;
+          c.draft_save_refused = (await window.OT.writeProject(pname)) === false;
+          await wait(function () { return window.__otDesktopLastDraft; }, 60000);
+          c.draft = window.__otDesktopLastDraft;
+          c.draft_index = ((await (await fetch('/desktop/api/drafts')).json()).drafts || []).length;
+          // The local-write bypass is only for a draft registered by the app, never for an arbitrary name.
+          c.draft_bypass_refused = (await fetch('/api/idx-project', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Session-Token': window.OT_TOKEN, 'X-OT-Draft': 'Other' }, body: JSON.stringify({ action: 'save_meta', name: 'Other', project: {}, create: true }) })).status === 403;
           await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
+          if (c.draft && c.draft.draft) {
+            window.OT.state.project.samples = [];
+            await window.OT.loadProject(c.draft.draft);
+            c.draft_loaded_samples = window.OT.state.project.samples.length;
+            c.draft_loaded_analyses = window.OT.state.project.samples.filter(function (x) { return x.analysis; }).length;
+          }
           // Lab standards: a local method imported as a server draft; desktop and server hash it identically.
           var lm = ((JSON.parse(localStorage.getItem('opentrace.methods.v1') || 'null') || {}).methods || []).map(function (r) { return r.method; }).filter(Boolean);
           c.local_methods = lm.length;

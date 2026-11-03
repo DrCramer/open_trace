@@ -249,6 +249,23 @@ impl Remote {
             .map_err(|e| RemoteError::Transport(e.to_string()))
     }
 
+    /// `GET /api/v1/fsa/{sha}`: the stored original, verified against its SHA-256 (size-limited like an import).
+    pub fn fsa_get(&self, ca: Option<&std::path::Path>, sha: &str) -> RResult<Vec<u8>> {
+        let s = self.authed()?;
+        let a = self.agent(ca)?;
+        let r = a.get(&format!("{}/api/v1/fsa/{}", s.server, sha)).set("Authorization", &format!("Bearer {}", s.token)).call().map_err(|e| self.on_err(map_err(e)))?;
+        let mut buf = Vec::new();
+        let limit = opentrace_core::abif::MAX_FILE_BYTES as u64;
+        r.into_reader().take(limit + 1).read_to_end(&mut buf).map_err(|e| RemoteError::Transport(e.to_string()))?;
+        if buf.len() as u64 > limit {
+            return Err(RemoteError::Transport("FSA larger than the import limit".into()));
+        }
+        if crate::sync::hex(&<sha2::Sha256 as sha2::Digest>::digest(&buf)) != sha {
+            return Err(RemoteError::Transport("FSA from the server does not match its SHA-256".into()));
+        }
+        Ok(buf)
+    }
+
     fn on_err(&self, e: RemoteError) -> RemoteError {
         if matches!(e, RemoteError::Status(401, _)) {
             if let Some(s) = self.session.lock().unwrap_or_else(|e| e.into_inner()).take() {

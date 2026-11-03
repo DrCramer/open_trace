@@ -341,6 +341,16 @@ impl Workspace {
         }
     }
 
+    /// Self-test only: the server forgets this client's lease (as after expiry or an administrator's reset) while the
+    /// client still believes it holds it — the next save is refused with `lease_lost`.
+    pub fn drop_lease_on_server(&self, name: &str) -> bool {
+        let id = self.state_of(name).and_then(|h| h.lease_id);
+        match id {
+            Some(id) => self.remote.delete(self.ca().as_deref(), &format!("/api/v1/projects/{}/lease", enc(name)), &[("X-Lease-Id", id)]).is_ok(),
+            None => false,
+        }
+    }
+
     pub fn release_all(&self) {
         let names: Vec<String> = self.held().keys().cloned().collect();
         for n in names {

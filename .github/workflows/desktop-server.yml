@@ -139,8 +139,9 @@ jobs:
               OPENTRACE_SELFTEST_USER="Casework Analyst" OPENTRACE_SELFTEST_PASSWORD=e2e-secret-1 \
               timeout 180 xvfb-run -a desktop/opentrace-desktop/src-tauri/target/debug/opentrace-desktop
           done
-          # first client uploads, second one is deduplicated by SHA-256: exactly one stored file
-          test "$(find $RUNNER_TEMP/ots/fsa -type f | wc -l)" = 1
+          # first client uploads, second one is deduplicated by SHA-256: one stored file per distinct FSA (the analysed
+          # self-test file and the sample of the local-draft check)
+          test "$(find $RUNNER_TEMP/ots/fsa -type f | wc -l)" = 2
           grep -q '"deduplicated": 1' e2e2.json
           # Laboratory profile with the synthetic kit; genotyping through the UI, saved to the server: every sample's
           # provenance must be attributed to the profile.

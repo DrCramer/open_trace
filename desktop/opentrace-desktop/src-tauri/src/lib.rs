@@ -2,6 +2,7 @@
 //! `opentrace-core`, optional organisation features through OpenTrace Server API v1.
 mod bridge;
 pub mod config;
+mod drafts;
 mod geometry;
 pub mod labprofile;
 pub mod provenance;
@@ -77,7 +78,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
         pool: pool::Pool::new(pool::default_size(), "analysis"),
         cfg: Mutex::new(cfg.clone()),
         cfg_path,
-        data_dir: data,
+        data_dir: data.clone(),
         remote: remote.clone(),
         sync: sync.clone(),
         workspace,
@@ -88,6 +89,7 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
         scheme_seen: Mutex::new(Default::default()),
         popup_reloaded: Mutex::new(Default::default()),
         geometry: geometry::PopupGeometry::load(geometry_path),
+        drafts: drafts::Drafts::new(&data),
     });
     app.manage(st.clone());
     let st_ca = st.clone();

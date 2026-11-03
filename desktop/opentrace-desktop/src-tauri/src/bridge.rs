@@ -114,6 +114,41 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
     if let Some(rest) = path.strip_prefix("/desktop/") {
         return desktop(app, st, label, rest, &req);
     }
+    // A local draft of a server project (see drafts.rs): only writes to a draft name registered by `drafts/begin`.
+    // The header carries the name percent-encoded (header values are Latin-1).
+    if let Some(draft) = req.headers().get("x-ot-draft").and_then(|v| v.to_str().ok()).map(|v| {
+        url::form_urlencoded::parse(format!("d={}", v.replace('+', "%2B")).as_bytes()).next().map(|(_, d)| d.into_owned()).unwrap_or_default()
+    }) {
+        let body: Value = serde_json::from_slice(req.body()).unwrap_or(Value::Null);
+        let action = body["action"].as_str().unwrap_or("");
+        if path != "/api/idx-project" || !matches!(action, "save_meta" | "save_sample") || body["name"].as_str() != Some(draft.as_str()) || !st.drafts.is_open(&draft) {
+            return json_response(403, &json!({"error": "draft write refused"}));
+        }
+        let mut creq = to_core(&req, st.core.bound_port());
+        // A sample opened from the server has no FSA in the window: take the original from the local FSA cache, or
+        // from the server when it is reachable, so the draft is complete (verified by SHA-256 either way).
+        if action == "save_sample" && body["fsa_b64"].is_null() {
+            if let Some(sha) = body["data"]["analysis"]["source_sha256"].as_str() {
+                let ca = st.config().ca_cert_pem.map(std::path::PathBuf::from);
+                let bytes = st.sync.cached(sha).or_else(|| st.remote.fsa_get(ca.as_deref(), sha).ok());
+                if let Some(b) = bytes {
+                    let mut nb = body.clone();
+                    nb["fsa_b64"] = json!(opentrace_core::matrix::b64encode(&b));
+                    creq.body = serde_json::to_vec(&nb).unwrap_or_default();
+                    creq.headers.retain(|(k, _)| k != "content-length" && k != "x-ot-body-length");
+                    creq.headers.push(("content-length".into(), creq.body.len().to_string()));
+                    let r = st.core.handle(&creq);
+                    let mut out: Value = serde_json::from_slice(&r.body).unwrap_or(Value::Null);
+                    if r.code == 200 && out.is_object() {
+                        out["draft_fsa"] = json!(true);
+                    }
+                    return json_response(r.code, &out);
+                }
+            }
+        }
+        let r = st.core.handle(&creq);
+        return response(r.code, &r.kind, r.body);
+    }
     if path == "/api/idx-project" && req.method() == tauri::http::Method::POST && st.server_projects() {
         let body: Value = match serde_json::from_slice(req.body()) {
             Ok(v) => v,
@@ -216,6 +251,46 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
         ("connection.js", false) => response(200, "text/javascript; charset=utf-8", CONNECTION_JS.as_bytes().to_vec()),
         ("shim.js", false) => response(200, "text/javascript; charset=utf-8", SHIM_JS.as_bytes().to_vec()),
         ("selftest.js", false) if st.selftest.is_some() => response(200, "text/javascript; charset=utf-8", crate::selftest::SELFTEST_JS.as_bytes().to_vec()),
+        ("api/drafts/begin", true) => {
+            let b = body_json(req);
+            let project = b["project"].as_str().unwrap_or("").to_string();
+            // Existing local project names (core list with the page's own session/ticket headers).
+            let mut list_req = to_core(req, st.core.bound_port());
+            list_req.target = "/api/idx-project".into();
+            list_req.body = serde_json::to_vec(&json!({"action": "list"})).unwrap_or_default();
+            list_req.headers.retain(|(k, _)| k != "content-length" && k != "x-ot-body-length" && k != "content-type");
+            list_req.headers.push(("content-type".into(), "application/json".into()));
+            list_req.headers.push(("content-length".into(), list_req.body.len().to_string()));
+            let r = st.core.handle(&list_req);
+            if r.code != 200 {
+                return response(r.code, &r.kind, r.body);
+            }
+            let names: Vec<String> = serde_json::from_slice::<Value>(&r.body)
+                .ok()
+                .and_then(|v| v["projects"].as_array().map(|a| a.iter().filter_map(|p| p["name"].as_str().map(String::from)).collect()))
+                .unwrap_or_default();
+            let draft = st.drafts.begin(&project, |n| names.iter().any(|x| x.eq_ignore_ascii_case(n)));
+            eprintln!("[desktop] saving a local draft of server project ({} chars name)", project.chars().count());
+            json_response(200, &json!({"draft": draft}))
+        }
+        ("api/drafts/finish", true) => {
+            let b = body_json(req);
+            let draft = b["draft"].as_str().unwrap_or("");
+            let e = crate::drafts::entry(
+                draft,
+                b["project"].as_str().unwrap_or(""),
+                st.config().server_url,
+                b["reason"].as_str().unwrap_or(""),
+                b["samples"].as_u64().unwrap_or(0),
+                b["samples_with_fsa"].as_u64().unwrap_or(0),
+                b["samples_failed"].as_u64().unwrap_or(0),
+            );
+            match st.drafts.finish(draft, e) {
+                Ok(()) => json_response(200, &json!({"ok": true})),
+                Err(x) => json_response(400, &json!({"error": x})),
+            }
+        }
+        ("api/drafts", false) => json_response(200, &json!({"drafts": st.drafts.list()})),
         ("api/info", false) => {
             let cfg = st.config();
             let s = st.remote.session();
@@ -424,6 +499,10 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             let mut labels: Vec<String> = app.webview_windows().keys().cloned().collect();
             labels.sort();
             json_response(200, &json!({"windows": labels}))
+        }
+        ("api/selftest/drop-lease", true) if st.selftest.is_some() => {
+            let name = body_json(req)["project"].as_str().unwrap_or("").to_string();
+            json_response(200, &json!({"dropped": st.workspace.drop_lease_on_server(&name)}))
         }
         ("api/selftest/memory", false) if st.selftest.is_some() => json_response(200, &json!({"process_tree_rss_mib": crate::selftest::process_tree_rss_mib()})),
         ("api/selftest/report", true) if st.selftest.is_some() => {

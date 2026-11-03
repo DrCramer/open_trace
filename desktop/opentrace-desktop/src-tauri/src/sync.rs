@@ -113,6 +113,15 @@ impl SyncQueue {
         self.cv.notify_all();
     }
 
+    /// The cached original with this SHA-256, verified (None when not cached or damaged).
+    pub fn cached(&self, sha: &str) -> Option<Vec<u8>> {
+        if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let b = std::fs::read(blob_path(&self.dir, sha)).ok()?;
+        (hex(&Sha256::digest(&b)) == sha).then_some(b)
+    }
+
     /// Stores the bytes of an imported FSA in the cache (if new) and queues the upload. Returns the SHA-256.
     pub fn add(&self, name: &str, data: &[u8]) -> Result<String, String> {
         if data.len() < 4 || &data[0..4] != b"ABIF" {

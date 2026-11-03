@@ -36,10 +36,95 @@
     return rawFetch(input, init);
   }
   var origFetch = send;
+
+  // ---- Local draft when saving a server project fails (drafts.rs) ----
+  // The UI saves a project as one save_meta followed by save_sample requests. If any of them fails while projects are
+  // kept on the server (lease lost, conflict, no connection), the edits live only in this window. A full copy of the
+  // open project then goes into the LOCAL project library under a new name; nothing is sent to the server.
+  var saveCycle = null;
+  function blobB64(blob) {
+    return new Promise(function (res, rej) {
+      var r = new FileReader();
+      r.onload = function () { var s = String(r.result); res(s.slice(s.indexOf(',') + 1)); };
+      r.onerror = function () { rej(r.error); };
+      r.readAsDataURL(blob);
+    });
+  }
+  async function postJson(url, headers, body) {
+    var r = await origFetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+    var j = null;
+    try { j = await r.json(); } catch (e) {}
+    if (!r.ok) throw Error((j && j.error) || ('HTTP ' + r.status));
+    return j;
+  }
+  async function createDraft(cyc, why) {
+    var st = window.OT && window.OT.state;
+    var ids = ((cyc.meta && cyc.meta.samples) || []).map(function (x) { return x.id; });
+    var samples = st ? st.project.samples.slice() : [];
+    if (!st || ids.length !== samples.length) throw Error('состав проекта изменился во время сохранения');
+    var hdr = Object.assign({ 'Content-Type': 'application/json' }, cyc.headers);
+    var b = await postJson('/desktop/api/drafts/begin', hdr, { project: cyc.name });
+    var dh = Object.assign({ 'X-OT-Draft': encodeURIComponent(b.draft) }, hdr);
+    var meta = Object.assign({}, cyc.meta);
+    delete meta.security_group; // the server's groups may not exist in the local library: default group
+    await postJson('/api/idx-project', dh, { action: 'save_meta', name: b.draft, project: meta, create: true, overwrite: false });
+    var withFsa = 0, failed = 0;
+    for (var i = 0; i < samples.length; i++) {
+      var s = samples[i];
+      var payload = { action: 'save_sample', name: b.draft, id: ids[i], data: { analysis: s.analysis || null, compact: s.compact || null, report: s.report || null } };
+      try {
+        if (s.blob) { payload.fsa_b64 = await blobB64(s.blob); withFsa++; }
+        var rj = await postJson('/api/idx-project', dh, payload);
+        if (!payload.fsa_b64 && rj && rj.draft_fsa) withFsa++; // original taken from the FSA cache or the server
+      } catch (e) { failed++; }
+    }
+    await postJson('/desktop/api/drafts/finish', hdr, { draft: b.draft, project: cyc.name, reason: why, samples: samples.length, samples_with_fsa: withFsa, samples_failed: failed });
+    return { draft: b.draft, samples: samples.length, samples_with_fsa: withFsa, samples_failed: failed };
+  }
+  async function failedSave(cyc, why) {
+    if (cyc.failed) return;
+    cyc.failed = true;
+    try {
+      var ws = await (await origFetch('/desktop/api/workspace/status')).json();
+      if (ws.source !== 'server') return;
+    } catch (e) { return; }
+    // Let the UI finish its own save attempt (it stops at the first error) before reading its project state.
+    for (var t = Date.now(); window.OT && window.OT.state && window.OT.state.busy && Date.now() - t < 120000;) await new Promise(function (r) { setTimeout(r, 200); });
+    var ru = (document.documentElement.lang || 'ru').indexOf('en') !== 0;
+    try {
+      var d = await createDraft(cyc, why);
+      window.__otDesktopLastDraft = d;
+      var text = ru
+        ? 'Изменения не записаны на сервер (' + why + ').\n\nПолная копия открытого проекта сохранена на этом компьютере как локальный проект «' + d.draft + '»: образцов ' + d.samples + (d.samples_failed ? ', не удалось сохранить ' + d.samples_failed : '') + '. Открыть её: «Проекты: локально» → «Открыть проект». На сервере ничего не изменено.'
+        : 'Changes were not saved to the server (' + why + ').\n\nA full copy of the open project was saved on this computer as the local project "' + d.draft + '" (' + d.samples + ' samples' + (d.samples_failed ? ', ' + d.samples_failed + ' failed' : '') + '). Open it with Projects: local -> Open Project. Nothing was changed on the server.';
+      (window.message || window.alert)(text);
+    } catch (e) {
+      window.__otDesktopLastDraft = { error: String(e && e.message || e) };
+      (window.message || window.alert)((ru ? 'Изменения не записаны на сервер, и локальную копию сохранить не удалось: ' : 'Changes were not saved to the server and the local copy failed: ') + (e && e.message || e) + (ru ? '. Не закрывайте окно; сохраните проект под другим именем, когда появится связь.' : '. Keep this window open and save under another name when the connection is back.'));
+    }
+  }
+  function watchProjectSave(url, init, p) {
+    if (!init || init.method !== 'POST' || url.split('?')[0].slice(-16) !== '/api/idx-project' || typeof init.body !== 'string') return;
+    var h = new Headers(init.headers || {});
+    if (h.get('X-OT-Draft')) return;
+    var req;
+    try { req = JSON.parse(init.body); } catch (e) { return; }
+    if (req.action === 'save_meta') saveCycle = { name: req.name, meta: req.project, headers: { 'X-Session-Token': h.get('X-Session-Token') || '', 'X-User-Ticket': h.get('X-User-Ticket') || '' }, failed: false };
+    else if (req.action !== 'save_sample') return;
+    var cyc = saveCycle;
+    if (!cyc || cyc.name !== req.name) return;
+    p.then(function (resp) {
+      if (resp.ok) return;
+      return resp.clone().json().then(function (j) { return (j && j.error) || ('HTTP ' + resp.status); }, function () { return 'HTTP ' + resp.status; })
+        .then(function (why) { return failedSave(cyc, why); });
+    }, function (e) { return failedSave(cyc, String((e && e.message) || e)); }).catch(function () {});
+  }
+
   window.fetch = function (input, init) {
     var p = send(input, init);
     try {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
+      watchProjectSave(url, init, p);
       var body = init && init.body;
       if (init && init.method === 'POST' && /\/api\/analyze\?/.test(url) && body instanceof Blob) {
         p.then(function (resp) {
