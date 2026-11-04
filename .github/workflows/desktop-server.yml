@@ -68,6 +68,18 @@ jobs:
           sleep 1
           sudo dpkg --purge opentrace-server
           sudo test -f /var/lib/opentrace-server/opentrace.sqlite3   # data survives purge
+      - name: Two web users in real browsers (Playwright, Chromium) - one editor per project, read-only banner, heartbeat, release (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p $RUNNER_TEMP/pw && cd $RUNNER_TEMP/pw && npm init -y >/dev/null && npm install --no-audit --no-fund playwright@1.48.2 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+          cd $GITHUB_WORKSPACE
+          BIN=server/opentrace-server/target/release/opentrace-server
+          export OPENTRACE_SERVER_DATA_DIR=$RUNNER_TEMP/ots-web OPENTRACE_SERVER_TRANSPORT=http OPENTRACE_SERVER_LISTEN=127.0.0.1:18775 OPENTRACE_SERVER_LEASE_TTL_SECONDS=10
+          for u in "Casework Analyst" "Databasing Analyst"; do OPENTRACE_NEW_PASSWORD=web-secret-1 $BIN set-password "$u"; done
+          $BIN serve > $RUNNER_TEMP/server-web.log 2>&1 &
+          for i in $(seq 1 50); do curl -fs http://127.0.0.1:18775/api/v1/health >/dev/null && break; sleep 0.3; done
+          NODE_PATH=$RUNNER_TEMP/pw/node_modules OT_URL=http://127.0.0.1:18775 OT_PASSWORD=web-secret-1 node server/opentrace-server/tests/e2e/two_web_users.cjs
+          kill %1 || true
       - name: Windows server folder (exe + resources + configuration example + scripts)
         if: runner.os == 'Windows'
         shell: pwsh

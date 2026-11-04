@@ -95,6 +95,27 @@ pub fn active(conn: &Connection, project: &str, now: i64) -> LResult<Option<Hold
     Ok(current(conn, project)?.filter(|l| l.expires_ms > now).map(|l| Holder { user: l.user, client: l.client, expires_ms: l.expires_ms }))
 }
 
+/// Session holding the unexpired lease of a project (the web endpoint compares it with the browser tab's session).
+pub fn holder_session(conn: &Connection, project: &str, now: i64) -> LResult<Option<String>> {
+    Ok(current(conn, project)?.filter(|l| l.expires_ms > now).map(|l| l.session_id))
+}
+
+/// Releases this session's lease of a project, if it holds one (web tab closed or another project opened).
+pub fn release_by_session(conn: &mut Connection, project: &str, session_id: &str) -> LResult<bool> {
+    let l = current(conn, project)?;
+    match l {
+        Some(l) if l.session_id == session_id => release(conn, project, &l.lease_id, session_id).map(|_| true),
+        _ => Ok(false),
+    }
+}
+
+/// Projects whose lease this session holds.
+pub fn held_by_session(conn: &Connection, session_id: &str) -> LResult<Vec<String>> {
+    let mut st = conn.prepare("SELECT name FROM project_leases WHERE session_id = ?1")?;
+    let rows = st.query_map(params![session_id], |r| r.get::<_, String>(0))?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
 /// Acquire (or, for the same session, re-confirm) the edit lease.
 pub fn acquire(conn: &mut Connection, project: &str, user: &str, session_id: &str, client: Option<&str>, ttl_ms: i64) -> LResult<Lease> {
     let now = now_ms();

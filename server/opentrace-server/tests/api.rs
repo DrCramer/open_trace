@@ -188,6 +188,8 @@ async fn two_editors_lease_revision_and_read_only() {
     assert_eq!(rel.status, StatusCode::OK);
     let web = s.legacy(json!({"action": "save_meta", "name": "P1", "project": {"samples": [], "comment": "web"}, "overwrite": true})).await;
     assert_eq!(web.status, StatusCode::OK, "{}", web.json);
+    // (the writing web tab became the editor; it closes the project)
+    assert_eq!(s.legacy(json!({"action": "lease_release", "name": "P1"})).await.json["released"], true);
     // ... so a desktop editor still based on revision 1 gets a conflict instead of overwriting the web change.
     let lb = s.post("/api/v1/projects/P1/lease", Some(&bob), &[], json!({})).await;
     assert_eq!(lb.status, StatusCode::OK);
@@ -395,32 +397,46 @@ async fn web_as(s: &Srv, ticket: &str, v: Value) -> Resp {
 async fn two_web_users_cannot_overwrite_each_other() {
     let s = start();
     let meta = |c: &str, create: bool| json!({"action": "save_meta", "name": "W1", "project": {"samples": [], "comment": c}, "create": create, "overwrite": !create});
-    // A creates the project from the web without opening it (new project).
+    // A creates the project from the web (new project): A's tab becomes its editor.
     assert_eq!(web_as(&s, "ticket-A", meta("a1", true)).await.status, StatusCode::OK);
-    // A keeps saving (each write moves A's view along).
     assert_eq!(web_as(&s, "ticket-A", meta("a2", false)).await.status, StatusCode::OK);
-    // B opens, A saves again, B's save is refused (project changed since B opened it).
-    assert_eq!(web_as(&s, "ticket-B", json!({"action": "open", "name": "W1"})).await.status, StatusCode::OK);
+    // B can open it for reading; it is read-only for B with A named, and B's save is refused.
+    let ob = web_as(&s, "ticket-B", json!({"action": "open", "name": "W1"})).await;
+    assert_eq!(ob.status, StatusCode::OK);
+    assert_eq!(ob.json["comment"], "a2");
+    assert!(ob.json["opentrace_server"]["readonly"].as_str().unwrap_or("").contains("(web)"), "{}", ob.json);
     assert_eq!(web_as(&s, "ticket-A", meta("a3", false)).await.status, StatusCode::OK);
     let b = web_as(&s, "ticket-B", meta("b1", false)).await;
     assert_eq!(b.status, StatusCode::CONFLICT, "{}", b.json);
-    assert_eq!(b.json["code"], "revision_conflict");
-    // A browser that never opened an existing, already changed project cannot overwrite it either.
-    let c = web_as(&s, "ticket-C", meta("c1", false)).await;
-    assert_eq!(c.json["code"], "revision_conflict", "{}", c.json);
-    // B re-opens and can save; nothing of A's was lost in between.
+    assert_eq!(b.json["code"], "project_locked");
+    // B's heartbeat does not take the lock away from A.
+    assert_eq!(web_as(&s, "ticket-B", json!({"action": "lease_renew", "name": "W1"})).await.json["held"], false);
+    // A browser that never opened it cannot write while A edits it.
+    assert_eq!(web_as(&s, "ticket-C", meta("c1", false)).await.json["code"], "project_locked");
+    // A closes the project (release); B opens again, becomes the editor and sees all of A's work.
+    assert_eq!(web_as(&s, "ticket-A", json!({"action": "lease_release", "name": "W1"})).await.json["released"], true);
     let opened = web_as(&s, "ticket-B", json!({"action": "open", "name": "W1"})).await;
     assert_eq!(opened.json["comment"], "a3", "{}", opened.json);
+    assert!(opened.json["opentrace_server"]["readonly"].is_null(), "{}", opened.json);
     assert_eq!(web_as(&s, "ticket-B", meta("b2", false)).await.status, StatusCode::OK);
-    // Save As under a new name works without opening it.
+    // Save As under a new name works for A (a project nobody edits).
     let sa = json!({"action": "save_meta", "name": "W1 copy", "project": {"samples": [], "comment": "x"}, "create": true, "overwrite": false});
     assert_eq!(web_as(&s, "ticket-A", sa).await.status, StatusCode::OK);
-    // A desktop write (API v1) moves the revision as well: A's stale view is refused.
+    // The desktop (API v1) cannot take the lock while B's tab holds it ...
     let t = s.login("Casework Analyst").await;
+    let held = s.post("/api/v1/projects/W1/lease", Some(&t), &[], json!({})).await;
+    assert_eq!(held.status, StatusCode::CONFLICT, "{}", held.json);
+    assert_eq!(held.json["client"], "web");
+    // ... and gets it after B released it; its write moves the revision, B's stale view is refused afterwards.
+    assert_eq!(web_as(&s, "ticket-B", json!({"action": "lease_release", "name": "W1"})).await.json["released"], true);
     let l = s.post("/api/v1/projects/W1/lease", Some(&t), &[], json!({})).await;
     let rev = l.json["revision"].as_i64().unwrap();
     let w = s.post("/api/v1/projects/W1/idx", Some(&t), &lease_headers(&l.json, rev), save_meta("desk", false)).await;
     assert_eq!(w.status, StatusCode::OK, "{}", w.json);
+    // While the desktop edits it, the web opens it read-only (reading works).
+    let ro = web_as(&s, "ticket-B", json!({"action": "open", "name": "W1"})).await;
+    assert_eq!(ro.json["comment"], "desk");
+    assert!(ro.json["opentrace_server"]["readonly"].as_str().unwrap_or("").contains("Casework Analyst"), "{}", ro.json);
     s.call("DELETE", "/api/v1/projects/W1/lease", Some(&t), &[("x-lease-id", l.json["lease_id"].as_str().unwrap().to_string())], Body::empty()).await;
-    assert_eq!(web_as(&s, "ticket-B", meta("b3", false)).await.json["code"], "revision_conflict");
+    assert_eq!(web_as(&s, "ticket-C", meta("c2", false)).await.json["code"], "revision_conflict");
 }

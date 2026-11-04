@@ -4,6 +4,8 @@ var hotKey=e=>/^Key[A-Z]$/.test(e.code||'')?e.code.slice(3).toLowerCase():String
 (function(){
 const $=id=>document.getElementById(id);
 const TOKEN=window.OT_TOKEN;
+// Browser tab id (kept over a reload): the OpenTrace Server gives the edit lock of an opened project to one tab.
+const TAB=(()=>{try{let t=sessionStorage.getItem('opentrace.tab');if(!t){t=Math.random().toString(36).slice(2)+Date.now().toString(36);sessionStorage.setItem('opentrace.tab',t)}return t}catch(e){return ''}})();
 
 // Size standards come from the library (sizestd.js); this view maps name -> fragment list.
 const SIZE_STANDARDS=new Proxy({},{get:(_,name)=>SizeStd.get(String(name))?.sizes,has:(_,name)=>!!SizeStd.get(String(name)),
@@ -22,7 +24,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
+window.OT={state,plotPayload,addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),closeProject:()=>closeProject(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
  // plot window: Edit > Undo (latest active label edit of the displayed samples), View > Sample Info / Raw Data / EPT Data
  undoLast:(ids)=>{const all=state.project.samples.filter(s=>ids.includes(s.id)).flatMap(s=>(s.edits||[]).filter(e=>!e.undone).map(e=>({s,e})));
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];
@@ -77,7 +79,7 @@ function panelSelect(value,onChange){const sel=el('select');sel.append(new Optio
  sel.value=value||'';sel.addEventListener('change',()=>onChange(sel.value));sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 
 async function jsonPost(url,data){
- let r;try{r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'Content-Type':'application/json'},body:JSON.stringify(data)})}
+ let r;try{r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'X-OT-Tab':TAB,'Content-Type':'application/json'},body:JSON.stringify(data)})}
  catch(e){throw Error(T('serverUnreachable').replace('{0}',url)+' ('+e.message+')')}
  let j;try{j=await r.json()}catch(e){throw Error(`${url}: HTTP ${r.status}`)}
  if(!r.ok)throw Error(j.error||'Error');return j}
@@ -577,6 +579,7 @@ async function writeProject(name,{create=false}={}){
  try{progress(0,1,T('saving'));
   const saved=await jsonPost('/api/idx-project',{action:'save_meta',name,project:projectMeta(),create,overwrite:!create});
   state.project.securityGroup=saved.security_group;state.project.owner=saved.owner;
+  if(saved.opentrace_server&&saved.opentrace_server.web_lease&&WebLease.name!==name)WebLease.start(name,saved.opentrace_server);
   const list=state.project.samples;let i=0;
   for(const s of list){const need=create||state.project.savedAs!==name||s.savedRev!==s.rev;
    if(need){const payload={action:'save_sample',name,id:sid(s),data:{analysis:s.analysis||null,compact:s.compact||null,report:s.report||null}};
@@ -641,10 +644,25 @@ async function loadProject(name){
    progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
   Object.assign(state.project,{securityGroup:meta.security_group||Sec.DEFAULT_GROUP,owner:meta.owner||'',mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],binOffsets:Array.isArray(meta.bin_offsets)?meta.bin_offsets:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
-  state.lastMessage=T('projectOpened')+': '+meta.name;sniffSamples(state.project.samples);rememberProject(meta.name);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
+  state.lastMessage=T('projectOpened')+': '+meta.name;sniffSamples(state.project.samples);rememberProject(meta.name);WebLease.start(meta.name,meta.opentrace_server);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
  catch(e){message(e.message)}finally{state.busy=false;render()}}
+// ---------- OpenTrace Server: one editor per project (web) ----------
+// Only when the server says so (opentrace_server.web_lease): the desktop app and the stand-alone web app keep their own
+// behaviour. Reading is never blocked; a project edited elsewhere opens read-only with a banner.
+const WebLease={name:null,timer:null,readonly:null,
+ banner(){let b=$('otWebReadOnly');if(!this.readonly||!this.name){if(b)b.remove();return}
+  if(!b){b=el('div',{id:'otWebReadOnly',style:'background:#fff3cd;border-bottom:1px solid #e0b000;padding:3px 8px;font-size:12px'});document.body.insertBefore(b,document.body.firstChild?document.body.firstChild.nextSibling:null)}
+  b.textContent=T('webReadOnly').replace('{0}',this.name).replace('{1}',this.readonly)},
+ start(name,info){this.stop(false);if(!info||!info.web_lease)return;this.name=name;this.readonly=info.readonly||null;this.banner();
+  if(!this.readonly)this.timer=setInterval(()=>this.renew(),Math.max(3000,Math.min(25000,+info.renew_ms||25000)))},
+ async renew(){if(!this.name)return;let r;try{r=await jsonPost('/api/idx-project',{action:'lease_renew',name:this.name})}catch(e){return}
+  if(r&&r.readonly&&!this.readonly){this.readonly=r.readonly;clearInterval(this.timer);this.timer=null;this.banner();message(T('webLeaseLost').replace('{0}',this.name).replace('{1}',r.readonly))}},
+ stop(release=true){if(this.timer)clearInterval(this.timer);this.timer=null;
+  if(release&&this.name&&!this.readonly){try{fetch('/api/idx-project',{method:'POST',keepalive:true,headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'X-OT-Tab':TAB,'Content-Type':'application/json'},body:JSON.stringify({action:'lease_release',name:this.name})}).catch(()=>{})}catch(e){}}
+  this.name=null;this.readonly=null;this.banner()}};
+window.addEventListener('pagehide',()=>WebLease.stop(true));
 function rememberProject(name){try{localStorage.setItem('opentrace.lastProject',name)}catch(e){}}
-async function closeProject(){if(!(await confirmDiscard()))return;
+async function closeProject(){if(!(await confirmDiscard()))return;WebLease.stop(true);
  Object.assign(state.project,{name:null,savedAs:null,comment:'',runFolders:[],samples:[],reports:[],binOffsets:[],dirty:false});state.selected.clear();state.lastMessage=null;render()}
 // ---------- copy / fill down ----------
 // Drop-down columns Fill Down can copy (value of the first selected row to the others).

@@ -8,6 +8,11 @@
 //!   and project, the revision that session last opened or wrote (`web_views`). A write is refused when the project
 //!   changed since — two web users can no longer overwrite each other's work. A project that does not exist yet, or was
 //!   never changed through this server (revision 0), may be written without having been opened (new project, Save As).
+//! * single editor for the web as well: `open` by a user with the edit right takes the project's edit lease for that
+//!   browser tab (`X-User-Ticket` + `X-OT-Tab`, client "web"); if another client (desktop or another tab) holds it,
+//!   the project opens **read-only** and the reason is returned in `opentrace_server.readonly` — reading is never
+//!   blocked. The page renews the lease (`lease_renew`, every 25 s) and releases it (`lease_release`, another project,
+//!   closing the tab); an abandoned lease expires after `lease_ttl_seconds`. Writes are accepted from the holding tab.
 use crate::leases;
 use crate::state::Shared;
 use axum::body::Body;
@@ -76,6 +81,66 @@ fn set_view(db: &rusqlite::Connection, key: &str, project: &str, revision: i64) 
 }
 
 const VIEW_RETENTION_MS: i64 = 30 * 24 * 3600 * 1000;
+
+/// Lease session of a browser tab: hashed ticket + the tab id the page sends (`X-OT-Tab`, letters/digits/`-`).
+fn web_session(headers: &axum::http::HeaderMap) -> String {
+    let tab: String = headers
+        .get("x-ot-tab")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(64)
+        .collect();
+    format!("web:{}:{}", &ticket_key(headers)[..32], tab)
+}
+
+/// The web user behind the ticket and whether they may change projects.
+fn web_user(st: &Shared, headers: &axum::http::HeaderMap) -> (String, bool) {
+    let store = st.legacy.security_store();
+    let ticket = headers.get("x-user-ticket").and_then(|v| v.to_str().ok());
+    match store.session_user(ticket) {
+        Ok(Some(u)) => {
+            let can = store.require(Some(&u), &["UPDATE_PROJECT"]).is_ok();
+            (u["name"].as_str().unwrap_or("web").to_string(), can)
+        }
+        _ => ("web".to_string(), false),
+    }
+}
+
+fn held_text(h: &leases::Holder) -> String {
+    format!("проект редактирует {}{}", h.user, h.client.as_deref().map(|c| format!(" ({})", c)).unwrap_or_default())
+}
+
+/// Takes (or re-confirms) the tab's edit lease: `Ok(None)` held, `Ok(Some(reason))` read-only.
+fn web_take_lease(st: &Shared, db: &mut rusqlite::Connection, headers: &axum::http::HeaderMap, user: &str, can_edit: bool, name: &str) -> Result<Option<String>, String> {
+    if !can_edit {
+        return Ok(Some("нет права изменения проектов".into()));
+    }
+    let ttl = st.cfg.lease_ttl_seconds as i64 * 1000;
+    match leases::acquire(db, name, user, &web_session(headers), Some("web"), ttl) {
+        Ok(_) => Ok(None),
+        Err(leases::LeaseError::Held(h)) => Ok(Some(held_text(&h))),
+        Err(e) => Err(format!("{:?}", e)),
+    }
+}
+
+fn web_lease_action(st: &Shared, headers: &axum::http::HeaderMap, action: &str, name: Option<String>) -> Response<Body> {
+    let Some(name) = name else { return json_err(400, json!({"error": "name required"})) };
+    let (user, can_edit) = web_user(st, headers);
+    let mut db = st.db();
+    if action == "lease_release" {
+        return match leases::release_by_session(&mut db, &name, &web_session(headers)) {
+            Ok(r) => json_err(200, json!({"released": r})),
+            Err(e) => json_err(500, json!({"error": format!("{:?}", e)})),
+        };
+    }
+    match web_take_lease(st, &mut db, headers, &user, can_edit, &name) {
+        Ok(None) => json_err(200, json!({"held": true})),
+        Ok(Some(why)) => json_err(200, json!({"held": false, "readonly": why})),
+        Err(e) => json_err(500, json!({"error": e})),
+    }
+}
 
 fn any_active_lease(db: &rusqlite::Connection, now: i64) -> Result<Option<(String, String)>, String> {
     db.query_row("SELECT name, user_name FROM project_leases WHERE expires_ms > ?1 LIMIT 1", [now], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -152,6 +217,12 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
     tokio::task::spawn_blocking(move || {
         let core_req = to_core(&method, target, &headers, body);
         if method == "POST" && path == "/api/idx-project" {
+            let (action, pname) = peek(&core_req.body);
+            if action == "lease_renew" || action == "lease_release" {
+                return web_lease_action(&st2, &headers, &action, pname);
+            }
+        }
+        if method == "POST" && path == "/api/idx-project" {
             let touch = touched_projects(&core_req.body);
             if touch != Touch::None {
                 // Lease check, write and revision bump under the database lock: a lease cannot be granted in between.
@@ -170,11 +241,16 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
                         Err(e) => return json_err(500, json!({"error": e})),
                     }
                 }
+                let me = web_session(&headers);
                 for n in &names {
+                    // The tab holding the lease writes; anybody else is refused while it is held.
+                    if matches!(leases::holder_session(&db, n, now), Ok(Some(ref s)) if *s == me) {
+                        continue;
+                    }
                     match leases::active(&db, n, now) {
                         Ok(Some(h)) => {
                             return json_err(409, json!({
-                                "error": format!("Проект «{}» сейчас редактирует {}{}. Сохранение из веб-интерфейса отклонено; откройте проект только для чтения. / Project is being edited by {}.",
+                                "error": format!("Проект «{}» сейчас редактирует {}{}. Сохранение отклонено: у вас проект открыт только для чтения; копию можно сохранить командой «Сохранить проект как». / Project is being edited by {}.",
                                     n, h.user, h.client.as_deref().map(|c| format!(" ({})", c)).unwrap_or_default(), h.user),
                                 "code": "project_locked", "locked_by": h.user, "lease_expires_ms": h.expires_ms}));
                         }
@@ -221,6 +297,41 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
                             set_view(&db, &key, n, r);
                         }
                     }
+                    // The tab that writes a project is its editor: it takes the free lease (new project, Save As,
+                    // a project it saved without opening), keeps one it holds, and gives up the others.
+                    let edited = match action.as_str() {
+                        "save_meta" | "save_sample" => names.first().cloned(),
+                        "save_as" | "rename" => names.get(1).cloned(),
+                        _ => None,
+                    };
+                    let me = web_session(&headers);
+                    if action == "delete" || action == "rename" {
+                        if let Some(n) = names.first() {
+                            let _ = leases::release_by_session(&mut db, n, &me);
+                        }
+                    }
+                    if let Some(n) = edited {
+                        let (user, can_edit) = web_user(&st2, &headers);
+                        if can_edit && matches!(leases::active(&db, &n, crate::db::now_ms()), Ok(None)) || matches!(leases::holder_session(&db, &n, crate::db::now_ms()), Ok(Some(ref s)) if *s == me) {
+                            if let Ok(None) = web_take_lease(&st2, &mut db, &headers, &user, can_edit, &n) {
+                                for other in leases::held_by_session(&db, &me).unwrap_or_default() {
+                                    if other != n {
+                                        let _ = leases::release_by_session(&mut db, &other, &me);
+                                    }
+                                }
+                                // Tell the page it edits this project now (it starts the heartbeat and releases it).
+                                if action != "save_sample" {
+                                    if let Ok(mut v) = serde_json::from_slice::<Value>(&r.body) {
+                                        if let Some(m) = v.as_object_mut() {
+                                            let renew_ms = (st2.cfg.lease_ttl_seconds as i64 * 1000 / 3).clamp(3000, 25000);
+                                            m.insert("opentrace_server".into(), json!({"web_lease": true, "readonly": null, "project": n, "renew_ms": renew_ms}));
+                                            return respond(r.code, &r.kind, v.to_string().into_bytes());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 return respond(r.code, &r.kind, r.body);
             }
@@ -230,11 +341,30 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
             // Remember what this browser session has seen of the project it opened.
             if let (action, Some(name)) = peek(&core_req.body) {
                 if action == "open" {
-                    let db = st2.db();
+                    let (user, can_edit) = web_user(&st2, &headers);
+                    let mut db = st2.db();
                     let now = crate::db::now_ms();
                     let _ = db.execute("DELETE FROM web_views WHERE updated_ms < ?1", [now - VIEW_RETENTION_MS]);
-                    if let Ok(rev) = leases::revision(&db, &name) {
-                        set_view(&db, &ticket_key(&headers), &name, rev);
+                    // One project per tab: leases of other projects this tab held are released.
+                    let me = web_session(&headers);
+                    for other in leases::held_by_session(&db, &me).unwrap_or_default() {
+                        if other != name {
+                            let _ = leases::release_by_session(&mut db, &other, &me);
+                        }
+                    }
+                    let readonly = match web_take_lease(&st2, &mut db, &headers, &user, can_edit, &name) {
+                        Ok(r) => r,
+                        Err(e) => Some(format!("блокировка недоступна: {}", e)),
+                    };
+                    let rev = leases::revision(&db, &name).unwrap_or(0);
+                    set_view(&db, &ticket_key(&headers), &name, rev);
+                    if let Ok(mut v) = serde_json::from_slice::<Value>(&r.body) {
+                        if let Some(m) = v.as_object_mut() {
+                            // Heartbeat well within the lease time (25 s at the default 90 s).
+                            let renew_ms = (st2.cfg.lease_ttl_seconds as i64 * 1000 / 3).clamp(3000, 25000);
+                            m.insert("opentrace_server".into(), json!({"web_lease": true, "readonly": readonly, "revision": rev, "renew_ms": renew_ms}));
+                            return respond(r.code, &r.kind, v.to_string().into_bytes());
+                        }
                     }
                 }
             }
