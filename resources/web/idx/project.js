@@ -78,8 +78,14 @@ function panelSelect(value,onChange){const sel=el('select');sel.append(new Optio
  if(value===EXAMPLE_KEY)sel.append(new Option(state.kit?.name||'example',EXAMPLE_KEY));
  sel.value=value||'';sel.addEventListener('change',()=>onChange(sel.value));sel.addEventListener('mousedown',e=>e.stopPropagation());return sel}
 
+// Large request bodies (sample saves: ~1 MB of JSON) go gzip-compressed (~8x smaller) once the server has said it
+// accepts that (OpenTrace Server sends X-OT-Accepts-Gzip); the desktop app and the stand-alone web app never do.
+let gzipUploads=false;
+const gzipText=s=>new Response(new Blob([s]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
 async function jsonPost(url,data){
- let r;try{r=await fetch(url,{method:'POST',headers:{'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'X-OT-Tab':TAB,'Content-Type':'application/json'},body:JSON.stringify(data)})}
+ const text=JSON.stringify(data),headers={'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'X-OT-Tab':TAB,'Content-Type':'application/json'};let body=text;
+ if(gzipUploads&&text.length>=65536&&typeof CompressionStream==='function'){try{body=await gzipText(text);headers['Content-Encoding']='gzip'}catch(e){body=text}}
+ let r;try{r=await fetch(url,{method:'POST',headers,body});if(r.headers.get('x-ot-accepts-gzip')==='1')gzipUploads=true}
  catch(e){throw Error(T('serverUnreachable').replace('{0}',url)+' ('+e.message+')')}
  let j;try{j=await r.json()}catch(e){throw Error(`${url}: HTTP ${r.status}`)}
  if(!r.ok)throw Error(j.error||'Error');return j}

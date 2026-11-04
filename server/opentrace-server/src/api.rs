@@ -45,6 +45,7 @@ pub async fn capabilities(State(st): State<Shared>) -> Json<Value> {
         "min_client_api": 1,
         "features": ["auth.password", "projects.lease", "projects.revision", "projects.idx", "fsa.content_addressed",
                      "analyses.provenance", "standards.lifecycle", "lab_profiles", if st.cfg.legacy_web { "legacy_web" } else { "" }],
+        "gzip": {"requests": true, "responses": true},
         "limits": {"max_fsa_bytes": st.cfg.max_fsa_bytes(), "lease_ttl_seconds": st.cfg.lease_ttl_seconds,
                    "session_ttl_hours": st.cfg.session_ttl_hours},
         "transport": match st.cfg.transport { crate::config::Transport::Proxy => "tls-proxy", crate::config::Transport::Http => "http" },
@@ -263,11 +264,26 @@ pub async fn project_idx(State(st): State<Shared>, a: Auth, Path(name): Path<Str
     match action.as_str() {
         "open" | "open_sample" | "export" => {
             a.need(ROLE_VIEWER)?;
+            // `fsa_by_sha`: the client (desktop) fetches the original by SHA-256 — usually from its own cache — instead
+            // of receiving it again as base64 inside the JSON. Only for files the FSA store has.
+            let by_sha = obj.remove("fsa_by_sha").map(|v| v == json!(true)).unwrap_or(false) && action == "open_sample";
             blocking(move || {
                 let store = st.legacy.security_store();
                 store.require(Some(&a.doc), &["READ_PROJECT"]).map_err(|e| ApiError::forbidden(lerr(&e)))?;
                 let user = a.user.clone();
-                let r = crate::legacy::with_access(&store, &a.doc, |acc| st.library.request(&req, Some(acc), Some(&user))).map_err(|e| lib_err(&e))?;
+                let mut r = crate::legacy::with_access(&store, &a.doc, |acc| st.library.request(&req, Some(acc), Some(&user))).map_err(|e| lib_err(&e))?;
+                drop(store);
+                if by_sha {
+                    if let Some(b64) = r.get("fsa_b64").and_then(|v| v.as_str()) {
+                        if let Ok(bytes) = opentrace_core::matrix::b64decode_strict(b64) {
+                            let sha = db::sha256_hex(&bytes);
+                            if fsa::blob_path(&st.cfg.fsa_dir(), &sha).map(|p| p.is_file()).unwrap_or(false) {
+                                r["fsa_b64"] = Value::Null;
+                                r["fsa_sha256"] = json!(sha);
+                            }
+                        }
+                    }
+                }
                 Ok(Json(r))
             })
             .await
@@ -275,12 +291,14 @@ pub async fn project_idx(State(st): State<Shared>, a: Auth, Path(name): Path<Str
         "save_meta" | "save_sample" => {
             a.need(ROLE_EXPERT)?;
             let g = write_guard(&headers)?;
+            let mut link_fsa: Option<(std::path::PathBuf, Value)> = None;
             if action == "save_sample" {
                 if let Some(sha) = obj.get("fsa_sha256").and_then(|s| s.as_str()).map(|s| s.to_string()) {
                     let path = fsa::blob_path(&st.cfg.fsa_dir(), &sha).ok_or_else(|| ApiError::bad("fsa_sha256 must be 64 lowercase hex digits"))?;
                     let bytes = tokio::fs::read(&path).await.map_err(|_| ApiError::conflict("fsa_missing", "FSA not on the server: upload it first (PUT /api/v1/fsa/{sha256})"))?;
                     obj.insert("fsa_b64".into(), json!(opentrace_core::matrix::b64encode(&bytes)));
                     obj.remove("fsa_sha256");
+                    link_fsa = Some((path, obj.get("id").cloned().unwrap_or(Value::Null)));
                 }
             }
             blocking(move || {
@@ -291,6 +309,12 @@ pub async fn project_idx(State(st): State<Shared>, a: Auth, Path(name): Path<Str
                     store.require(Some(&a.doc), &["UPDATE_PROJECT"]).map_err(|e| lerr(&e))?;
                     crate::legacy::with_access(&store, &a.doc, |acc| st.library.request(&req, Some(acc), Some(&user))).map_err(|e| lerr(&e))
                 })?;
+                // The project's copy of the FSA becomes a hard link to the stored original (same bytes, stored once).
+                if let Some((blob, id)) = link_fsa {
+                    if let Ok(p) = st.library.sample_fsa_path(&json!(name), &id) {
+                        let _ = crate::fsa::link_copy(&blob, &p);
+                    }
+                }
                 Ok(Json(json!({"result": r, "revision": rev})))
             })
             .await

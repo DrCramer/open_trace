@@ -117,6 +117,8 @@ impl Workspace {
             ("open_sample", Some(n)) | ("export", Some(n)) => {
                 let mut r = req.clone();
                 r.as_object_mut().unwrap().remove("name");
+                // The FSA comes by SHA-256 (from the local cache when present) instead of base64 inside the JSON.
+                r["fsa_by_sha"] = json!(true);
                 Ok(self.remote.post_json(self.ca().as_deref(), &format!("/api/v1/projects/{}/idx", enc(&n)), &[], &r)?)
             }
             ("save_meta", Some(n)) => self.save_meta(&n, req),

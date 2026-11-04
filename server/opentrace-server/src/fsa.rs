@@ -16,6 +16,34 @@ pub fn blob_path(root: &Path, sha: &str) -> Option<PathBuf> {
     Some(root.join(&sha[0..2]).join(&sha[2..4]).join(format!("{}.fsa", sha)))
 }
 
+/// Replaces `copy` (a file with the same bytes as `blob`) by a hard link to `blob`: stored once on disk. The link is
+/// made under a temporary name and renamed over the copy, so the copy is never missing. Nothing changes when the
+/// sizes differ or the file system has no hard links (then the copy simply stays).
+pub fn link_copy(blob: &Path, copy: &Path) -> std::io::Result<bool> {
+    let (b, c) = (std::fs::metadata(blob)?, std::fs::metadata(copy)?);
+    if b.len() != c.len() {
+        return Ok(false);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if b.ino() == c.ino() && b.dev() == c.dev() {
+            return Ok(true);
+        }
+    }
+    if std::fs::read(blob)? != std::fs::read(copy)? {
+        return Ok(false);
+    }
+    let tmp = copy.with_extension(format!("fsa.link{}", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::hard_link(blob, &tmp)?;
+    if let Err(e) = std::fs::rename(&tmp, copy) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(true)
+}
+
 #[derive(Debug)]
 pub enum PutError {
     BadName,

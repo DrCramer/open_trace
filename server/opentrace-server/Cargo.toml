@@ -31,6 +31,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # Same version as opentrace-core: one libsqlite3-sys (links = "sqlite3") in the graph.
 rusqlite = { version = "0.41", features = ["bundled", "backup"] }
 sha2 = "0.10"
+flate2 = "1"
 getrandom = "0.2"
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 

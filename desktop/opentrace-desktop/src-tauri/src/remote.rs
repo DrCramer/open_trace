@@ -22,6 +22,21 @@ pub struct Remote {
     pub session: Mutex<Option<Session>>,
     /// Remember session tokens in the OS credential store (off for self-tests, which must leave no trace).
     persist: bool,
+    /// The server said it accepts gzip request bodies (`X-OT-Accepts-Gzip`); responses are gzip-decoded by ureq.
+    gzip_requests: std::sync::atomic::AtomicBool,
+    /// Bytes sent / received on the wire (after compression), for the connection page.
+    pub wire_out: std::sync::atomic::AtomicU64,
+    pub wire_in: std::sync::atomic::AtomicU64,
+}
+
+/// Request bodies at least this large are sent gzip-compressed (when the server accepts it).
+const GZIP_MIN: usize = 8 * 1024;
+
+fn gzip(data: &[u8]) -> Vec<u8> {
+    use std::io::Write;
+    let mut e = flate2::write::GzEncoder::new(Vec::with_capacity(data.len() / 6 + 64), flate2::Compression::new(5));
+    let _ = e.write_all(data);
+    e.finish().unwrap_or_default()
 }
 
 #[derive(Debug)]
@@ -75,7 +90,7 @@ fn build_agent(ca_pem: Option<&std::path::Path>) -> Result<ureq::Agent, String> 
 
 impl Remote {
     pub fn new(persist: bool) -> Remote {
-        Remote { agent: Mutex::new(None), session: Mutex::new(None), persist }
+        Remote { agent: Mutex::new(None), session: Mutex::new(None), persist, gzip_requests: Default::default(), wire_out: Default::default(), wire_in: Default::default() }
     }
 
     fn agent(&self, ca_pem: Option<&std::path::Path>) -> Result<ureq::Agent, RemoteError> {
@@ -103,7 +118,9 @@ impl Remote {
     pub fn check(&self, server: &str, ca: Option<&std::path::Path>) -> RResult<Value> {
         let a = self.agent(ca)?;
         let t0 = std::time::Instant::now();
-        let health: Value = a.get(&format!("{}/api/v1/health", server)).call().map_err(map_err)?.into_json().map_err(|e| RemoteError::Transport(e.to_string()))?;
+        let hr = a.get(&format!("{}/api/v1/health", server)).call().map_err(map_err)?;
+        self.seen(&hr);
+        let health: Value = hr.into_json().map_err(|e| RemoteError::Transport(e.to_string()))?;
         let caps: Value = a.get(&format!("{}/api/v1/capabilities", server)).call().map_err(map_err)?.into_json().map_err(|e| RemoteError::Transport(e.to_string()))?;
         let compatible = caps["api_versions"].as_array().map(|v| v.iter().any(|x| x == 1)).unwrap_or(false);
         let local = opentrace_core::server_analyze::analysis_version();
@@ -117,6 +134,8 @@ impl Remote {
     }
 
     pub fn login(&self, server: &str, ca: Option<&std::path::Path>, user: &str, password: &str) -> RResult<Session> {
+        // Another server may not accept gzip bodies: learn it again from its responses.
+        self.gzip_requests.store(false, std::sync::atomic::Ordering::Relaxed);
         let a = self.agent(ca)?;
         let client = format!("OpenTrace Desktop {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS);
         let r: Value = a
@@ -151,6 +170,8 @@ impl Remote {
 
     /// Restores a session saved in the OS credential store and checks it with `/me`.
     pub fn resume(&self, server: &str, user: &str, ca: Option<&std::path::Path>) -> RResult<Session> {
+        // Another server may not accept gzip bodies: learn it again from its responses.
+        self.gzip_requests.store(false, std::sync::atomic::Ordering::Relaxed);
         let token = if self.persist { load_token(server, user) } else { None }.ok_or(RemoteError::NotLoggedIn)?;
         let a = self.agent(ca)?;
         let me: Value = a
@@ -177,6 +198,37 @@ impl Remote {
         Ok(s)
     }
 
+    /// Notes what the server supports and how many bytes came over the wire.
+    fn seen(&self, r: &ureq::Response) {
+        use std::sync::atomic::Ordering;
+        if r.header("x-ot-accepts-gzip") == Some("1") {
+            self.gzip_requests.store(true, Ordering::Relaxed);
+        }
+        if let Some(n) = r.header("content-length").and_then(|v| v.parse::<u64>().ok()) {
+            self.wire_in.fetch_add(n, Ordering::Relaxed);
+        }
+    }
+
+    /// JSON body, gzip-compressed when large and accepted by the server.
+    fn send_json(&self, r: ureq::Request, body: &Value) -> Result<ureq::Response, ureq::Error> {
+        use std::sync::atomic::Ordering;
+        let raw = serde_json::to_vec(body).unwrap_or_default();
+        let r = r.set("Content-Type", "application/json");
+        if raw.len() >= GZIP_MIN && self.gzip_requests.load(Ordering::Relaxed) {
+            let z = gzip(&raw);
+            self.wire_out.fetch_add(z.len() as u64, Ordering::Relaxed);
+            r.set("Content-Encoding", "gzip").send_bytes(&z)
+        } else {
+            self.wire_out.fetch_add(raw.len() as u64, Ordering::Relaxed);
+            r.send_bytes(&raw)
+        }
+    }
+
+    pub fn wire_status(&self) -> Value {
+        use std::sync::atomic::Ordering;
+        json!({"gzip_requests": self.gzip_requests.load(Ordering::Relaxed), "sent_bytes": self.wire_out.load(Ordering::Relaxed), "received_bytes": self.wire_in.load(Ordering::Relaxed)})
+    }
+
     fn authed(&self) -> RResult<Session> {
         self.session().ok_or(RemoteError::NotLoggedIn)
     }
@@ -184,12 +236,9 @@ impl Remote {
     pub fn get_json(&self, ca: Option<&std::path::Path>, path: &str) -> RResult<Value> {
         let s = self.authed()?;
         let a = self.agent(ca)?;
-        a.get(&format!("{}{}", s.server, path))
-            .set("Authorization", &format!("Bearer {}", s.token))
-            .call()
-            .map_err(|e| self.on_err(map_err(e)))?
-            .into_json()
-            .map_err(|e| RemoteError::Transport(e.to_string()))
+        let r = a.get(&format!("{}{}", s.server, path)).set("Authorization", &format!("Bearer {}", s.token)).call().map_err(|e| self.on_err(map_err(e)))?;
+        self.seen(&r);
+        r.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
     }
 
     pub fn post_json(&self, ca: Option<&std::path::Path>, path: &str, headers: &[(&str, String)], body: &Value) -> RResult<Value> {
@@ -199,7 +248,9 @@ impl Remote {
         for (k, v) in headers {
             r = r.set(k, v);
         }
-        r.send_json(body.clone()).map_err(|e| self.on_err(map_err(e)))?.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
+        let resp = self.send_json(r, body).map_err(|e| self.on_err(map_err(e)))?;
+        self.seen(&resp);
+        resp.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
     }
 
     pub fn delete(&self, ca: Option<&std::path::Path>, path: &str, headers: &[(&str, String)]) -> RResult<Value> {
@@ -218,10 +269,12 @@ impl Remote {
         let a = self.agent(ca)?;
         let r = a.request(method, &format!("{}{}", s.server, path)).set("Authorization", &format!("Bearer {}", s.token));
         let res = match body {
-            Some(b) => r.send_json(b.clone()),
+            Some(b) => self.send_json(r, b),
             None => r.call(),
         };
-        res.map_err(|e| self.on_err(map_err(e)))?.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
+        let resp = res.map_err(|e| self.on_err(map_err(e)))?;
+        self.seen(&resp);
+        resp.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
     }
 
     /// `HEAD /api/v1/fsa/{sha}`: true when the server already has the file.
@@ -239,14 +292,22 @@ impl Remote {
     pub fn fsa_put(&self, ca: Option<&std::path::Path>, sha: &str, len: u64, reader: impl Read) -> RResult<Value> {
         let s = self.authed()?;
         let a = self.agent(ca)?;
-        a.put(&format!("{}/api/v1/fsa/{}", s.server, sha))
-            .set("Authorization", &format!("Bearer {}", s.token))
-            .set("Content-Type", "application/octet-stream")
-            .set("Content-Length", &len.to_string())
-            .send(reader)
-            .map_err(|e| self.on_err(map_err(e)))?
-            .into_json()
-            .map_err(|e| RemoteError::Transport(e.to_string()))
+        let r = a.put(&format!("{}/api/v1/fsa/{}", s.server, sha)).set("Authorization", &format!("Bearer {}", s.token)).set("Content-Type", "application/octet-stream");
+        let resp = if self.gzip_requests.load(std::sync::atomic::Ordering::Relaxed) {
+            // FSA traces compress well (about 2-3x); the server checks the SHA-256 of the decompressed bytes.
+            let mut raw = Vec::with_capacity(len as usize);
+            let mut reader = reader;
+            reader.read_to_end(&mut raw).map_err(|e| RemoteError::Transport(e.to_string()))?;
+            let z = gzip(&raw);
+            self.wire_out.fetch_add(z.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            r.set("Content-Encoding", "gzip").send_bytes(&z)
+        } else {
+            self.wire_out.fetch_add(len, std::sync::atomic::Ordering::Relaxed);
+            r.set("Content-Length", &len.to_string()).send(reader)
+        }
+        .map_err(|e| self.on_err(map_err(e)))?;
+        self.seen(&resp);
+        resp.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
     }
 
     /// `GET /api/v1/fsa/{sha}`: the stored original, verified against its SHA-256 (size-limited like an import).
@@ -254,6 +315,7 @@ impl Remote {
         let s = self.authed()?;
         let a = self.agent(ca)?;
         let r = a.get(&format!("{}/api/v1/fsa/{}", s.server, sha)).set("Authorization", &format!("Bearer {}", s.token)).call().map_err(|e| self.on_err(map_err(e)))?;
+        self.seen(&r);
         let mut buf = Vec::new();
         let limit = opentrace_core::abif::MAX_FILE_BYTES as u64;
         r.into_reader().take(limit + 1).read_to_end(&mut buf).map_err(|e| RemoteError::Transport(e.to_string()))?;

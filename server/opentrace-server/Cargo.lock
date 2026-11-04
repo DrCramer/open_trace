@@ -693,6 +693,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
+ "flate2",
  "futures-util",
  "getrandom 0.2.17",
  "http-body-util",

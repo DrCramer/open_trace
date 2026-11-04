@@ -23,10 +23,11 @@ tauri-plugin-window-state = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-ureq = { version = "2", default-features = false, features = ["json", "native-tls"] }
+ureq = { version = "2", default-features = false, features = ["json", "native-tls", "gzip"] }
 native-tls = "0.2"
 keyring = { version = "3", features = ["windows-native", "linux-native"] }
 sha2 = "0.10"
+flate2 = "1"
 url = "2"
 percent-encoding = "2"
 

@@ -267,6 +267,20 @@ async fn fsa_upload_dedup_hash_check_and_project_link() {
     assert_eq!(files.json["files"][0]["filename"], "demo.fsa");
     let os = s.post("/api/v1/projects/F/idx", Some(&tech), &[], json!({"action": "open_sample", "id": 1})).await;
     assert_eq!(os.status, StatusCode::OK, "{}", os.json);
+    assert_eq!(opentrace_core::matrix::b64decode_strict(os.json["fsa_b64"].as_str().unwrap()).unwrap(), fsa);
+    // A client with its own cache asks for the reference only: no FSA bytes in the response.
+    let by = s.post("/api/v1/projects/F/idx", Some(&tech), &[], json!({"action": "open_sample", "id": 1, "fsa_by_sha": true})).await;
+    assert_eq!(by.json["fsa_sha256"], json!(sha), "{}", by.json);
+    assert!(by.json["fsa_b64"].is_null());
+    // The project's copy of the FSA is the stored original (hard link): one copy of the bytes on disk.
+    let copy = s.st.library.sample_fsa_path(&json!("F"), &json!(1)).unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap(), fsa);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let blob = s.st.cfg.fsa_dir().join(&sha[0..2]).join(&sha[2..4]).join(format!("{}.fsa", sha));
+        assert_eq!(std::fs::metadata(&copy).unwrap().ino(), std::fs::metadata(&blob).unwrap().ino());
+    }
 }
 
 fn walkdir_count(dir: &std::path::Path) -> usize {
@@ -439,4 +453,55 @@ async fn two_web_users_cannot_overwrite_each_other() {
     assert!(ro.json["opentrace_server"]["readonly"].as_str().unwrap_or("").contains("Casework Analyst"), "{}", ro.json);
     s.call("DELETE", "/api/v1/projects/W1/lease", Some(&t), &[("x-lease-id", l.json["lease_id"].as_str().unwrap().to_string())], Body::empty()).await;
     assert_eq!(web_as(&s, "ticket-C", meta("c2", false)).await.json["code"], "revision_conflict");
+}
+
+/// gzip on the wire: compressed request bodies are accepted (API v1 and the web endpoint), responses are compressed
+/// for clients that ask, the server advertises it, and broken gzip is refused.
+#[tokio::test]
+async fn gzip_requests_and_responses() {
+    use std::io::{Read, Write};
+    let s = start();
+    let z = |v: &[u8]| {
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(v).unwrap();
+        e.finish().unwrap()
+    };
+    let raw = |method: &str, uri: &str, headers: &[(&str, String)], body: Vec<u8>| {
+        let mut b = Request::builder().method(method).uri(uri);
+        for (k, v) in headers {
+            b = b.header(*k, v);
+        }
+        s.app.clone().oneshot(b.body(Body::from(body)).unwrap())
+    };
+    let t = s.login("Casework Analyst").await;
+    let l = s.post("/api/v1/projects/GZ/lease", Some(&t), &[], json!({})).await;
+    let big = "x".repeat(200_000);
+    let mut body = save_meta(&big, true);
+    body["name"] = json!("GZ");
+    let mut h = lease_headers(&l.json, 0);
+    h.extend([("authorization", format!("Bearer {}", t)), ("content-type", "application/json".into()), ("content-encoding", "gzip".into()), ("accept-encoding", "gzip, deflate".into())]);
+    let gz = z(body.to_string().as_bytes());
+    assert!(gz.len() < 5_000);
+    let resp = raw("POST", "/api/v1/projects/GZ/idx", &h, gz).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers()["x-ot-accepts-gzip"], "1");
+    // Open: the 200 KB comment comes back gzipped.
+    let open = json!({"action": "open"}).to_string().into_bytes();
+    let h2 = [("authorization", format!("Bearer {}", t)), ("content-type", "application/json".into()), ("accept-encoding", "gzip".into())];
+    let resp = raw("POST", "/api/v1/projects/GZ/idx", &h2, open.clone()).await.unwrap();
+    assert_eq!(resp.headers()["content-encoding"], "gzip");
+    let wire = resp.into_body().collect().await.unwrap().to_bytes();
+    assert!(wire.len() < 5_000, "{}", wire.len());
+    let mut plain = String::new();
+    flate2::read::GzDecoder::new(&wire[..]).read_to_string(&mut plain).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&plain).unwrap()["comment"].as_str().unwrap().len(), 200_000);
+    // Without Accept-Encoding: plain JSON.
+    let resp = raw("POST", "/api/v1/projects/GZ/idx", &h2[..2], open).await.unwrap();
+    assert!(resp.headers().get("content-encoding").is_none());
+    // Web endpoint accepts a gzipped body as well.
+    let web = json!({"action": "open", "name": "GZ"}).to_string();
+    let hw = [("host", format!("127.0.0.1:{}", PORT)), ("x-session-token", s.st.legacy.token.clone()), ("content-type", "application/json".into()), ("content-encoding", "gzip".into())];
+    assert_eq!(raw("POST", "/api/idx-project", &hw, z(web.as_bytes())).await.unwrap().status(), StatusCode::OK);
+    // Bad gzip is refused before any handler runs (the expansion cap is covered by compress::tests).
+    assert_eq!(raw("POST", "/api/idx-project", &hw, b"not gzip".to_vec()).await.unwrap().status(), StatusCode::BAD_REQUEST);
 }

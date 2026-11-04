@@ -155,7 +155,29 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
             Err(e) => return json_response(400, &json!({"error": e.to_string()})),
         };
         return match st.workspace.handle(&body) {
-            Ok(v) => json_response(200, &v),
+            Ok(mut v) => {
+                // open_sample by SHA-256: the original from the local FSA cache, else downloaded once (gzip, verified)
+                // and kept in the cache. The UI receives `fsa_b64` exactly as before.
+                if let Some(sha) = v.get("fsa_sha256").and_then(|s| s.as_str()).map(String::from) {
+                    let ca = st.config().ca_cert_pem;
+                    let bytes = st.sync.cached(&sha).map(Ok).unwrap_or_else(|| {
+                        st.remote.fsa_get(ca.as_deref(), &sha).map(|b| {
+                            let _ = st.sync.cache_downloaded(&format!("{}.fsa", &sha[..12]), &b);
+                            b
+                        })
+                    });
+                    match bytes {
+                        Ok(b) => {
+                            v["fsa_b64"] = json!(opentrace_core::matrix::b64encode(&b));
+                            if let Some(m) = v.as_object_mut() {
+                                m.remove("fsa_sha256");
+                            }
+                        }
+                        Err(e) => return remote_err(e),
+                    }
+                }
+                json_response(200, &v)
+            }
             Err(e) => json_response(e.status, &e.body),
         };
     }

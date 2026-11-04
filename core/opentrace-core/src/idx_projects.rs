@@ -543,6 +543,15 @@ impl ProjectLibrary {
         Ok(Value::Object(meta))
     }
 
+    /// Path of a sample's stored FSA (it may not exist). For embedders that deduplicate storage (OpenTrace Server).
+    pub fn sample_fsa_path(&self, name: &Value, sample_id: &Value) -> LR<PathBuf> {
+        let folder = self.require(name)?;
+        if !sample_id_ok(&py_str(sample_id)) {
+            return verr("Invalid sample id");
+        }
+        Ok(folder.join("samples").join(format!("{}.fsa", py_str(sample_id))))
+    }
+
     pub fn open_sample(&self, name: &Value, sample_id: &Value, access: Access) -> LR<Value> {
         let folder = self.require(name)?;
         self.guard(&folder, access, "read")?;

@@ -3,6 +3,7 @@
 pub mod api;
 pub mod auth;
 pub mod backup;
+pub mod compress;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -103,7 +104,9 @@ pub fn router(st: Shared) -> Router {
         let s2 = st.clone();
         app = app.fallback(move |req: axum::extract::Request| legacy::handle(s2.clone(), req));
     }
-    app.layer(axum::middleware::from_fn(access_log)).with_state(st)
+    let max_fsa = st.cfg.max_fsa_bytes() as usize;
+    let limits = compress::Limits { max_decoded: idx_limit.max(max_fsa), max_response: idx_limit.max(max_fsa) };
+    app.layer(axum::middleware::from_fn_with_state(limits, compress::layer)).layer(axum::middleware::from_fn(access_log)).with_state(st)
 }
 
 /// One line per request: method, path (no query string, no headers, no bodies), status, duration.
@@ -111,9 +114,14 @@ async fn access_log(req: axum::extract::Request, next: axum::middleware::Next) -
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let t = std::time::Instant::now();
+    // Sizes on the wire (compressed when gzip was used), to see what the network carries.
+    let size = |h: &axum::http::HeaderMap| h.get(axum::http::header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+    let gz = |h: &axum::http::HeaderMap| if h.get(axum::http::header::CONTENT_ENCODING).is_some() { "z" } else { "" };
+    let req_in = size(req.headers()).map(|n| format!(" in={}{}", n, gz(req.headers()))).unwrap_or_default();
     let resp = next.run(req).await;
     if !(path.starts_with("/idx/") && resp.status().is_success()) {
-        log(&format!("{} {} {} {}ms", method, path, resp.status().as_u16(), t.elapsed().as_millis()));
+        let out = size(resp.headers()).map(|n| format!(" out={}{}", n, gz(resp.headers()))).unwrap_or_default();
+        log(&format!("{} {} {} {}ms{}{}", method, path, resp.status().as_u16(), t.elapsed().as_millis(), req_in, out));
     }
     resp
 }

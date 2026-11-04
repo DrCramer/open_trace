@@ -122,6 +122,18 @@ impl SyncQueue {
         (hex(&Sha256::digest(&b)) == sha).then_some(b)
     }
 
+    /// Keeps an FSA downloaded from the server in the cache, already marked as on the server (no upload queued), so
+    /// opening the project again needs no transfer.
+    pub fn cache_downloaded(&self, name: &str, data: &[u8]) -> Result<String, String> {
+        let sha = hex(&Sha256::digest(data));
+        let m = marker(&self.dir, &sha);
+        if let Some(p) = m.parent() {
+            std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&m, b"").map_err(|e| e.to_string())?;
+        self.add(name, data)
+    }
+
     /// Stores the bytes of an imported FSA in the cache (if new) and queues the upload. Returns the SHA-256.
     pub fn add(&self, name: &str, data: &[u8]) -> Result<String, String> {
         if data.len() < 4 || &data[0..4] != b"ABIF" {
