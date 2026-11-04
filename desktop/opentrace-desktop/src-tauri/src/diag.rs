@@ -96,7 +96,6 @@ pub fn start_watchdog(logs: PathBuf, state: Arc<WatchdogState>, post: impl Fn(Bo
                 if last != 0 && silent >= threshold.as_millis() as u64 {
                     if hung_since.is_none() {
                         hung_since = Some(last);
-                        state.hangs.fetch_add(1, Ordering::SeqCst);
                         crate::dlog!("[desktop] UI thread not responding for {} s", silent / 1000);
                         match write_dump(&logs) {
                             Ok(Some(p)) => {
@@ -106,6 +105,8 @@ pub fn start_watchdog(logs: PathBuf, state: Arc<WatchdogState>, post: impl Fn(Bo
                             Ok(None) => {}
                             Err(e) => crate::dlog!("[desktop] hang dump failed: {}", e),
                         }
+                        // Counted after the dump, so whoever sees the count also finds the dump.
+                        state.hangs.fetch_add(1, Ordering::SeqCst);
                     }
                 } else if let Some(since) = hung_since.take() {
                     crate::dlog!("[desktop] UI thread responding again after {:.1} s", (last.saturating_sub(since)) as f64 / 1000.0);
