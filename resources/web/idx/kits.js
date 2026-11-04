@@ -7,10 +7,12 @@ const EMPTY=()=>({schema:1,revision:0,kits:[]});
 
 function load(){
  try{const raw=localStorage.getItem(KEY);if(!raw)return EMPTY();const db=JSON.parse(raw);
-  if(!db||db.schema!==1||!Array.isArray(db.kits))return EMPTY();return db}catch(e){return EMPTY()}}
+  if(!db||db.schema!==1||!Array.isArray(db.kits))return EMPTY();
+  for(const k of db.kits)for(const m of k.markers||[])delete m._hit; // left by older plot windows
+  return db}catch(e){return EMPTY()}}
 function save(db){
  db.revision=(db.revision||0)+1;
- try{localStorage.setItem(KEY,JSON.stringify(db));return true}catch(e){return false}}
+ try{localStorage.setItem(KEY,JSON.stringify(db,(k,v)=>k==='_hit'?undefined:v));return true}catch(e){return false}}
 const clone=x=>JSON.parse(JSON.stringify(x));
 
 // ----- GeneMapper text writers (tab separated, CRLF) -----

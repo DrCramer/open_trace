@@ -109,6 +109,7 @@ impl SelfTest {
             && plot["canvas"] == true
             && plot["colored_pixels"].as_u64().unwrap_or(0) > 100
             && plot["samples_in_payload"].as_u64().unwrap_or(0) >= 1
+            && plot["kit_untouched"] == true
             && (std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()
                 || (main["sync"]["done"].as_u64().unwrap_or(0) >= 1
                     && main["ws_saved"] == true

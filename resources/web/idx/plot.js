@@ -137,6 +137,8 @@ function paint(cv,items,x0,x1,onlyMarker){
  const pos=(bp,scan)=>dp?(scan??bpToScan(cur,bp)):bp;   // plot coordinate of a peak / bin edge
  const Xc=v=>L+(v-x0)/(x1-x0)*(W-L-R);const X=bp=>Xc(dp?bpToScan(cur,bp):bp);
  const markers=((s.kit||payload.kit)?.markers||[]).filter(m=>!onlyMarker||m.name===onlyMarker.name);
+ // Click areas of marker headers per canvas (the marker objects belong to the opener's kit: never written to).
+ const markerHits=[];
  const dyes=items.flatMap(i=>i.dyes);
  // marker headers + bins
  for(const m of markers.filter(m=>dyes.includes(m.channel))){
@@ -148,7 +150,7 @@ function paint(cv,items,x0,x1,onlyMarker){
    else{g.fillStyle=col;g.fillRect(xa,hy,xb-xa,hh);g.strokeStyle='#000';g.strokeRect(xa+.5,hy+.5,xb-xa-1,hh-1)}
    g.save();g.font='12px Arial,Helvetica,sans-serif';g.textAlign='center';g.fillStyle='#000';const name=(row?.pli?'** ':'')+m.name;
    g.fillText(g.measureText(name).width<=xb-xa-4?name:'...',(xa+xb)/2,hy+hh-4);g.restore();
-   m._hit={x0:xa,x1:xb,y0:hy,y1:hy+hh}}
+   markerHits.push({m,x0:xa,x1:xb,y0:hy,y1:hy+hh})}
   if(view.bins){const off=markerCalling(s,m.name)?.offsets?.by_bin||{};
    for(const b of m.bins||[]){const d=off[b.label]?.offset_bp||0;const ba=X(b.center_bp-d-(b.left_bp??.5)),bb=X(b.center_bp-d+(b.right_bp??.5));
     g.fillStyle=b.virtual?VBIN_FILL:BIN_FILL;g.fillRect(ba,top,Math.max(1,bb-ba),bottom-top)}}}
@@ -218,7 +220,7 @@ function paint(cv,items,x0,x1,onlyMarker){
   for(const t of names){const txt=`${DYE_NAMES[t]||t}: 0–${Math.round(ymax)}`;const w=g.measureText(txt).width+18;const lx=W-R-w-4;
    g.fillStyle='rgba(255,255,255,.85)';g.fillRect(lx-2,ly-2,w+2,14);g.fillStyle=DYE_COLORS[t]==='#000000'?'#e5d300':(DYE_COLORS[t]||'#333');g.fillRect(lx,ly,10,10);g.strokeStyle='#333';g.strokeRect(lx,ly,10,10);
    g.fillStyle='#000';g.fillText(txt,lx+14,ly+9);ly+=15}}
- cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,dp,curve:cur,noRoom,markers:markers.filter(m=>dyes.includes(m.channel)),sample:s,labelBoxes,peakPts};
+ cv._geom={X,x0,x1,L,R,W,top,bottom,ymax,dp,curve:cur,noRoom,markers:markers.filter(m=>dyes.includes(m.channel)),markerHits,sample:s,labelBoxes,peakPts};
 }
 // trace points of one pane item in the current coordinate (bp or data points)
 const dyeFactor=tag=>{const n=Object.keys(NAME_DYE).find(k=>NAME_DYE[k]===tag);const v=n&&setting?.display?.dyeScales?.[n];return v>0?v:1};
@@ -264,7 +266,7 @@ function bandShow(cv,d,x,y){if(!band){band=el('div',{style:'position:fixed;borde
  const l=Math.min(ax,bx),t=Math.min(ay,by);Object.assign(band.style,{left:r.left+l+'px',top:r.top+t+'px',width:Math.abs(bx-ax)+'px',height:Math.abs(by-ay)+'px'})}
 const bandHide=()=>{band?.remove();band=null};
 document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,G=cv._geom;
- const m=G.markers.find(m=>m._hit&&x>=m._hit.x0&&x<=m._hit.x1&&y>=m._hit.y0&&y<=m._hit.y1);
+ const m=(G.markerHits||[]).find(h=>x>=h.x0&&x<=h.x1&&y>=h.y0&&y<=h.y1)?.m;
  if(m){view.selMarker=m.name;view.selSample=G.sample.id;renderLower();return}
  if(e.button!==0)return;const z=zoneAt(G,x,y);
  if(z==='x'){drag={cv,mode:'x',x0:x,y0:y};e.preventDefault();return}
@@ -384,7 +386,7 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
  if(box){const c=box.call;ctxMenu(e.clientX,e.clientY,[{label:T('renameAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'rename',marker:c.marker,callId:c.id,new:c.label})},
    {label:T('toArtifact')+' ('+c.label+')',run:()=>edit(box.sample,{action:'to_artifact',marker:c.marker,callId:c.id,new:''})},
    {label:T('deleteAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'delete',marker:c.marker,callId:c.id})}]);return}
- const mk=G.markers.find(m=>m._hit&&x>=m._hit.x0&&x<=m._hit.x1&&y>=m._hit.y0&&y<=m._hit.y1);
+ const mk=(G.markerHits||[]).find(h=>x>=h.x0&&x<=h.x1&&y>=h.y0&&y<=h.y1)?.m;
  if(mk){const row=(s.markers||[]).find(r=>r.marker===mk.name);
   ctxMenu(e.clientX,e.clientY,[{label:T('overrideGq')+' ('+mk.name+')',run:()=>edit(s,{action:'override_gq',marker:mk.name})},
    {label:(row?.pli?'✓ ':'')+T('pliMenu'),run:()=>edit(s,{action:'pli',marker:mk.name,new:row?.pli?'off':'on'})}]);return}

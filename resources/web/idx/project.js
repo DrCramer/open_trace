@@ -82,8 +82,10 @@ function panelSelect(value,onChange){const sel=el('select');sel.append(new Optio
 // accepts that (OpenTrace Server sends X-OT-Accepts-Gzip); the desktop app and the stand-alone web app never do.
 let gzipUploads=false;
 const gzipText=s=>new Response(new Blob([s]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+// Drawing state that older plot windows wrote onto shared kit objects (`_hit`) never goes to the core or the server.
+const dropDrawingState=(k,v)=>k==='_hit'?undefined:v;
 async function jsonPost(url,data){
- const text=JSON.stringify(data),headers={'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'X-OT-Tab':TAB,'Content-Type':'application/json'};let body=text;
+ const text=JSON.stringify(data,dropDrawingState),headers={'X-Session-Token':TOKEN,'X-User-Ticket':Sec.ticket(),'X-OT-Tab':TAB,'Content-Type':'application/json'};let body=text;
  if(gzipUploads&&text.length>=65536&&typeof CompressionStream==='function'){try{body=await gzipText(text);headers['Content-Encoding']='gzip'}catch(e){body=text}}
  let r;try{r=await fetch(url,{method:'POST',headers,body});if(r.headers.get('x-ot-accepts-gzip')==='1')gzipUploads=true}
  catch(e){throw Error(T('serverUnreachable').replace('{0}',url)+' ('+e.message+')')}

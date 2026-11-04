@@ -369,6 +369,11 @@
         c.canvas_size = cv.map(function (x) { return x.width + 'x' + x.height; });
         c.colored_pixels = colored;
         c.samples_in_payload = ((window.opener.OT.plotPayload() || {}).samples || []).length;
+        // Drawing must not write onto the opener's kit (a `_hit` field there broke the next genotyping request).
+        c.marker_headers = cv.reduce(function (n, x) { return n + ((x._geom && x._geom.markers) || []).length; }, 0);
+        var pl = window.opener.OT.plotPayload() || {};
+        var kits = [pl.kit].concat((pl.samples || []).map(function (x) { return x.kit; })).filter(Boolean);
+        c.kit_untouched = kits.length > 0 && kits.every(function (k) { return (k.markers || []).every(function (m) { return !Object.prototype.hasOwnProperty.call(m, '_hit'); }); });
         c.menubar_items = document.querySelectorAll('#menubar > *').length;
       } catch (e) {
         c.error = String((e && e.stack) || e);
