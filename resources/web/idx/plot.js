@@ -213,8 +213,15 @@ function paint(cv,items,x0,x1,onlyMarker){
  if(noRoom){g.save();g.font='italic 11px Tahoma,Arial';g.textAlign='right';const tw=g.measureText(T('noRoomLabels')).width;g.fillStyle='rgba(255,255,255,.9)';g.fillRect(W-R-tw-8,H-16,tw+8,15);g.fillStyle='#b00000';g.fillText(T('noRoomLabels'),W-R-4,H-4);g.restore()}
  const peakPts=[];for(const t of traces)for(const pk of t.peaks){if(pk.size_bp==null)continue;const v=pos(pk.size_bp,pk.scan);if(v>=x0&&v<=x1)peakPts.push({x:Xc(v),y:Y(pk.height*(t.fk||1)),peak:pk,tag:t.tag,sample:t.sample})}
  // selected peaks (ID-X: "the peak fills in when it is selected")
- for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]||'#333';
-  g.save();g.globalAlpha=.35;g.fillStyle=col;g.beginPath();g.moveTo(pp.x-4,bottom);g.lineTo(pp.x,pp.y);g.lineTo(pp.x+4,bottom);g.closePath();g.fill();g.restore();
+ for(const pp of peakPts){if(!view.selPeaks.has(peakKey(pp.sample,pp.tag,pp.peak)))continue;const col=DYE_COLORS[pp.tag]==='#000000'?'#555':(DYE_COLORS[pp.tag]||'#333');
+  // the area of the selected peak (from its start to its end scan) is filled in the dye colour, as in ID-X
+  const t=traces.find(t=>t.tag===pp.tag&&t.sample===pp.sample),pk=pp.peak,c2=curveOf(pp.sample.analysis);
+  const lo=pk.begin!=null?(dp?pk.begin:scanToBp(c2,pk.begin)):null,hi=pk.end!=null?(dp?pk.end:scanToBp(c2,pk.end)):null;
+  const pts=t&&lo!=null&&hi!=null&&hi>lo?t.pts.filter(([x])=>x>=lo&&x<=hi):[];
+  g.save();g.beginPath();g.rect(L,top,W-L-R,bottom-top);g.clip();g.fillStyle=col;
+  if(pts.length>1){g.globalAlpha=.8;g.beginPath();g.moveTo(Xc(pts[0][0]),bottom);for(const [x,v] of pts)g.lineTo(Xc(x),Y(v));g.lineTo(Xc(pts[pts.length-1][0]),bottom);g.closePath();g.fill()}
+  else{g.globalAlpha=.35;g.beginPath();g.moveTo(pp.x-4,bottom);g.lineTo(pp.x,pp.y);g.lineTo(pp.x+4,bottom);g.closePath();g.fill()}
+  g.restore();
   g.fillStyle=col;g.beginPath();g.arc(pp.x,pp.y,4,0,7);g.fill();g.strokeStyle='#000';g.stroke()}
  if(view.legend){const names=[...new Set(dyes)];g.font='10px Tahoma,Arial';g.textAlign='left';let ly=top+4;
   for(const t of names){const txt=`${DYE_NAMES[t]||t}: 0–${Math.round(ymax)}`;const w=g.measureText(txt).width+18;const lx=W-R-w-4;
@@ -268,7 +275,15 @@ const bandHide=()=>{band?.remove();band=null};
 document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,G=cv._geom;
  const m=(G.markerHits||[]).find(h=>x>=h.x0&&x<=h.x1&&y>=h.y0&&y<=h.y1)?.m;
  if(m){view.selMarker=m.name;view.selSample=G.sample.id;renderLower();return}
- if(e.button!==0)return;const z=zoneAt(G,x,y);
+ if(e.button!==0)return;
+ // a click on an allele / artifact label selects its peak (or, with single-click editing, deletes the label)
+ const box=(G.labelBoxes||[]).find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);
+ if(box){e.preventDefault();const lab=box.call||box.artifact,multi=e.ctrlKey||e.metaKey||e.shiftKey;
+  if(singleClickOn()&&box.sample.editable&&!multi){deleteLabelsOf([{s:box.sample,label:box.call?{call:box.call}:{artifact:box.artifact}}]);return}
+  const pp=G.peakPts.find(p=>p.sample===box.sample&&p.tag===lab.channel&&Math.abs(p.peak.size_bp-lab.size_bp)<0.05)
+   ||{x:(box.x0+box.x1)/2,y:G.bottom,peak:{size_bp:lab.size_bp,scan:lab.scan,height:lab.height??0},tag:lab.channel,sample:box.sample};
+  selectPeak(pp,multi);return}
+ const z=zoneAt(G,x,y);
  if(z==='x'){drag={cv,mode:'x',x0:x,y0:y};e.preventDefault();return}
  if(z==='y'){drag={cv,mode:'y',x0:x,y0:y};e.preventDefault();return}
  if(z!=='plot')return;
@@ -278,12 +293,17 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
   const call=(near.sample.report?.calls||[]).find(c=>c.channel===near.tag&&Math.abs(c.size_bp-near.peak.size_bp)<0.05);
   if(call){drag={cv,mode:'move',x0:x,y0:y,call,near};e.preventDefault();return}}
  if(!near){drag={cv,mode:e.shiftKey?'sel':'h',x0:x,y0:y,moved:false,multi};e.preventDefault();return}
- const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
- else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw();showPhr()});
+ // ID-X SinglePlotPane: with single-click editing a click on a labeled peak deletes its label (not on the size standard)
+ if(singleClickOn()&&!multi&&near.sample.editable&&near.tag!==near.sample.analysis?.sizing?.reference_channel){const lab=labelAt(near.sample,near.tag,near.peak.size_bp);
+  if(lab){e.preventDefault();deleteLabelsOf([{s:near.sample,label:lab}]);return}}
+ selectPeak(near,multi)});
+function selectPeak(near,multi){const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
+ else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw();showPhr()}
 document.addEventListener('mousemove',e=>{if(!drag)return;const r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved&&drag.mode!=='move')bandShow(drag.cv,drag,x,y)});
 // Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
 function showPhr(){if((view.tableFilter||'all')!=='all'&&view.table==='sizing')try{renderLower()}catch(e){}
+ try{build()}catch(e){}
  const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
  if(sel.length!==2){c.textContent='';return}const [a,b]=sel.map(p=>p.peak.height);c.textContent=fmt('phrStatus',(Math.min(a,b)/Math.max(a,b)).toFixed(2),Math.round(a),Math.round(b))}
 document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;bandHide();const G=d.cv._geom,r=d.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
@@ -331,10 +351,13 @@ function exportPlotTable(){const ss=(payload?.samples||[]).filter(s=>s.markers?.
  const text=[head,...rows].map(r=>r.join('\t')).join('\r\n')+'\r\n';const name=(ss.length===1?ss[0].name:'Genotypes')+'.txt';
  const url=URL.createObjectURL(new Blob([text],{type:'text/plain'}));const a=el('a',{href:url,download:name});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 const fmt=(key,...a)=>T(key).replace(/\{(\d)\}/g,(_,i)=>a[+i]);
+// Context menu with the menu bar's look: shortcuts, check marks, submenus (Rename Allele Label >).
 function ctxMenu(x,y,items){document.querySelectorAll('.menu.ctx').forEach(m=>m.remove());
- const m=el('div',{class:'menu ctx show',style:`left:${x}px;top:${y}px`});
- for(const it of items){if(it==='-'){m.append(el('div',{class:'msep'}));continue}const r=el('div',{class:'mi'+(it.disabled?' dis':''),text:(it.checked?'✓ ':'')+it.label});if(!it.disabled)r.addEventListener('click',()=>{m.remove();it.run()});m.append(r)}
- document.body.append(m);setTimeout(()=>document.addEventListener('mousedown',function h(e){if(!m.contains(e.target)){m.remove();document.removeEventListener('mousedown',h)}}),0)}
+ const before=new Set(document.querySelectorAll('body>.menu'));const m=buildMenu(items);document.body.append(m);
+ for(const n of document.querySelectorAll('body>.menu'))if(!before.has(n))n.classList.add('ctx');
+ m.classList.add('show');m.style.left=x+'px';m.style.top=y+'px';
+ const r=m.getBoundingClientRect();if(r.right>innerWidth)m.style.left=Math.max(0,x-r.width)+'px';if(r.bottom>innerHeight)m.style.top=Math.max(0,y-r.height)+'px';
+ setTimeout(()=>document.addEventListener('mousedown',function h(e){if(!e.target.closest('.menu.ctx')){document.querySelectorAll('.menu.ctx').forEach(n=>n.remove());document.removeEventListener('mousedown',h)}}),0)}
 function ask(title,fields){return new Promise(res=>{dialog(title,b=>{for(const f of fields)b.append(el('div',{class:'field'},el('label',{text:f.label}),el('input',{type:'text',id:f.id,value:f.value||''})))},
  [[T('ok'),b=>{const out={};for(const f of fields){out[f.id]=b.querySelector('#'+f.id).value.trim();if(!out[f.id]){message(T('reasonRequired'));return false}}
    res(out);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
@@ -365,7 +388,8 @@ async function edit(sample,spec){
  const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
  spec={...spec,reason:ch.reason};
  let ok=false;try{ok=await window.opener.OT.edit(sample.id,spec)}catch(e){message(String(e.message||e))}
- if(ok){try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}}
+ if(ok)afterEdit()}
+function afterEdit(){try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}
 function binLabel(marker,bp){const b=(marker.bins||[]).find(b=>bp>=b.center_bp-(b.left_bp??.5)&&bp<=b.center_bp+(b.right_bp??.5));return b?b.label:'OL'}
 document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');const head=e.target.closest('.phead');
  if(head&&head._sample){e.preventDefault();const s=head._sample;if(!s.editable)return;
@@ -377,31 +401,19 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
    ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:xFullView},{label:T('zoomTo'),run:xZoomToDlg},
     {label:T('partialLocus')+(pm?` (${pm.name})`:''),checked:!!(pk&&view.partial?.has(pk)),disabled:!pm,run:()=>{view.partial=view.partial||new Set();view.partial.has(pk)?view.partial.delete(pk):view.partial.add(pk);draw()}}]);return}
   if(z==='y'){ctxMenu(e.clientX,e.clientY,[{label:T('fullView'),run:yFullView},{label:T('zoomTo'),run:yZoomToDlg}]);return}}
- const s=G.sample;if(!s.editable)return;
- const box=G.labelBoxes.find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);
- if(box&&box.artifact){const a=box.artifact;const mk=G.markers.find(m=>m.channel===a.channel&&a.size_bp>=m.min_bp&&a.size_bp<=m.max_bp);
-  ctxMenu(e.clientX,e.clientY,[{label:T('renameArtifact')+' ('+a.label+')',run:()=>edit(box.sample,{action:'rename_artifact',artifactId:a.id,marker:a.marker,new:a.label})},
-   {label:T('deleteArtifact')+' ('+a.label+')',run:()=>edit(box.sample,{action:'delete_artifact',artifactId:a.id,marker:a.marker})},
-   {label:T('addAlleleLabel'),disabled:!mk,run:()=>edit(box.sample,{action:'artifact_to_allele',artifactId:a.id,marker:mk.name,new:a.orig??binLabel(mk,a.size_bp)})}]);return}
- if(box){const c=box.call;ctxMenu(e.clientX,e.clientY,[{label:T('renameAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'rename',marker:c.marker,callId:c.id,new:c.label})},
-   {label:T('toArtifact')+' ('+c.label+')',run:()=>edit(box.sample,{action:'to_artifact',marker:c.marker,callId:c.id,new:''})},
-   {label:T('deleteAllele')+' ('+c.label+')',run:()=>edit(box.sample,{action:'delete',marker:c.marker,callId:c.id})}]);return}
+ const s=G.sample;
  const mk=(G.markerHits||[]).find(h=>x>=h.x0&&x<=h.x1&&y>=h.y0&&y<=h.y1)?.m;
- if(mk){const row=(s.markers||[]).find(r=>r.marker===mk.name);
+ if(mk){if(!s.editable)return;const row=(s.markers||[]).find(r=>r.marker===mk.name);
   ctxMenu(e.clientX,e.clientY,[{label:T('overrideGq')+' ('+mk.name+')',run:()=>edit(s,{action:'override_gq',marker:mk.name})},
    {label:(row?.pli?'✓ ':'')+T('pliMenu'),run:()=>edit(s,{action:'pli',marker:mk.name,new:row?.pli?'off':'on'})}]);return}
- const near=nearPeak(G,x);
- if(near){const calls=near.sample.report?.calls||[];const arts=near.sample.report?.artifacts||[];const bp=near.peak.size_bp;
-  const isLabeled=(smp,tag,b)=>(smp.report?.calls||[]).some(c=>c.channel===tag&&Math.abs(c.size_bp-b)<0.05)||(smp.report?.artifacts||[]).some(a=>a.channel===tag&&Math.abs(a.size_bp-b)<0.05);
-  const called=isLabeled(near.sample,near.tag,bp);
-  const marker=G.markers.find(m=>m.channel===near.tag&&bp>=m.min_bp&&bp<=m.max_bp);const peak={scan:near.peak.scan,size_bp:bp,height:near.peak.height,channel:near.tag};
-  const sel=[...view.selPeaks.values()].filter(p=>!isLabeled(p.sample,p.tag,p.peak.size_bp));const inSel=view.selPeaks.has(peakKey(near.sample,near.tag,near.peak));
-  const items=[{label:T('addAlleleLabel')+` (${bp.toFixed(2)} bp)`,disabled:called||!marker,
-   run:()=>edit(near.sample,{action:'add',marker:marker.name,new:binLabel(marker,bp),peak})}];
-  if(inSel&&sel.length>1)items.push({label:fmt('addArtifactMany',sel.length),run:()=>artifactMany(sel)});
-  else items.push({label:T('addArtifactLabel')+` (${bp.toFixed(2)} bp)`,disabled:called,run:()=>edit(near.sample,{action:'add_artifact',marker:marker?.name||null,new:'',peak})});
-  items.push('-',{label:T('peakRawData'),run:()=>{try{window.opener.OT.peakRawData(near.sample.id,near.peak.scan);window.opener.focus()}catch(e){message(String(e.message||e))}}});
-  ctxMenu(e.clientX,e.clientY,items);return}
+ // allele / artifact label or peak: the ID-X peak popup; right-click selects the peak unless it is already selected
+ const box=G.labelBoxes.find(b=>x>=b.x0&&x<=b.x1&&y>=b.y0&&y<=b.y1);let near=null;
+ if(box){const lab=box.call||box.artifact;near=G.peakPts.find(p=>p.sample===box.sample&&p.tag===lab.channel&&Math.abs(p.peak.size_bp-lab.size_bp)<0.05)
+  ||{x:(box.x0+box.x1)/2,y:G.bottom,peak:{size_bp:lab.size_bp,scan:lab.scan,height:lab.height??0},tag:lab.channel,sample:box.sample}}
+ else near=nearPeak(G,x);
+ if(near){const k=peakKey(near.sample,near.tag,near.peak);if(!view.selPeaks.has(k)){view.selPeaks.clear();view.selPeaks.set(k,near);draw();showPhr()}
+  ctxMenu(e.clientX,e.clientY,peakMenu(G,near));return}
+ if(!s.editable)return;
  // blank area of a pane: Delete All Labels for Sample
  ctxMenu(e.clientX,e.clientY,[{label:T('deleteAllForSample'),run:()=>deleteLabels([s],null)}])});
 // Delete All Labels for Sample / Alleles > Delete Multiple Labels (All Labels, Labels In Range): one confirmation and one reason
@@ -413,26 +425,106 @@ async function deleteLabels(samples,range){if(window.Sec&&!Sec.can('UPDATE_PROJE
   for(const a of s.report?.artifacts||[])if(inR(a.size_bp))specs.push({sample:s,spec:{action:'delete_artifact',artifactId:a.id,marker:a.marker}})}
  if(!specs.length)return message(T('noLabelsToDelete'));
  if(!(await new Promise(res=>dialog(T('alert'),b=>b.append(el('p',{text:fmt('confirmDeleteLabels',specs.length,samples.length)})),[[T('yes'),()=>{res(true);return true},true],[T('no'),()=>{res(false);return true}]]))))return;
- let items=[];try{for(const x of specs)items.push(...window.opener.OT.editItems(x.sample.id,x.spec))}catch(e){}
- const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
- for(const x of specs){try{await window.opener.OT.edit(x.sample.id,{...x.spec,reason:ch.reason})}catch(e){message(String(e.message||e));break}}
- try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw();$('markerInfo').textContent=fmt('deletedLabels',specs.length)}
+ const n=await runBatch(specs.map(x=>({s:x.sample,spec:x.spec})));if(n)status(fmt('deletedLabels',n))}
 function deleteInRangeDialog(){const [d0,d1]=bpRange();
  dialog(T('deleteInRangeTitle'),b=>{b.classList.add('dirdlg');b.append(el('p',{text:T('deleteInRangeText')}),
   el('div',{class:'field'},el('label',{text:T('psStartRange')}),el('input',{type:'text',id:'dirFrom',class:'num',value:String(Math.round(view.x0??d0))})),
   el('div',{class:'field'},el('label',{text:T('psEndRange')}),el('input',{type:'text',id:'dirTo',class:'num',value:String(Math.round(view.x1??d1))})))},
   [[T('ok'),b=>{const a=+b.querySelector('#dirFrom').value,z=+b.querySelector('#dirTo').value;if(!(isFinite(a)&&isFinite(z)&&z>a)){message(T('psEndGtStart'));return false}
     setTimeout(()=>deleteLabels(payload.samples,[a,z]),0);return true},true],[T('cancel'),()=>true]])}
-// One artifact label and one reason for several selected peaks.
-async function artifactMany(list){if(window.Sec&&!Sec.can('UPDATE_PROJECT'))return Sec.denied();
- const label=await artifactDialog(T('act_add_artifact'),'');if(label==null)return;
- const specs=list.map(p=>{const bp=p.peak.size_bp;const cv=[...document.querySelectorAll('#plotarea canvas')].find(c=>c._geom&&c._geom.sample.id===p.sample.id);
-  const mk=(cv?._geom.markers||[]).find(m=>m.channel===p.tag&&bp>=m.min_bp&&bp<=m.max_bp);
-  return {sample:p.sample,spec:{action:'add_artifact',marker:mk?.name||null,new:label,peak:{scan:p.peak.scan,size_bp:bp,height:p.peak.height,channel:p.tag}}}});
- let items=[];try{for(const x of specs)items.push(...window.opener.OT.editItems(x.sample.id,x.spec))}catch(e){}
- const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return;
- for(const x of specs){try{await window.opener.OT.edit(x.sample.id,{...x.spec,reason:ch.reason})}catch(e){message(String(e.message||e));break}}
- view.selPeaks.clear();try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw()}
+// ---------- label editing on the selected peaks (ID-X Alleles menu and peak popup; Delete, Ctrl+L, Ctrl+I) ----------
+const SC_KEY='opentrace.plot.singleClickEdit';
+view.singleClick=(()=>{try{return localStorage.getItem(SC_KEY)==='1'}catch(e){return false}})();
+// ID-X (PlotMgrPane.onAlleleMenuSelection) disables single-click editing when labels are off and in overlay plots
+function singleClickAllowed(){return view.labels!=='none'&&view.layout!=='overlay'}
+function singleClickOn(){return !!view.singleClick&&singleClickAllowed()}
+function setSingleClick(on){view.singleClick=!!on;try{localStorage.setItem(SC_KEY,on?'1':'0')}catch(e){}build()}
+function sampleById(id){return (payload?.samples||[]).find(s=>s.id===id)}
+function labelAt(s,tag,bp){const c=(s.report?.calls||[]).find(c=>c.channel===tag&&Math.abs(c.size_bp-bp)<0.05);if(c)return {call:c};
+ const a=(s.report?.artifacts||[]).find(a=>a.channel===tag&&Math.abs(a.size_bp-bp)<0.05);return a?{artifact:a}:null}
+function markerOf(s,tag,bp){return ((s.kit||payload?.kit)?.markers||[]).find(m=>m.channel===tag&&bp>=m.min_bp&&bp<=m.max_bp)}
+function isSizeStd(s,tag){return tag===s.analysis?.sizing?.reference_channel}
+// selected peaks resolved against the current payload (labels change after every edit); size-standard peaks are not edited here
+function selection(){const out=[];for(const p of view.selPeaks.values()){const s=sampleById(p.sample.id);if(!s||isSizeStd(s,p.tag))continue;const bp=p.peak.size_bp;
+  out.push({s,tag:p.tag,peak:p.peak,bp,label:labelAt(s,p.tag,bp),marker:markerOf(s,p.tag,bp)})}
+ return out.sort((a,b)=>a.s.id-b.s.id||a.bp-b.bp)}
+function canEdit(){return !(window.Sec&&!Sec.can('UPDATE_PROJECT'))}
+function peakSpec(p){return {scan:p.peak.scan,size_bp:p.bp,height:p.peak.height,channel:p.tag}}
+function delSpec(l){return l.call?{action:'delete',marker:l.call.marker,callId:l.call.id}:{action:'delete_artifact',artifactId:l.artifact.id,marker:l.artifact.marker}}
+function status(t){$('markerInfo').textContent=t}
+// Several edits with one reason, applied together (the project table is redrawn once).
+async function runBatch(list){if(!canEdit()){Sec.denied();return 0}list=list.filter(x=>x.s.editable);if(!list.length)return 0;
+ let items=[];try{for(const x of list)items.push(...window.opener.OT.editItems(x.s.id,x.spec))}catch(e){}
+ const ch=window.Sec?await Sec.change({items,title:T('reasonTitle')}):{reason:''};if(!ch)return 0;
+ let n=0;try{n=await window.opener.OT.editMany(list.map(x=>({id:x.s.id,spec:x.spec})),ch.reason)}catch(e){message(String(e.message||e))}
+ afterEdit();return n}
+async function deleteLabelsOf(list){const n=await runBatch(list.filter(x=>x.label).map(x=>({s:x.s,spec:delSpec(x.label)})));if(n)status(fmt('deletedLabels',n))}
+// Delete Selected Label(s) (Delete): the labels of all selected peaks of all panes
+function deleteSelected(){const sel=selection().filter(p=>p.label);if(!sel.length)return message(T('noLabelsSelected'));return deleteLabelsOf(sel)}
+// Add Allele Label (Ctrl+L): one peak asks for the label (bin name proposed), several get their bin names
+async function addAlleleSelected(){const sel=selection().filter(p=>!p.label&&p.marker);if(!sel.length)return message(T('noPeaksSelected'));
+ if(sel.length===1){const p=sel[0];return edit(p.s,{action:'add',marker:p.marker.name,new:binLabel(p.marker,p.bp),peak:peakSpec(p)})}
+ const n=await runBatch(sel.map(p=>({s:p.s,spec:{action:'add',marker:p.marker.name,new:binLabel(p.marker,p.bp),peak:peakSpec(p)}})));if(n)status(fmt('addedLabels',n))}
+// Add Artifact Label (Ctrl+I): unlabeled peaks get the artifact label, allele labels are changed to it (one label, one reason)
+async function addArtifactSelected(preset){const sel=selection().filter(p=>!p.label?.artifact);if(!sel.length)return message(T('noPeaksSelected'));
+ const label=preset??await artifactDialog(T('act_add_artifact'),'');if(label==null)return;
+ const n=await runBatch(sel.map(p=>({s:p.s,spec:p.label?.call?{action:'to_artifact',marker:p.label.call.marker,callId:p.label.call.id,new:label}:{action:'add_artifact',marker:p.marker?.name||null,new:label,peak:peakSpec(p)}})));
+ if(n)status(fmt('changedLabels',n))}
+// Rename Allele Label > Custom allele label / Custom artifact label / a predefined artifact label (ID-X PlotMgrPane.updateRenameAlleleList)
+async function renameAlleles(choice){const sel=selection().filter(p=>p.label?.call);if(!sel.length)return message(T('noLabelsSelected'));
+ if(choice==='allele'){if(sel.length===1){const c=sel[0].label.call;return edit(sel[0].s,{action:'rename',marker:c.marker,callId:c.id,new:c.label})}
+  const v=await ask(T('renameAllele'),[{id:'edLabel',label:T('colAllele'),value:String(sel[0].label.call.label)}]);if(!v)return;if(v.edLabel.length>40)return message(T('badBinName'));
+  const n=await runBatch(sel.map(p=>({s:p.s,spec:{action:'rename',marker:p.label.call.marker,callId:p.label.call.id,new:v.edLabel}})));if(n)status(fmt('changedLabels',n));return}
+ const label=choice==='artifact'?await artifactDialog(T('act_to_artifact'),''):choice;if(label==null)return;
+ const n=await runBatch(sel.map(p=>({s:p.s,spec:{action:'to_artifact',marker:p.label.call.marker,callId:p.label.call.id,new:label}})));if(n)status(fmt('changedLabels',n))}
+async function renameArtifacts(choice){const sel=selection().filter(p=>p.label?.artifact);if(!sel.length)return message(T('noLabelsSelected'));
+ const label=choice==='artifact'?await artifactDialog(T('act_rename_artifact'),sel[0].label.artifact.label):choice;if(label==null)return;
+ const n=await runBatch(sel.map(p=>({s:p.s,spec:{action:'rename_artifact',artifactId:p.label.artifact.id,marker:p.label.artifact.marker,new:label}})));if(n)status(fmt('changedLabels',n))}
+function renameAlleleItems(){return [{label:T('customAlleleLabel'),run:()=>renameAlleles('allele')},{label:T('customArtifactLabel'),run:()=>renameAlleles('artifact')},...artList().map(l=>({label:l,run:()=>renameAlleles(l)}))]}
+function renameArtifactItems(){return [{label:T('customArtifactLabel'),run:()=>renameArtifacts('artifact')},...artList().map(l=>({label:l,run:()=>renameArtifacts(l)}))]}
+function renameOne(){const p=selection().find(p=>p.label);if(!p)return message(T('selectOneLabel'));
+ if(p.label.call)return edit(p.s,{action:'rename',marker:p.label.call.marker,callId:p.label.call.id,new:p.label.call.label});
+ return edit(p.s,{action:'rename_artifact',artifactId:p.label.artifact.id,marker:p.label.artifact.marker,new:p.label.artifact.label})}
+function openHistory(){try{window.opener.OT.labelEditViewer();window.opener.focus()}catch(e){}}
+// Peak popup as in ID-X (SinglePlotPane): allele label -> Delete Label(s), Rename Allele Label >, History (edited labels), Peak Raw Data;
+// artifact label -> Rename Artifact Label >, Delete Label(s), Add Allele Label, History, Peak Raw Data;
+// no label -> Add Artifact Label, Delete Label(s), Add Allele Label, Peak Raw Data. Editing needs rights, an editable sample and a basepair X axis.
+function peakMenu(G,near){const s=sampleById(near.sample.id)||near.sample,bp=near.peak.size_bp,lab=labelAt(s,near.tag,bp);
+ const ed=!!s.editable&&canEdit()&&!isSizeStd(s,near.tag)&&view.xAxis==='bp';const marker=markerOf(s,near.tag,bp);
+ const raw={label:T('peakRawData'),run:()=>{try{window.opener.OT.peakRawData(s.id,near.peak.scan);window.opener.focus()}catch(e){message(String(e.message||e))}}};
+ const hist={label:T('history'),run:openHistory};
+ const del={label:T('deleteLabelsPopup'),sc:'Del',disabled:!ed||!lab,run:deleteSelected};
+ const addAl={label:T('addAlleleLabel'),sc:'Ctrl+L',disabled:!ed||!marker,run:()=>lab?.artifact?edit(s,{action:'artifact_to_allele',artifactId:lab.artifact.id,marker:marker.name,new:lab.artifact.orig??binLabel(marker,bp)}):addAlleleSelected()};
+ if(lab?.call)return [del,{label:T('renameAllele'),disabled:!ed,sub:ed?renameAlleleItems():undefined},'-',...(lab.call.user_edited?[hist]:[]),raw];
+ if(lab?.artifact)return [{label:T('renameArtifactMenu'),disabled:!ed,sub:ed?renameArtifactItems():undefined},del,addAl,'-',hist,raw];
+ return [{label:T('addArtifactLabel'),sc:'Ctrl+I',disabled:!ed,run:()=>addArtifactSelected()},del,addAl,'-',raw]}
+// "Edit labels" bar: the same commands as buttons, enabled by the selection, with a hint line.
+const EB_ICONS={
+ clean:'<svg viewBox="0 0 16 16"><path d="M9.5 1.5l5 5-6 6H4l-2.5-2.5z" fill="#f4c7c3" stroke="#a1231b"/><path d="M5.5 6.5l5 5" stroke="#a1231b"/><path d="M1 15h14" stroke="#555"/></svg>',
+ addAllele:'<svg viewBox="0 0 16 16"><rect x="1.5" y="8.5" width="9" height="6" fill="#fff" stroke="#1f4fd6"/><path d="M4 11.5h4" stroke="#1f4fd6"/><path d="M12.5 1v6M9.5 4h6" stroke="#2ea043" stroke-width="2"/></svg>',
+ addArtifact:'<svg viewBox="0 0 16 16"><rect x="1.5" y="8.5" width="9" height="6" fill="#fff" stroke="#e040a0" stroke-width="1.5"/><path d="M4 11.5h4" stroke="#b0006a"/><path d="M12.5 1v6M9.5 4h6" stroke="#2ea043" stroke-width="2"/></svg>',
+ rename:'<svg viewBox="0 0 16 16"><rect x="1.5" y="8.5" width="9" height="6" fill="#fff" stroke="#555"/><path d="M8 7l1-3 5-3 1 1.5-4.5 4z" fill="#f2c94c" stroke="#8a6d1c"/></svg>',
+ delete:'<svg viewBox="0 0 16 16"><rect x="1.5" y="8.5" width="9" height="6" fill="#fff" stroke="#555"/><path d="M10 1.5l5 5M15 1.5l-5 5" stroke="#d93025" stroke-width="2"/></svg>',
+ range:'<svg viewBox="0 0 16 16"><path d="M1 13h14" stroke="#555"/><path d="M3 13V6M6 13V3M10 13V5M13 13V8" stroke="#1f4fd6"/><rect x="4.5" y="1.5" width="7" height="12" fill="rgba(217,48,37,.15)" stroke="#d93025" stroke-dasharray="2 1"/></svg>',
+ sample:'<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" fill="#fff" stroke="#555"/><path d="M2 12l2-6 1 6 2-8 1 8 2-4 1 4" stroke="#1f4fd6" fill="none"/><path d="M9.5 1.5l5 5M14.5 1.5l-5 5" stroke="#d93025" stroke-width="1.8"/></svg>',
+ undo:'<svg viewBox="0 0 16 16"><path d="M4 6h6a4 4 0 0 1 0 8H6" fill="none" stroke="#2f6fd6" stroke-width="1.8"/><path d="M1 6l4-4v8z" fill="#2f6fd6"/></svg>',
+ history:'<svg viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" fill="#fff" stroke="#555"/><path d="M3 5h10M3 8h10M3 11h6" stroke="#777"/></svg>'};
+function renderEditBar(){const bar=$('editbar');if(!bar)return;
+ const any=(payload?.samples||[]).some(s=>s.editable)&&canEdit();const sel=selection();const nl=sel.filter(p=>p.label).length,nf=sel.filter(p=>!p.label&&p.marker).length,na=sel.filter(p=>!p.label?.artifact).length;
+ const cur=sel[0]?.s||sampleById(view.selSample)||(payload?.samples?.length===1?payload.samples[0]:null);
+ const b=(id,text,tip,run,dis,on)=>{const x=el('button',{class:'eb'+(on?' on':''),type:'button',title:tip,id:'eb_'+id});x.innerHTML=EB_ICONS[id];x.append(el('span',{text}));x.disabled=!!dis;x.addEventListener('click',()=>run());return x};
+ const sep=()=>el('span',{class:'ebsep'});
+ bar.replaceChildren(el('span',{class:'ebtitle',text:T('ebTitle')}),
+  b('clean',T('ebClean'),T('ebTipClean'),()=>setSingleClick(!view.singleClick),!any||!singleClickAllowed(),singleClickOn()),sep(),
+  b('addAllele',T('ebAddAllele'),T('ebTipAddAllele'),addAlleleSelected,!any||!nf),
+  b('addArtifact',T('ebAddArtifact'),T('ebTipAddArtifact'),()=>addArtifactSelected(),!any||!na),
+  b('rename',T('ebRename'),T('ebTipRename'),renameOne,!any||nl!==1),
+  b('delete',T('ebDelete'),T('ebTipDelete'),deleteSelected,!any||!nl),sep(),
+  b('range',T('ebRange'),T('ebTipRange'),deleteInRangeDialog,!any),
+  b('sample',T('ebSample')+(cur&&payload.samples.length>1?` (${cur.name})`:''),T('ebTipSample'),()=>deleteLabels([cur],null),!any||!cur),sep(),
+  b('undo',T('ebUndo'),T('ebTipUndo'),undoLast,!any),b('history',T('ebHistory'),T('ebTipHistory'),openHistory,false),
+  el('span',{class:'ebhint',id:'ebHint',text:!any?T('ebReadOnly'):singleClickOn()?T('ebHintClean'):sel.length?fmt('ebHintSel',sel.length,nl):T('ebHintIdle')}));
+ document.body.classList.toggle('cleanmode',singleClickOn()&&any)}
 // Multiple Dye Plot: all dyes of a sample within the range of the selected (or first) marker
 function multipleDyePlot(){
  const cv=[...document.querySelectorAll('#plotarea canvas')].find(c=>c._geom&&(view.selSample==null||c._geom.sample.id===view.selSample))||document.querySelector('#plotarea canvas');
@@ -589,6 +681,7 @@ function build(){
  const set=(k,v)=>()=>{view[k]=v;build();draw()};
  const ck=(k,v)=>view[k]===v;
  const DYE_SC={DATA1:'Ctrl+1',DATA2:'Ctrl+2',DATA3:'Ctrl+3',DATA4:'Ctrl+4',DATA105:'Ctrl+5',DATA106:'Ctrl+0'};
+ const selNow=payload?selection():[];
  const dyeItems=DYE_KEYS.map(t=>({label:T('dyes')+': '+DYE_NAMES[t],sc:DYE_SC[t],checked:view.dyes.has(t),run:()=>{view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw()}}));
  buildMenubar($('menubar'),[
   {label:T('file'),items:[{label:T('pageSetup'),run:plotPageSetup},{label:T('print'),sc:'Ctrl+P',run:()=>printPlots(false)},{label:T('printPreview'),run:()=>printPlots(true)},'-',
@@ -624,9 +717,17 @@ function build(){
    {label:T('pmMarkerMargin'),run:markerMarginDlg},'-',
    {label:T('multipleDyePlot'),run:multipleDyePlot}]},
   {label:T('tools'),items:[{label:T('manager'),disabled:true},'-',{label:T('psEditor'),sc:'Ctrl+T',run:editSetting}]},
-  {label:T('alleles'),items:[{label:T('editHowTo'),run:()=>message(T('editHint'))},'-',
+  {label:T('alleles'),items:[
+   {label:T('editingMode'),sub:[{label:T('peakSelection'),sc:'Ctrl+;',checked:!singleClickOn(),run:()=>setSingleClick(false)},
+    {label:T('singleClickEditing'),checked:singleClickOn(),disabled:!singleClickAllowed(),run:()=>setSingleClick(!view.singleClick)}]},'-',
    {label:T('deletePredefined')+'...',run:deletePredefined},'-',
-   {label:T('deleteMultiple'),sub:[{label:T('deleteAllLabels'),run:()=>deleteLabels(payload?.samples||[],null)},{label:T('deleteInRange')+'...',run:deleteInRangeDialog}]},'-',{label:T('history'),run:()=>{try{window.opener.OT.labelEditViewer()}catch(e){}}}]},
+   {label:T('addAlleleLabel'),sc:'Ctrl+L',disabled:!selNow.some(p=>!p.label&&p.marker),run:addAlleleSelected},
+   {label:T('addArtifactLabel'),sc:'Ctrl+I',disabled:!selNow.some(p=>!p.label?.artifact),run:()=>addArtifactSelected()},
+   {label:T('deleteLabels'),sc:'Del',disabled:!selNow.some(p=>p.label),run:deleteSelected},
+   {label:T('deleteMultiple'),sub:[{label:T('deleteAllLabels'),run:()=>deleteLabels(payload?.samples||[],null)},{label:T('deleteInRange')+'...',run:deleteInRangeDialog}]},
+   {label:T('renameAllele'),disabled:!selNow.some(p=>p.label?.call),sub:selNow.some(p=>p.label?.call)?renameAlleleItems():undefined},
+   {label:T('renameArtifactMenu'),disabled:!selNow.some(p=>p.label?.artifact),sub:selNow.some(p=>p.label?.artifact)?renameArtifactItems():undefined},'-',
+   {label:T('history'),run:openHistory},{label:T('editHowTo'),run:()=>message(T('editHint'))}]},
   {label:T('help'),items:[{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]}]);
  const t1=$('toolbar1');t1.replaceChildren(tbutton('print',T('print'),()=>printPlots(false),{id:'tbPlotPrint'}),tbutton('printPreview',T('printPreview'),()=>printPlots(true),{id:'tbPlotPreview'}),tsep(),el('span',{class:'tlabel',text:T('plotSetting')}));
  const ps=el('select',{class:'combo',id:'psCombo'});for(const n of settingNames())ps.append(new Option(n,n));ps.value=setting?.name||'';
@@ -646,6 +747,7 @@ function build(){
   tbutton('combine',T('multipleDyePlot'),multipleDyePlot,{id:'tbMultiDye'}),tsep(),
   tg('noTable',T('noTable'),ck('table','none'),set('table','none')),tg('sizingTable',T('sizingTable'),ck('table','sizing'),set('table','sizing')),tg('genotypesTable',T('genotypesTable'),ck('table','genotypes'),set('table','genotypes')));
  t2.style.display=view.toolbar?'':'none';
+ renderEditBar();
  const H=(isGeno()?setting?.genotypeHeader:setting?.sampleHeader)||{};const on=k=>H[k]!==false;
  const ch=$('colhead');if(isGeno()){ch.replaceChildren(...(on('sampleFileName')?[el('div',{class:'c',style:'width:250px',text:T('colSampleFile')})]:[]),
   ...(on('sampleName')?[el('div',{class:'c',style:'width:150px',text:T('colSampleName')})]:[]),...(on('panel')?[el('div',{class:'c',style:'width:150px',text:T('colPanel')})]:[]),
@@ -668,6 +770,9 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(e.key===']'&&!inField){e.preventDefault();view.x0=view.x1=null;draw();return}
  if(/^F[123]$/.test(e.key)&&!inField){e.preventDefault();sampleView({F1:'info',F2:'raw',F3:'ept'}[e.key]);return}
  if(k==='j'&&!inField){e.preventDefault();zoomNextMarker();return}
+ if(k==='l'&&!inField){e.preventDefault();addAlleleSelected();return}
+ if(k==='i'&&!inField){e.preventDefault();addArtifactSelected();return}
+ if(e.code==='Semicolon'&&!inField){e.preventDefault();setSingleClick(false);return}
  if(k==='r'&&!inField){e.preventDefault();view.markerRange=!view.markerRange;build();draw();return}
  if(k==='t'&&!inField){e.preventDefault();editSetting();return}
  if(k==='k'&&!inField){e.preventDefault();view.markerIndicator=!view.markerIndicator;build();draw();return}
@@ -680,6 +785,9 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(k==='e'){e.preventDefault();exportPlotTable();return}
  if(e.key==='='||e.key==='+'){e.preventDefault();zoom(.5)}
  if(e.key==='-'){e.preventDefault();zoom(2)}});
+// Delete: Delete Selected Label(s)
+document.addEventListener('keydown',e=>{if(e.key!=='Delete'||e.ctrlKey||e.altKey||e.metaKey||e.target.closest('input,textarea,select')||document.querySelector('.dlg,.backdrop'))return;
+ e.preventDefault();deleteSelected()});
 let escBusy=false;document.addEventListener('keydown',e=>{if(e.key==='Escape'){escBusy=!!document.querySelector('.dlg,.backdrop,.menu.show');document.querySelectorAll('.menu.ctx').forEach(m=>m.remove())}},true);
 document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||e.ctrlKey||e.altKey||e.shiftKey)return;
  if(escBusy)return;if(e.target.closest('input,textarea,select'))return;

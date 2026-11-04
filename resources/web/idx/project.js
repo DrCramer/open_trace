@@ -24,7 +24,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),closeProject:()=>closeProject(),report:null,edit:(id,spec)=>applyEdit(id,spec),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
+window.OT={state,plotPayload,addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),closeProject:()=>closeProject(),report:null,edit:(id,spec)=>applyEdit(id,spec),editMany:(list,reason)=>applyEdits(list,reason),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
  // plot window: Edit > Undo (latest active label edit of the displayed samples), View > Sample Info / Raw Data / EPT Data
  undoLast:(ids)=>{const all=state.project.samples.filter(s=>ids.includes(s.id)).flatMap(s=>(s.edits||[]).filter(e=>!e.undone).map(e=>({s,e})));
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];
@@ -330,13 +330,26 @@ async function applyEdit(sampleId,spec){
  const items=editItems(sampleId,{...spec,new:label});let reason=spec.reason;
  if(reason===undefined){const ch=await Sec.change({items,title:T('reasonTitle')});if(!ch)return false;reason=ch.reason}
  if(typeof reason!=='string'||reason.length>500)return false;
+ pushEdit(s,spec,label,reason);state.project.dirty=true;render();
+ await Sec.record(items.map(x=>({...x,reason})));return true}
+function pushEdit(s,spec,label,reason){
  const user=Sec.user?.name||'';
  const eff=effective(s);const old=spec.callId?eff.calls.find(c=>c.id===spec.callId):spec.artifactId?eff.artifacts.find(a=>a.id===spec.artifactId):null;
  s.edits=s.edits||[];const id=(s.edits.reduce((m,e)=>Math.max(m,e.id),0)||0)+1;
  s.edits.push({id,at:new Date().toISOString(),user,reason,action:spec.action,marker:spec.marker||null,callId:spec.callId||null,artifactId:spec.artifactId||null,
   peak:spec.peak||null,old:old?old.label:null,new:(spec.action==='delete'||spec.action==='delete_artifact')?null:label??null,size_bp:old?.size_bp??spec.peak?.size_bp??null});
- s.rev=(s.rev||0)+1;state.project.dirty=true;render();
- await Sec.record(items.map(x=>({...x,reason})));return true}
+ s.rev=(s.rev||0)+1}
+// Several label edits with one reason that the caller has already asked for (plot window: Delete Selected Labels,
+// Delete Multiple Labels, one artifact label for several peaks): applied together, the project table redrawn once.
+// list: [{id, spec}] with spec.new already final. Returns the number applied.
+async function applyEdits(list,reason){
+ if(!Sec.can('UPDATE_PROJECT')){Sec.denied();return 0}
+ if(typeof reason!=='string'||reason.length>500)return 0;
+ const recs=[];let n=0;
+ for(const {id,spec} of list){const s=state.project.samples.find(x=>x.id===id);if(!s||!s.report)continue;
+  const items=editItems(id,spec);pushEdit(s,spec,spec.new,reason);recs.push(...items.map(x=>({...x,reason})));n++}
+ if(n){state.project.dirty=true;render();await Sec.record(recs)}
+ return n}
 function promptLabel(title,value){return new Promise(res=>{dialog(title,b=>b.append(el('div',{class:'field'},el('label',{text:T('colAllele')}),el('input',{type:'text',id:'edLabel',value}))),
  [[T('ok'),b=>{const v=b.querySelector('#edLabel').value.trim();if(!v||v.length>40){message(T('badBinName'));return false}res(v);return true},true],[T('cancel'),()=>{res(null);return true}]])})}
 function labelEditViewer(){

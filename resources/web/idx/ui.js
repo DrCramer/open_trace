@@ -88,6 +88,7 @@ function buildMenu(items){
  }
  return menu;
 }
+window.buildMenu=buildMenu;
 window.buildMenubar=(bar,spec)=>{
  bar.replaceChildren();document.querySelectorAll('body>.menu').forEach(m=>m.remove());
  for(const top of spec){
