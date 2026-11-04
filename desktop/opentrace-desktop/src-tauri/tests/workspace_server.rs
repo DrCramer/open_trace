@@ -73,9 +73,14 @@ fn two_experts_one_editor_read_only_conflicts_and_binary_fsa() {
     assert_eq!(e.status, 409);
     assert!(e.body["error"].as_str().unwrap().contains("только для чтения"), "{}", e.body);
 
-    // The FSA went over as binary and comes back byte-identical.
+    // The FSA went over as binary; opening returns its SHA-256 only (the bridge fills the bytes from the local cache
+    // or one download), and the download is byte-identical.
     let smp = b.handle(&json!({"action": "open_sample", "name": "Case 1", "id": "1"})).unwrap();
-    assert_eq!(opentrace_core::matrix::b64decode_strict(smp["fsa_b64"].as_str().unwrap()).unwrap(), fsa);
+    let sha = smp["fsa_sha256"].as_str().expect("fsa by sha").to_string();
+    assert!(smp["fsa_b64"].is_null());
+    assert_eq!(_rb.fsa_get(None, &sha).unwrap(), fsa);
+    // Large bodies went gzip-compressed once the server had advertised it.
+    assert_eq!(_ra.wire_status()["gzip_requests"], true);
 
     // A closes (releases); B re-opens and now edits.
     a.release_all();
