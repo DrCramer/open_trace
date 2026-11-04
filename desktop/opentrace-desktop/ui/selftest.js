@@ -291,8 +291,11 @@
           c.ws_saved = await window.OT.writeProject(pname, { create: true });
           c.ws_after_save = await (await fetch('/desktop/api/workspace/status')).json();
           window.OT.state.project.samples = [];
+          var tOpen = performance.now();
           await window.OT.loadProject(pname);
+          c.ws_open_ms = Math.round(performance.now() - tOpen);
           c.ws_loaded_samples = window.OT.state.project.samples.length;
+          c.ws_loaded_blobs = window.OT.state.project.samples.filter(function (x) { return x.blob; }).length;
           c.ws_after_open = await (await fetch('/desktop/api/workspace/status')).json();
           // Lease lost while editing: the save is refused and a full copy goes into the local library as a draft.
           var dl = await (await fetch('/desktop/api/selftest/drop-lease', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: pname }) })).json();

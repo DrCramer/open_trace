@@ -255,7 +255,47 @@ fn check_project_name(name: &str) -> R<()> {
 /// Project library actions through API v1 (same document format as the web UI). Reads need `viewer`; `save_meta`
 /// and `save_sample` need `expert`, the lease, the fencing token and the expected revision. `save_sample` may pass
 /// `fsa_sha256` of a file already uploaded to `/api/v1/fsa/{sha256}` instead of inline base64.
-pub async fn project_idx(State(st): State<Shared>, a: Auth, Path(name): Path<String>, headers: HeaderMap, Json(mut req): Json<Value>) -> R<Json<Value>> {
+pub async fn project_idx(State(st): State<Shared>, a: Auth, Path(name): Path<String>, headers: HeaderMap, Json(req): Json<Value>) -> R<Response> {
+    if req.get("action").and_then(|v| v.as_str()) == Some("open_sample") {
+        return project_open_sample(st, a, name, req).await;
+    }
+    project_idx_json(st, a, name, headers, req).await.map(|j| j.into_response())
+}
+
+/// `open_sample`, composed as text: `{"id":…,"fsa_sha256":…,"fsa_b64":…,"data":<stored JSON>}` — the stored sample
+/// (several MB for a real run) is not parsed and re-serialised. With `fsa_by_sha` and the original in the FSA store,
+/// only its SHA-256 is sent (the desktop fills it from its cache); otherwise base64 as before.
+async fn project_open_sample(st: Shared, a: Auth, name: String, req: Value) -> R<Response> {
+    check_project_name(&name)?;
+    a.need(ROLE_VIEWER)?;
+    let by_sha = req.get("fsa_by_sha") == Some(&json!(true));
+    let id = req.get("id").cloned().unwrap_or(Value::Null);
+    blocking(move || {
+        let store = st.legacy.security_store();
+        store.require(Some(&a.doc), &["READ_PROJECT"]).map_err(|e| ApiError::forbidden(lerr(&e)))?;
+        let (fsa_bytes, data) = crate::legacy::with_access(&store, &a.doc, |acc| st.library.open_sample_raw(&json!(name), &id, Some(acc))).map_err(|e| lib_err(&e))?;
+        drop(store);
+        let mut sha = Value::Null;
+        let mut b64 = Value::Null;
+        if let Some(bytes) = fsa_bytes {
+            let h = db::sha256_hex(&bytes);
+            if by_sha && fsa::blob_path(&st.cfg.fsa_dir(), &h).map(|p| p.is_file()).unwrap_or(false) {
+                sha = json!(h);
+            } else {
+                b64 = json!(opentrace_core::matrix::b64encode(&bytes));
+            }
+        }
+        let data = data.unwrap_or_else(|| b"null".to_vec());
+        let mut out = Vec::with_capacity(data.len() + 256);
+        out.extend_from_slice(format!("{{\"id\":{},\"fsa_sha256\":{},\"fsa_b64\":{},\"data\":", id, sha, b64).as_bytes());
+        out.extend_from_slice(&data);
+        out.push(b'}');
+        Ok(([(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")], out).into_response())
+    })
+    .await
+}
+
+async fn project_idx_json(st: Shared, a: Auth, name: String, headers: HeaderMap, mut req: Value) -> R<Json<Value>> {
     check_project_name(&name)?;
     let obj = req.as_object_mut().ok_or_else(|| ApiError::bad("request must be an object"))?;
     let action = obj.get("action").and_then(|a| a.as_str()).unwrap_or("").to_string();

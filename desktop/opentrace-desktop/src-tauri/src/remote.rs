@@ -214,7 +214,7 @@ impl Remote {
         use std::sync::atomic::Ordering;
         let raw = serde_json::to_vec(body).unwrap_or_default();
         let r = r.set("Content-Type", "application/json");
-        if raw.len() >= GZIP_MIN && self.gzip_requests.load(Ordering::Relaxed) {
+        if raw.len() >= GZIP_MIN && self.gzip_requests.load(Ordering::Relaxed) && !self.server_is_local() {
             let z = gzip(&raw);
             self.wire_out.fetch_add(z.len() as u64, Ordering::Relaxed);
             r.set("Content-Encoding", "gzip").send_bytes(&z)
@@ -222,6 +222,15 @@ impl Remote {
             self.wire_out.fetch_add(raw.len() as u64, Ordering::Relaxed);
             r.send_bytes(&raw)
         }
+    }
+
+    /// Server on this machine: compressing requests would only cost CPU.
+    fn server_is_local(&self) -> bool {
+        self.session()
+            .and_then(|s| url::Url::parse(&s.server).ok())
+            .and_then(|u| u.host_str().map(|h| h.trim_matches(['[', ']']).to_ascii_lowercase()))
+            .map(|h| h == "localhost" || h.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false))
+            .unwrap_or(false)
     }
 
     pub fn wire_status(&self) -> Value {
@@ -251,6 +260,18 @@ impl Remote {
         let resp = self.send_json(r, body).map_err(|e| self.on_err(map_err(e)))?;
         self.seen(&resp);
         resp.into_json().map_err(|e| RemoteError::Transport(e.to_string()))
+    }
+
+    /// POST with a JSON body; the response body as bytes (not parsed: large samples are only forwarded).
+    pub fn post_raw(&self, ca: Option<&std::path::Path>, path: &str, body: &Value) -> RResult<Vec<u8>> {
+        let s = self.authed()?;
+        let a = self.agent(ca)?;
+        let r = a.post(&format!("{}{}", s.server, path)).set("Authorization", &format!("Bearer {}", s.token));
+        let resp = self.send_json(r, body).map_err(|e| self.on_err(map_err(e)))?;
+        self.seen(&resp);
+        let mut buf = Vec::new();
+        resp.into_reader().take(512 * 1024 * 1024).read_to_end(&mut buf).map_err(|e| RemoteError::Transport(e.to_string()))?;
+        Ok(buf)
     }
 
     pub fn delete(&self, ca: Option<&std::path::Path>, path: &str, headers: &[(&str, String)]) -> RResult<Value> {
@@ -293,7 +314,7 @@ impl Remote {
         let s = self.authed()?;
         let a = self.agent(ca)?;
         let r = a.put(&format!("{}/api/v1/fsa/{}", s.server, sha)).set("Authorization", &format!("Bearer {}", s.token)).set("Content-Type", "application/octet-stream");
-        let resp = if self.gzip_requests.load(std::sync::atomic::Ordering::Relaxed) {
+        let resp = if self.gzip_requests.load(std::sync::atomic::Ordering::Relaxed) && !self.server_is_local() {
             // FSA traces compress well (about 2-3x); the server checks the SHA-256 of the decompressed bytes.
             let mut raw = Vec::with_capacity(len as usize);
             let mut reader = reader;

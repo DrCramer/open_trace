@@ -4,7 +4,8 @@
 //! gzipped on disk (`samples/<id>.json.gz`), so this only removes the network cost:
 //!
 //! * responses: compressed when the client sends `Accept-Encoding: gzip` (browsers always do, the desktop does) and the
-//!   body is JSON, text, JavaScript, SVG or an FSA file of at least 1 KiB;
+//!   body is JSON, text, JavaScript, SVG or an FSA file of at least 1 KiB — except for a client on the server machine
+//!   itself without a proxy in between (nothing to save, only CPU to spend); level 1 (fast);
 //! * requests: a body with `Content-Encoding: gzip` is decompressed before the handlers see it (the desktop and the web
 //!   UI send large saves this way once they have seen `X-OT-Accepts-Gzip` from this server). The decompressed size is
 //!   capped (`max_decoded`), so a small compressed body cannot expand into an unbounded one; route limits apply on top.
@@ -29,8 +30,9 @@ fn compressible(content_type: &str) -> bool {
     t.starts_with("text/") || t == "application/json" || t == "application/javascript" || t == "image/svg+xml" || t == "application/octet-stream"
 }
 
+/// Level 1: about four times faster than level 5 on large analysis JSON, still 6-8x smaller than plain text.
 pub fn gzip(data: &[u8]) -> Vec<u8> {
-    let mut e = flate2::write::GzEncoder::new(Vec::with_capacity(data.len() / 6 + 64), flate2::Compression::new(5));
+    let mut e = flate2::write::GzEncoder::new(Vec::with_capacity(data.len() / 5 + 64), flate2::Compression::new(1));
     let _ = e.write_all(data);
     e.finish().unwrap_or_default()
 }
@@ -56,8 +58,15 @@ fn err(status: StatusCode, code: &str, msg: &str) -> Response {
     (status, axum::Json(serde_json::json!({"error": msg, "code": code}))).into_response()
 }
 
+/// A client on this machine talking to the server directly (no reverse proxy in between): compressing costs CPU on
+/// both sides and saves nothing, so responses are sent as they are.
+fn direct_local(req: &Request) -> bool {
+    let loopback = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0.ip().is_loopback()).unwrap_or(false);
+    loopback && !req.headers().contains_key("x-forwarded-for") && !req.headers().contains_key("forwarded")
+}
+
 pub async fn layer(State(lim): State<Limits>, req: Request, next: Next) -> Response {
-    let want_gzip = accepts_gzip(&req);
+    let want_gzip = accepts_gzip(&req) && !direct_local(&req);
     let req = match req.headers().get(header::CONTENT_ENCODING).and_then(|v| v.to_str().ok()).map(|s| s.trim().to_ascii_lowercase()) {
         None => req,
         Some(e) if e == "identity" => req,
@@ -115,7 +124,7 @@ mod tests {
         assert!(gunzip_limited(&z, data.len() - 1).is_none()); // expands beyond the cap
         assert!(gunzip_limited(b"not gzip", 100).is_none());
         let bomb = gzip(&vec![0u8; 50 * 1024 * 1024]);
-        assert!(bomb.len() < 100 * 1024);
+        assert!(bomb.len() < 1024 * 1024);
         assert!(gunzip_limited(&bomb, 1024 * 1024).is_none());
     }
 

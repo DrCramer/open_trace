@@ -131,6 +131,15 @@ impl Workspace {
         }
     }
 
+    /// `open_sample` as the server's bytes (not parsed here; see `bridge::splice_fsa`).
+    pub fn open_sample_raw(&self, req: &Value) -> Result<Vec<u8>, WsError> {
+        let name = req.get("name").and_then(|n| n.as_str()).map(|s| s.trim().to_string()).ok_or_else(|| WsError::msg(400, "name required"))?;
+        let mut r = req.clone();
+        r.as_object_mut().map(|m| m.remove("name"));
+        r["fsa_by_sha"] = json!(true);
+        Ok(self.remote.post_raw(self.ca().as_deref(), &format!("/api/v1/projects/{}/idx", enc(&name)), &r)?)
+    }
+
     fn list(&self) -> Result<Value, WsError> {
         let r = self.remote.get_json(self.ca().as_deref(), "/api/v1/projects")?;
         let server = self.remote.session().map(|s| s.server).unwrap_or_default();

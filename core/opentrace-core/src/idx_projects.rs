@@ -552,6 +552,31 @@ impl ProjectLibrary {
         Ok(folder.join("samples").join(format!("{}.fsa", py_str(sample_id))))
     }
 
+    /// `open_sample` without building a JSON value: the FSA bytes and the stored sample JSON as text (already valid
+    /// JSON; it was written by `save_sample`). Same access check. Embedders that only forward the sample (OpenTrace
+    /// Server) avoid parsing and re-serialising several MB per sample.
+    pub fn open_sample_raw(&self, name: &Value, sample_id: &Value, access: Access) -> LR<(Option<Vec<u8>>, Option<Vec<u8>>)> {
+        let folder = self.require(name)?;
+        self.guard(&folder, access, "read")?;
+        if !sample_id_ok(&py_str(sample_id)) {
+            return verr("Invalid sample id");
+        }
+        let sid = py_str(sample_id);
+        let fsa = folder.join("samples").join(format!("{}.fsa", sid));
+        let fsa = if fsa.is_file() { Some(fs::read(&fsa).map_err(io)?) } else { None };
+        let blob = folder.join("samples").join(format!("{}.json.gz", sid));
+        let data = if blob.is_file() {
+            let raw = gzip_decompress(&fs::read(&blob).map_err(io)?)?;
+            if raw.len() > MAX_SAMPLE_BYTES {
+                return verr("Sample data exceeds 128 MiB");
+            }
+            Some(raw)
+        } else {
+            None
+        };
+        Ok((fsa, data))
+    }
+
     pub fn open_sample(&self, name: &Value, sample_id: &Value, access: Access) -> LR<Value> {
         let folder = self.require(name)?;
         self.guard(&folder, access, "read")?;

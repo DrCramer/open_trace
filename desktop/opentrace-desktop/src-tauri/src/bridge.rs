@@ -154,6 +154,15 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
             Ok(v) => v,
             Err(e) => return json_response(400, &json!({"error": e.to_string()})),
         };
+        if body["action"] == "open_sample" {
+            return match st.workspace.open_sample_raw(&body) {
+                Ok(raw) => match splice_fsa(st, raw) {
+                    Ok(out) => response(200, "application/json; charset=utf-8", out),
+                    Err(e) => remote_err(e),
+                },
+                Err(e) => json_response(e.status, &e.body),
+            };
+        }
         return match st.workspace.handle(&body) {
             Ok(mut v) => {
                 // open_sample by SHA-256: the original from the local FSA cache, else downloaded once (gzip, verified)
@@ -195,6 +204,45 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
     }
     let body = if r.code == 200 && r.kind.starts_with("text/html") { inject_scripts(r.body, st.selftest.is_some()) } else { r.body };
     response(r.code, &r.kind, body)
+}
+
+/// The original FSA of an `open_sample` answer: `fsa_sha256` from the server becomes `fsa_b64` for the UI, from the
+/// local FSA cache or one verified download (then kept in the cache). The server composes the answer as
+/// `{"id":…,"fsa_sha256":…,"fsa_b64":…,"data":<sample>}`; only the short head before `"data":` is parsed, the sample
+/// itself (several MB) is passed through unchanged. Any other shape (older server) is parsed as a whole.
+fn splice_fsa(st: &DesktopState, raw: Vec<u8>) -> Result<Vec<u8>, crate::remote::RemoteError> {
+    let fill = |sha: &str| -> Result<String, crate::remote::RemoteError> {
+        let ca = st.config().ca_cert_pem;
+        let bytes = match st.sync.cached(sha) {
+            Some(b) => b,
+            None => {
+                let b = st.remote.fsa_get(ca.as_deref(), sha)?;
+                let _ = st.sync.cache_downloaded(&format!("{}.fsa", &sha[..12.min(sha.len())]), &b);
+                b
+            }
+        };
+        Ok(opentrace_core::matrix::b64encode(&bytes))
+    };
+    const KEY: &[u8] = b",\"data\":";
+    let head_end = raw.len().min(2048);
+    if let Some(pos) = raw[..head_end].windows(KEY.len()).position(|w| w == KEY) {
+        let mut head = raw[..pos].to_vec();
+        head.push(b'}');
+        if let Ok(Value::Object(mut h)) = serde_json::from_slice::<Value>(&head) {
+            if let Some(sha) = h.get("fsa_sha256").and_then(|v| v.as_str()).map(String::from) {
+                h.insert("fsa_b64".into(), json!(fill(&sha)?));
+            }
+            let mut out = serde_json::to_vec(&Value::Object(h)).unwrap_or_default();
+            out.pop(); // the closing brace: the sample follows
+            out.extend_from_slice(&raw[pos..]);
+            return Ok(out);
+        }
+    }
+    let mut v: Value = serde_json::from_slice(&raw).map_err(|e| crate::remote::RemoteError::Transport(e.to_string()))?;
+    if let Some(sha) = v.get("fsa_sha256").and_then(|s| s.as_str()).map(String::from) {
+        v["fsa_b64"] = json!(fill(&sha)?);
+    }
+    Ok(serde_json::to_vec(&v).unwrap_or_default())
 }
 
 /// With an active laboratory profile: which kits the UI builds (checked against the profile) and which kit each

@@ -642,12 +642,15 @@ async function loadProject(name){
   if(snap.tableSetting&&!TableSettings.get(snap.tableSetting.name)){try{TableSettings.put(snap.tableSetting);notes.push(T('mgrTables')+': '+snap.tableSetting.name)}catch(e){}}
   if(snap.example){state.kit=snap.example.kit;state.ladderQuality=snap.example.lq;state.markerQuality=snap.example.mq;
    kitCache.set(EXAMPLE_KEY,{kit:snap.example.kit,lq:snap.example.lq,mq:snap.example.mq,policy:'reject'})}
-  const samples=[];let i=0;state.nextId=1;
-  for(const m of meta.samples){const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
-   const id=state.nextId++;samples.push({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
+  // Samples are fetched several at a time (each is several MB of JSON on real runs); order and ids as listed.
+  const samples=new Array(meta.samples.length);let done=0,next=0;
+  const loadOne=async idx=>{const m=meta.samples[idx];const d=await jsonPost('/api/idx-project',{action:'open_sample',name,id:m.id});const data=d.data||{};
+   const id=idx+1;samples[idx]=({id,file:m.file,name:m.name,type:m.type,runFolder:m.runFolder,method:m.method,panelKey:m.panelKey,panel:m.panel,sizeStd:m.sizeStd,
     status:data.analysis?m.status:'unanalyzed',sampleId:m.sampleId,comment:m.comment,profileId:m.profileId,specimenCategory:m.specimenCategory||'',customControl:m.customControl||'',ud:m.ud||{},origin:m.origin||'',matrix:m.matrix||'',inst:m.inst||null,ladderQuality:m.ladderQuality,ladderUsed:!!m.ladderUsed,alasSkipped:!!m.alasSkipped,referenceBins:!!m.referenceBins,sqOverride:m.sqOverride||undefined,edits:m.edits||[],
     blob:d.fsa_b64?b64ToBlob(d.fsa_b64,m.file):null,analysis:slimAnalysis(data.analysis||null),compact:data.compact?slimAnalysis(data.compact):null,report:slimReport(data.report||null),rev:0,savedRev:0});
-   progress(++i,meta.samples.length,`${T('opening')}: ${m.file}`)}
+   progress(++done,meta.samples.length,`${T('opening')}: ${m.file}`)};
+  await Promise.all(Array.from({length:Math.min(4,meta.samples.length)},async()=>{while(next<meta.samples.length)await loadOne(next++)}));
+  state.nextId=meta.samples.length+1;
   Object.assign(state.project,{securityGroup:meta.security_group||Sec.DEFAULT_GROUP,owner:meta.owner||'',mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],binOffsets:Array.isArray(meta.bin_offsets)?meta.bin_offsets:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
   state.lastMessage=T('projectOpened')+': '+meta.name;sniffSamples(state.project.samples);rememberProject(meta.name);WebLease.start(meta.name,meta.opentrace_server);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
