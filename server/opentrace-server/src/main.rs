@@ -14,6 +14,7 @@ Commands:
   set-password USER          set a user's password (read from stdin or OPENTRACE_NEW_PASSWORD)
   grant-approver USER        add USER to the \"OpenTrace Approvers\" group (creates the group)
   backup [--out DIR]         consistent backup of database, projects, security store and FSA files
+  dedupe-fsa                 store FSA copies inside projects once (hard links to the FSA store; safe while running)
   verify-backup DIR          check a backup against its manifest
   restore DIR                restore a backup into an empty data directory
   version                    print versions
@@ -98,6 +99,30 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 }
             }
             Err("password not set".into())
+        }
+        "dedupe-fsa" => {
+            let cfg = load()?;
+            let (mut linked, mut saved) = (0u64, 0u64);
+            for p in walk_fsa(&cfg.projects_dir()) {
+                let Ok(bytes) = std::fs::read(&p) else { continue };
+                let sha = opentrace_server::db::sha256_hex(&bytes);
+                let Some(blob) = opentrace_server::fsa::blob_path(&cfg.fsa_dir(), &sha).filter(|b| b.is_file()) else { continue };
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    if let (Ok(a), Ok(b)) = (std::fs::metadata(&p), std::fs::metadata(&blob)) {
+                        if a.ino() == b.ino() && a.dev() == b.dev() {
+                            continue;
+                        }
+                    }
+                }
+                if let Ok(true) = opentrace_server::fsa::link_copy(&blob, &p) {
+                    linked += 1;
+                    saved += bytes.len() as u64;
+                }
+            }
+            println!("linked {} project FSA copies to the FSA store ({:.1} MiB stored once instead of twice)", linked, saved as f64 / 1048576.0);
+            Ok(())
         }
         "grant-approver" => {
             let user = args.first().ok_or("grant-approver USER")?.clone();
@@ -201,4 +226,17 @@ fn read_new_password(user: &str) -> Result<String, String> {
         return Ok(a);
     }
     Err("password not set (three attempts)".into())
+}
+
+/// `projects/*/samples/*.fsa`.
+fn walk_fsa(root: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for p in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        for f in std::fs::read_dir(p.path().join("samples")).into_iter().flatten().flatten() {
+            if f.path().extension().map(|e| e == "fsa").unwrap_or(false) {
+                out.push(f.path());
+            }
+        }
+    }
+    out
 }
