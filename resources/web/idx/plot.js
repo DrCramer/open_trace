@@ -128,7 +128,11 @@ function lazyPaint(area,canvas,fn){
  canvas._lazyPaint=fn;canvas._paint=fn;paintObserver.observe(canvas)}
 // Selection changes repaint the panes already drawn in place (no new canvases): fast with hundreds of panes, and the
 // panes keep their geometry, so arrow keys pressed in quick succession always find the selected peak.
-function repaint(){for(const cv of document.querySelectorAll('#plotarea canvas'))if(cv._geom&&cv._paint)cv._paint();renderLower()}
+// Panes far from the view (96 samples x 4 dyes, scrolled through once) are only marked and repainted when they come back.
+function repaint(){const area=$('plotarea'),ar=area.getBoundingClientRect(),m=ar.height;
+ for(const cv of area.querySelectorAll('canvas')){if(!cv._geom||!cv._paint)continue;const r=cv.getBoundingClientRect();
+  if(r.bottom>=ar.top-m&&r.top<=ar.bottom+m)cv._paint();else if(!cv._lazyPaint&&paintObserver){cv._lazyPaint=cv._paint;paintObserver.observe(cv)}}
+ renderLower()}
 
 function paint(cv,items,x0,x1,onlyMarker){
  const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv._h??(cv._h=cv.height);cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
