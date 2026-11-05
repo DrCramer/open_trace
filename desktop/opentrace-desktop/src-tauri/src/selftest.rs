@@ -174,7 +174,10 @@ impl SelfTest {
                     && main["native_keys"]["ctrl_r_marker_range"] == true
                     && main["native_keys"]["ctrl_n_data_points"] == true
                     && main["native_keys"]["no_reload"] == true
-                    && main["native_keys"]["window_kept_state"] == true))
+                    && main["native_keys"]["window_kept_state"] == true
+                    && main["native_keys"]["delete_removes_label"] == true
+                    && main["native_keys"]["ctrl_z_restores"] == true
+                    && main["native_keys"]["esc_closes"] == true))
             && (std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()
                 || (main["sync"]["done"].as_u64().unwrap_or(0) >= 1
                     && main["ws_saved"] == true

@@ -275,6 +275,10 @@
             var still = false;
             try { still = !kw.closed && kw.__otKeysMark === true; } catch (e) {}
             kt.window_kept_state = still; // false after F5 reloaded the page (the old JS context is gone)
+            if (still && kt.input_reaches_page) {
+              kw.__otPressEsc();
+              kt.esc_closes = await wait(function () { return kw.closed; }, 8000);
+            }
             c.native_keys = kt;
           } else c.native_keys = { skipped: 'plot window not available' };
         } catch (e) { c.native_keys = { error: String(e) }; }
@@ -407,8 +411,24 @@
           r.ctrl_n_data_points = v.xAxis === 'dp';
           await send('ctrl+y');
           r.no_reload = window.__otKeysMark === true;
+          // Delete on a selected allele label, Ctrl+Z brings it back (a reason dialog, if auditing asks for one, is answered)
+          var calls = function () { return ((window.opener.OT.plotPayload().samples || []).reduce(function (n, s) { return n + ((s.report && s.report.calls) || []).length; }, 0)); };
+          var answer = async function () { for (var i = 0; i < 10; i++) { await sleep(200); var d = document.querySelector('.dlg'); if (!d) return; var rr = d.querySelector('#rfcReason'); if (rr) rr.value = 'self-test'; d.querySelector('.foot .btn').click(); } };
+          var cvl = Array.prototype.slice.call(document.querySelectorAll('#plotarea canvas')).find(function (c) { return c._geom && c._geom.labelBoxes.some(function (b) { return b.call; }); });
+          if (cvl) {
+            var bx = cvl._geom.labelBoxes.filter(function (b) { return b.call; })[0], rc = cvl.getBoundingClientRect();
+            cvl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: rc.left + (bx.x0 + bx.x1) / 2, clientY: rc.top + (bx.y0 + bx.y1) / 2 }));
+            var c0 = calls();
+            r.selected_label = v.selPeaks.size === 1;
+            await send('delete'); await answer();
+            r.delete_removes_label = calls() === c0 - 1;
+            await send('ctrl+z'); await answer();
+            r.ctrl_z_restores = calls() === c0;
+          } else r.delete_removes_label = 'no label';
           return r;
         };
+        // Esc closes the plot window (ID-X Close Plot Window); the request is not awaited, the window goes away.
+        window.__otPressEsc = function () { fetch('/desktop/api/selftest/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: ['esc'] }) }); };
         window.__otKeysMark = true;
       } catch (e) {
         c.error = String((e && e.stack) || e);
