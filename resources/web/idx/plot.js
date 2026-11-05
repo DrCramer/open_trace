@@ -55,10 +55,13 @@ function curveOf(a){const anchors=a?.sizing?.anchors;if(!anchors||anchors.length
 function bpToScan(c,b){if(!c)return b;let i=1;while(i<c.length-1&&b>c[i][1])i++;const [s0,b0]=c[i-1],[s1,b1]=c[i];return s0+(b-b0)*(s1-s0)/(b1-b0)}
 function domain(){if(view.xAxis!=='dp')return bpRange();let n=0;for(const s of payload?.samples||[])for(const c of s.analysis?.channels||[])n=Math.max(n,(c.values||[]).length);return [0,n||10000]}
 function scanToBp(c,s){if(!c)return s;let i=1;while(i<c.length-1&&s>c[i][0])i++;const [s0,b0]=c[i-1],[s1,b1]=c[i];return b0+(s-s0)*(b1-b0)/(s1-s0)}
-function bpRange(){const ms=payload?.kit?.markers||[];
- if(ms.length)return [Math.min(...ms.map(m=>m.min_bp))-10,Math.max(...ms.map(m=>m.max_bp))+10];
- for(const s of payload?.samples||[]){const c=curveOf(s.analysis);if(c)return [c[0][1],c[c.length-1][1]]}
- return [0,500]}
+// Full view in basepairs: the sized range of the shown samples (first to last matched size-standard fragment), widened
+// to the kit's marker ranges; before, only the kit range was used and Full View could be narrower than the range the
+// plot setting opened with (one-marker kits).
+function bpRange(){const ms=payload?.kit?.markers||[];let lo=Infinity,hi=-Infinity;
+ if(ms.length){lo=Math.min(...ms.map(m=>m.min_bp))-10;hi=Math.max(...ms.map(m=>m.max_bp))+10}
+ for(const s of payload?.samples||[]){const c=curveOf(s.analysis);if(c){lo=Math.min(lo,c[0][1]);hi=Math.max(hi,c[c.length-1][1])}}
+ return lo<hi?[lo,hi]:[0,500]}
 
 // ---------- panes ----------
 const isGeno=()=>payload?.mode==='genotypes';

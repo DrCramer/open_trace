@@ -76,7 +76,36 @@ const { chromium } = require('playwright');
   await plot.evaluate(() => { const b = [...document.querySelectorAll('#toolbar2 .tb')].find(x => x.title === T('genotypesTable')); b.click(); window.__otView.selPeaks.clear(); });
   await plot.waitForFunction(() => [...document.querySelectorAll('#plotarea canvas')].some(c => c._geom && c._geom.labelBoxes.length));
 
-  // 1. Click on a label selects its peak; the bar enables Delete.
+  // 0a. Zoom (ID-X SinglePlotPane): drag on the X axis, Ctrl+= / Ctrl+-, band in the field (Y), double clicks on the axes.
+  // The panes are repainted in place: every painted pane must show the view's range.
+  const geo = () => plot.evaluate(() => { const cv = [...document.querySelectorAll('#plotarea canvas')].find(c => c._geom); cv.scrollIntoView({ block: 'nearest' }); const r = cv.getBoundingClientRect(), G = cv._geom;
+    return { left: r.left, top: r.top, L: G.L, R: G.R, W: G.W, gtop: G.top, bottom: G.bottom, x0: G.x0, x1: G.x1 }; });
+  const panesShow = () => plot.evaluate(() => { const v = window.__otView; const cs = [...document.querySelectorAll('#plotarea canvas')].filter(c => c._geom && !c._lazyPaint);
+    return cs.length > 0 && cs.every(c => v.x0 == null ? true : Math.abs(c._geom.x0 - v.x0) < 1e-6 && Math.abs(c._geom.x1 - v.x1) < 1e-6); });
+  let g = await geo();
+  const full = [g.x0, g.x1];
+  const ax = f => g.left + g.L + (g.W - g.L - g.R) * f;
+  await plot.mouse.move(ax(0.3), g.top + g.gtop - 5); await plot.mouse.down(); await plot.mouse.move(ax(0.6), g.top + g.gtop - 5, { steps: 6 }); await plot.mouse.up();
+  const z1 = await plot.evaluate(() => { const v = window.__otView; return { user: v.userZoom, x0: v.x0, x1: v.x1 }; });
+  out.zoom_x_drag = z1.user === true && z1.x0 > full[0] && z1.x1 < full[1] && (await panesShow());
+  await plot.keyboard.press('Control+Equal');
+  const z2 = await plot.evaluate(() => window.__otView.x1 - window.__otView.x0);
+  await plot.keyboard.press('Control+Minus');
+  const z3 = await plot.evaluate(() => window.__otView.x1 - window.__otView.x0);
+  out.zoom_in_out = z2 < z1.x1 - z1.x0 && Math.abs(z3 - (z1.x1 - z1.x0)) < 1e-6 && (await panesShow());
+  g = await geo();
+  await plot.mouse.dblclick(ax(0.5), g.top + g.gtop - 5);
+  g = await geo();
+  // full view = the whole domain of the window (not the range the plot setting opened with)
+  out.zoom_full_dblclick = (await plot.evaluate(() => { const v = window.__otView; const cs = [...document.querySelectorAll('#plotarea canvas')].filter(c => c._geom && !c._lazyPaint);
+    return v.x0 == null && !v.userZoom && cs.length > 0 && cs.every(c => c._geom.x0 === cs[0]._geom.x0 && c._geom.x1 === cs[0]._geom.x1); })) && g.x1 - g.x0 > z1.x1 - z1.x0;
+  const fy = g.top + g.gtop + (g.bottom - g.gtop) * 0.3;
+  await plot.mouse.move(ax(0.95), fy); await plot.mouse.down(); await plot.mouse.move(ax(0.95), fy + 30, { steps: 6 }); await plot.mouse.up();
+  out.zoom_y_band = await plot.evaluate(() => window.__otView.yAxis === 'entered' && window.__otView.yValue > 0);
+  await plot.mouse.dblclick(g.left + g.L / 2, fy);
+  out.zoom_y_full = await plot.evaluate(() => window.__otView.yAxis === 'individual');
+  await plot.click('#xy');
+
   let p = await labelPoint(0);
   await plot.mouse.click(p.x, p.y);
   out.selected_after_label_click = await plot.evaluate(() => window.__otView.selPeaks.size);
@@ -160,7 +189,7 @@ const { chromium } = require('playwright');
     keys['Control+a'].endsWith(',sizing') && keys['Control+q'].endsWith(',none') && keys['Control+w'].endsWith(',genotypes');
   out.page_errors = errors;
   console.log(JSON.stringify(out, null, 1));
-  const ok = out.multiple_dye[0] === 1 && out.multiple_dye[1] > 1 && out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
+  const ok = out.zoom_x_drag && out.zoom_in_out && out.zoom_full_dblclick && out.zoom_y_band && out.zoom_y_full && out.multiple_dye[0] === 1 && out.multiple_dye[1] > 1 && out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
     out.row_selects_peak === 1 && out.row_marked === 1 && out.rows_selected_filter === 1 && out.rows_call_filter === out.calls_start && out.rows_all_again === out.sizing_rows &&
     out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
     /Удалить обозначения|Delete Label/.test(out.popup[0]) && out.rename_submenu.length >= 2 &&
