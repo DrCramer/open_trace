@@ -78,6 +78,7 @@ pub fn send_keys(app: &AppHandle, label: &str, keys: &[String]) -> Value {
         extern "system" {
             fn keybd_event(vk: u8, scan: u8, flags: u32, extra: usize);
             fn GetForegroundWindow() -> isize;
+            fn MapVirtualKeyW(code: u32, map_type: u32) -> u32;
         }
         const KEYUP: u32 = 0x0002;
         let Some(w) = app.get_webview_window(label) else { return json!({"native": true, "error": "no window"}) };
@@ -105,11 +106,12 @@ pub fn send_keys(app: &AppHandle, label: &str, keys: &[String]) -> Value {
                 vks.push(vk);
             }
             unsafe {
+                // with the scan code, as a real keyboard sends it (the page reads KeyboardEvent.code from it)
                 for vk in &vks {
-                    keybd_event(*vk, 0, 0, 0);
+                    keybd_event(*vk, MapVirtualKeyW(*vk as u32, 0) as u8, 0, 0);
                 }
                 for vk in vks.iter().rev() {
-                    keybd_event(*vk, 0, KEYUP, 0);
+                    keybd_event(*vk, MapVirtualKeyW(*vk as u32, 0) as u8, KEYUP, 0);
                 }
             }
             sent.push(k.clone());

@@ -834,14 +834,16 @@ const DYE_BY_DIGIT={Digit1:'DATA1',Digit2:'DATA2',Digit3:'DATA3',Digit4:'DATA4',
 const LAYOUT_BY_DIGIT={Digit7:'combine',Digit8:'separate',Digit9:'overlay'};
 document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  const inField=!!e.target.closest('input,textarea,select');const k=hotKey(e);
+ // digit keys by position; input without a scan code (some remote/virtual keyboards) has an empty e.code
+ const code=e.code||(/^[0-9]$/.test(e.key)?'Digit'+e.key:'');
  // Ctrl+Shift: B bins; M / D / Y Y axis to maximum / individually / to a value; G X axis to a range; N / H / V no / horizontal / vertical labels
  if(e.shiftKey&&!e.altKey){if(inField)return;const act={KeyB:()=>{view.bins=!view.bins;build();draw()},KeyM:()=>yAxisTo('max'),KeyD:()=>yAxisTo('individual'),KeyY:yZoomToDlg,KeyG:xZoomToDlg,
    KeyN:()=>{view.labels='none';build();draw()},KeyH:()=>{view.labels='h';build();draw()},KeyV:()=>{view.labels='v';build();draw()}}[e.code];
   if(act){e.preventDefault();act()}return}
  if(e.altKey)return;
- if(DYE_BY_DIGIT[e.code]&&!inField){e.preventDefault();const t=DYE_BY_DIGIT[e.code];view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw();return}
- if(e.code==='Digit6'&&!inField){e.preventDefault();DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw();return}
- if(LAYOUT_BY_DIGIT[e.code]&&!inField){e.preventDefault();view.layout=LAYOUT_BY_DIGIT[e.code];build();draw();return}
+ if(DYE_BY_DIGIT[code]&&!inField){e.preventDefault();const t=DYE_BY_DIGIT[code];view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw();return}
+ if(code==='Digit6'&&!inField){e.preventDefault();DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw();return}
+ if(LAYOUT_BY_DIGIT[code]&&!inField){e.preventDefault();view.layout=LAYOUT_BY_DIGIT[code];build();draw();return}
  if(e.key===']'&&!inField){e.preventDefault();view.x0=view.x1=null;draw();return}
  if(/^F[123]$/.test(e.key)&&!inField){e.preventDefault();sampleView({F1:'info',F2:'raw',F3:'ept'}[e.key]);return}
  if(k==='j'&&!inField){e.preventDefault();zoomNextMarker();return}
