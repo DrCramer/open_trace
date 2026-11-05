@@ -139,9 +139,19 @@ const { chromium } = require('playwright');
   out.pane_labels = pane.labels;
   out.edits_in_project = await plot.evaluate(() => window.opener.OT.state.project.samples.reduce((n, s) => n + (s.edits || []).filter(e => !e.undone).length, 0));
   if (shots) await plot.screenshot({ path: shots + '/plot_after_range_delete.png' });
+  // 6. ID-X plot window keys: Ctrl+N / Ctrl+Y X axis, Ctrl+Shift+M / D Y axis, Ctrl+Shift+N / H labels, Ctrl+A / W / Q tables
+  const v = () => plot.evaluate(() => { const v = window.__otView; return [v.xAxis, v.yAxis, v.labels, v.table].join(','); });
+  const keys = {};
+  for (const k of ['Control+n', 'Control+y', 'Control+Shift+m', 'Control+Shift+d', 'Control+Shift+n', 'Control+Shift+h', 'Control+a', 'Control+q', 'Control+w']) {
+    await plot.keyboard.press(k); keys[k] = await v();
+  }
+  out.keys = keys;
+  out.keys_ok = keys['Control+n'].startsWith('dp,') && keys['Control+y'].startsWith('bp,') && keys['Control+Shift+m'].split(',')[1] === 'max' &&
+    keys['Control+Shift+d'].split(',')[1] === 'individual' && keys['Control+Shift+n'].split(',')[2] === 'none' && keys['Control+Shift+h'].split(',')[2] === 'h' &&
+    keys['Control+a'].endsWith(',sizing') && keys['Control+q'].endsWith(',none') && keys['Control+w'].endsWith(',genotypes');
   out.page_errors = errors;
   console.log(JSON.stringify(out, null, 1));
-  const ok = out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
+  const ok = out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
     out.row_selects_peak === 1 && out.row_marked === 1 && out.rows_selected_filter === 1 && out.rows_call_filter === out.calls_start && out.rows_all_again === out.sizing_rows &&
     out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
     /Удалить обозначения|Delete Label/.test(out.popup[0]) && out.rename_submenu.length >= 2 &&

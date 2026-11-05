@@ -322,6 +322,8 @@ document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;b
   for(const p of G.peakPts)if(p.x>=lo&&p.x<=hi)view.selPeaks.set(peakKey(p.sample,p.tag,p.peak),p);repaint();showPhr()}});
 // Y zoom: all panes take the entered value as the Y maximum (ID-X: Zoom To on the Y axis; Full View returns to individual scaling)
 function yZoomTo(v){if(!(v>1))return;view.yAxis='entered';view.yValue=Math.round(v);build();draw()}
+function xAxisTo(a){if(view.xAxis===a)return;view.xAxis=a;view.x0=view.x1=null;view.userZoom=false;build();draw()}
+function yAxisTo(a){view.yAxis=a;build();draw()}
 function yFullView(){view.yAxis='individual';build();draw()}
 function xFullView(){view.x0=view.x1=null;view.userZoom=false;draw()}
 function xZoomToDlg(){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1;const v=prompt(T('zoomToXPrompt'),(+a).toFixed(1)+' - '+(+b).toFixed(1));if(v==null)return;
@@ -750,10 +752,10 @@ function build(){
   {label:T('plots'),items:[
    {label:T('zoom'),sub:[{label:T('fullView'),sc:'Ctrl+]',run:xFullView},{label:T('zoomIn'),sc:'Ctrl+=',run:()=>zoom(.5)},{label:T('zoomOut'),sc:'Ctrl+-',run:()=>zoom(2)},{label:T('zoomTo'),run:xZoomToDlg},'-',
     {label:T('pmZoomToMarker'),run:zoomToMarkerDlg},{label:T('zoomToNextMarker'),sc:'Ctrl+J',run:zoomNextMarker},{label:T('pmRetainX'),checked:!!view.retainX,run:set('retainX',!view.retainX)}]},
-   {label:T('xAxis'),sub:[{label:T('basepairs'),checked:view.xAxis==='bp',run:()=>{view.xAxis='bp';view.x0=view.x1=null;build();draw()}},{label:T('dataPoints'),checked:view.xAxis==='dp',run:()=>{view.xAxis='dp';view.x0=view.x1=null;build();draw()}}]},
-   {label:T('yAxis'),sub:[{label:T('scaleInd'),checked:view.yAxis==='individual',run:()=>{view.yAxis='individual';build();draw()}},{label:T('scaleMaxY'),checked:view.yAxis==='max',run:()=>{view.yAxis='max';build();draw()}},
-    {label:T('psScaleEntered')+` (${view.yValue})`,checked:view.yAxis==='entered',run:()=>{view.yAxis='entered';build();draw()}}]},'-',
-   {label:T('labels'),sub:[{label:T('noLabels'),checked:ck('labels','none'),run:set('labels','none')},{label:T('hLabels'),checked:ck('labels','h'),run:set('labels','h')},{label:T('vLabels'),checked:ck('labels','v'),run:set('labels','v')}]},
+   {label:T('xAxis'),sub:[{label:T('basepairs'),sc:'Ctrl+Y',checked:view.xAxis==='bp',run:()=>xAxisTo('bp')},{label:T('dataPoints'),sc:'Ctrl+N',checked:view.xAxis==='dp',run:()=>xAxisTo('dp')},'-',{label:T('zoomTo'),sc:'Ctrl+Shift+G',run:xZoomToDlg}]},
+   {label:T('yAxis'),sub:[{label:T('scaleMaxY'),sc:'Ctrl+Shift+M',checked:view.yAxis==='max',run:()=>yAxisTo('max')},{label:T('scaleInd'),sc:'Ctrl+Shift+D',checked:view.yAxis==='individual',run:()=>yAxisTo('individual')},
+    {label:T('psScaleEntered')+` (${view.yValue})...`,sc:'Ctrl+Shift+Y',checked:view.yAxis==='entered',run:yZoomToDlg}]},'-',
+   {label:T('labels'),sub:[{label:T('noLabels'),sc:'Ctrl+Shift+N',checked:ck('labels','none'),run:set('labels','none')},{label:T('hLabels'),sc:'Ctrl+Shift+H',checked:ck('labels','h'),run:set('labels','h')},{label:T('vLabels'),sc:'Ctrl+Shift+V',checked:ck('labels','v'),run:set('labels','v')}]},
    {label:T('pmSizeStd'),checked:view.sizeStdLabels,run:set('sizeStdLabels',!view.sizeStdLabels)},
    {label:T('showBins'),sc:'Ctrl+Shift+B',checked:view.bins,run:set('bins',!view.bins)},
    {label:T('psPeakPositions'),checked:view.peakPositions,run:()=>{view.peakPositions=!view.peakPositions;build();draw()}},
@@ -765,7 +767,7 @@ function build(){
    {label:T('plots'),sub:[{label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')}]},
    {label:T('pmTableFilter'),sub:[{label:T('pmShowAllRows'),sc:'Ctrl+F',checked:(view.tableFilter||'all')==='all',run:()=>tableFilter('all')},{label:T('pmShowSelRows'),sc:'Ctrl+G',checked:view.tableFilter==='selected',run:()=>tableFilter('selected')},
     {label:T('pmHideSelRows'),sc:'Ctrl+H',checked:view.tableFilter==='hide',run:()=>tableFilter('hide')},{label:T('pmShowCallRows'),sc:'Ctrl+V',disabled:view.table!=='sizing',checked:view.tableFilter==='calls',run:()=>tableFilter('calls')}]},
-   {label:T('pmTables'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]},'-',
+   {label:T('pmTables'),sub:[{label:T('noTable'),sc:'Ctrl+Q',checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),sc:'Ctrl+A',checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),sc:'Ctrl+W',checked:ck('table','genotypes'),run:set('table','genotypes')}]},'-',
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},
    {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
    {label:T('pmPqvTrigger'),checked:!!setting?.labels?.pqvTrigger,run:()=>{if(setting?.labels){setting.labels.pqvTrigger=!setting.labels.pqvTrigger;build();draw()}}},
@@ -819,7 +821,10 @@ const DYE_BY_DIGIT={Digit1:'DATA1',Digit2:'DATA2',Digit3:'DATA3',Digit4:'DATA4',
 const LAYOUT_BY_DIGIT={Digit7:'combine',Digit8:'separate',Digit9:'overlay'};
 document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  const inField=!!e.target.closest('input,textarea,select');const k=hotKey(e);
- if(e.shiftKey&&!e.altKey){if(e.code==='KeyB'&&!inField){e.preventDefault();view.bins=!view.bins;build();draw()}return}
+ // Ctrl+Shift: B bins; M / D / Y Y axis to maximum / individually / to a value; G X axis to a range; N / H / V no / horizontal / vertical labels
+ if(e.shiftKey&&!e.altKey){if(inField)return;const act={KeyB:()=>{view.bins=!view.bins;build();draw()},KeyM:()=>yAxisTo('max'),KeyD:()=>yAxisTo('individual'),KeyY:yZoomToDlg,KeyG:xZoomToDlg,
+   KeyN:()=>{view.labels='none';build();draw()},KeyH:()=>{view.labels='h';build();draw()},KeyV:()=>{view.labels='v';build();draw()}}[e.code];
+  if(act){e.preventDefault();act()}return}
  if(e.altKey)return;
  if(DYE_BY_DIGIT[e.code]&&!inField){e.preventDefault();const t=DYE_BY_DIGIT[e.code];view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw();return}
  if(e.code==='Digit6'&&!inField){e.preventDefault();DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw();return}
@@ -827,6 +832,10 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(e.key===']'&&!inField){e.preventDefault();view.x0=view.x1=null;draw();return}
  if(/^F[123]$/.test(e.key)&&!inField){e.preventDefault();sampleView({F1:'info',F2:'raw',F3:'ept'}[e.key]);return}
  if(k==='j'&&!inField){e.preventDefault();zoomNextMarker();return}
+ // Ctrl+Y / Ctrl+N: X axis in basepairs / data points; Ctrl+Q / Ctrl+A / Ctrl+W: no table / sizing table / genotypes table (ID-X PlotMgrPane)
+ if(k==='y'&&!inField){e.preventDefault();xAxisTo('bp');return}
+ if(k==='n'&&!inField){e.preventDefault();xAxisTo('dp');return}
+ if({q:1,a:1,w:1}[k]&&!inField){e.preventDefault();view.table={q:'none',a:'sizing',w:'genotypes'}[k];if(view.table!=='sizing'&&view.tableFilter==='calls')view.tableFilter='all';build();draw();return}
  if(k==='l'&&!inField){e.preventDefault();addAlleleSelected();return}
  if(k==='i'&&!inField){e.preventDefault();addArtifactSelected();return}
  if(e.code==='Semicolon'&&!inField){e.preventDefault();setSingleClick(false);return}
