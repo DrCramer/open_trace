@@ -427,8 +427,9 @@
           } else r.delete_removes_label = 'no label';
           return r;
         };
-        // Esc closes the plot window (ID-X Close Plot Window); the request is not awaited, the window goes away.
-        window.__otPressEsc = function () { fetch('/desktop/api/selftest/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: ['esc'] }) }); };
+        // Esc closes the plot window (ID-X Close Plot Window; with peaks selected the first Esc clears the selection);
+        // the request is not awaited, the window goes away.
+        window.__otPressEsc = function () { window.__otView.selPeaks.clear(); fetch('/desktop/api/selftest/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: ['esc'] }) }); };
         window.__otKeysMark = true;
       } catch (e) {
         c.error = String((e && e.stack) || e);

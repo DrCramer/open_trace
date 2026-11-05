@@ -754,6 +754,8 @@ function renderLower(){
  q.append(tt)}
 
 // Table Filter: Show / Hide Selected Rows take the rows selected now (ID-X showOnlySelectedRows), Ctrl+V the allele call rows
+// Sizing <-> Genotypes table: the plot area keeps its height, only the table changes; to or from No Table the panes resize.
+function setTable(t){const was=view.table;view.table=t;if(t!=='sizing'&&view.tableFilter==='calls')view.tableFilter='all';build();if((was==='none')!==(t==='none'))draw();else renderLower()}
 function tableFilter(f){if(f==='calls'&&view.table!=='sizing')return;view.tableFilter=f;view.filterKeys=f==='selected'||f==='hide'?new Set(view.selPeaks.keys()):null;build();renderLower()}
 // ---------- chrome ----------
 function build(){
@@ -789,7 +791,7 @@ function build(){
    {label:T('plots'),sub:[{label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')}]},
    {label:T('pmTableFilter'),sub:[{label:T('pmShowAllRows'),sc:'Ctrl+F',checked:(view.tableFilter||'all')==='all',run:()=>tableFilter('all')},{label:T('pmShowSelRows'),sc:'Ctrl+G',checked:view.tableFilter==='selected',run:()=>tableFilter('selected')},
     {label:T('pmHideSelRows'),sc:'Ctrl+H',checked:view.tableFilter==='hide',run:()=>tableFilter('hide')},{label:T('pmShowCallRows'),sc:'Ctrl+V',disabled:view.table!=='sizing',checked:view.tableFilter==='calls',run:()=>tableFilter('calls')}]},
-   {label:T('pmTables'),sub:[{label:T('noTable'),sc:'Ctrl+Q',checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),sc:'Ctrl+A',checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),sc:'Ctrl+W',checked:ck('table','genotypes'),run:set('table','genotypes')}]},'-',
+   {label:T('pmTables'),sub:[{label:T('noTable'),sc:'Ctrl+Q',checked:ck('table','none'),run:()=>setTable('none')},{label:T('sizingTable'),sc:'Ctrl+A',checked:ck('table','sizing'),run:()=>setTable('sizing')},{label:T('genotypesTable'),sc:'Ctrl+W',checked:ck('table','genotypes'),run:()=>setTable('genotypes')}]},'-',
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},
    {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
    {label:T('pmPqvTrigger'),checked:!!setting?.labels?.pqvTrigger,run:()=>{if(setting?.labels){setting.labels.pqvTrigger=!setting.labels.pqvTrigger;build();draw()}}},
@@ -826,7 +828,7 @@ function build(){
   tg('bins',T('showBins'),view.bins,set('bins',!view.bins)),tsep(),tbutton('fullView',T('fullView'),()=>{view.x0=view.x1=null;rezoom()}),tsep(),
   tg('combine',T('combine'),ck('layout','combine'),set('layout','combine')),tg('separate',T('separate'),ck('layout','separate'),set('layout','separate')),tg('overlay',T('overlay'),ck('layout','overlay'),set('layout','overlay')),tsep(),
   tbutton('combine',T('multipleDyePlot'),multipleDyePlot,{id:'tbMultiDye'}),tsep(),
-  tg('noTable',T('noTable'),ck('table','none'),set('table','none')),tg('sizingTable',T('sizingTable'),ck('table','sizing'),set('table','sizing')),tg('genotypesTable',T('genotypesTable'),ck('table','genotypes'),set('table','genotypes')));
+  tg('noTable',T('noTable'),ck('table','none'),()=>setTable('none')),tg('sizingTable',T('sizingTable'),ck('table','sizing'),()=>setTable('sizing')),tg('genotypesTable',T('genotypesTable'),ck('table','genotypes'),()=>setTable('genotypes')));
  t2.style.display=view.toolbar?'':'none';
  renderEditBar();
  const H=(isGeno()?setting?.genotypeHeader:setting?.sampleHeader)||{};const on=k=>H[k]!==false;
@@ -859,7 +861,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  // Ctrl+Y / Ctrl+N: X axis in basepairs / data points; Ctrl+Q / Ctrl+A / Ctrl+W: no table / sizing table / genotypes table (ID-X PlotMgrPane)
  if(k==='y'&&!inField){e.preventDefault();xAxisTo('bp');return}
  if(k==='n'&&!inField){e.preventDefault();xAxisTo('dp');return}
- if({q:1,a:1,w:1}[k]&&!inField){e.preventDefault();view.table={q:'none',a:'sizing',w:'genotypes'}[k];if(view.table!=='sizing'&&view.tableFilter==='calls')view.tableFilter='all';build();draw();return}
+ if({q:1,a:1,w:1}[k]&&!inField){e.preventDefault();setTable({q:'none',a:'sizing',w:'genotypes'}[k]);return}
  if(k==='l'&&!inField){e.preventDefault();addAlleleSelected();return}
  if(k==='i'&&!inField){e.preventDefault();addArtifactSelected();return}
  if(e.code==='Semicolon'&&!inField){e.preventDefault();setSingleClick(false);return}
