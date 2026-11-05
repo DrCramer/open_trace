@@ -171,7 +171,22 @@ pub fn platform_tweaks(w: &WebviewWindow) {
             }
         });
     }
-    #[cfg(not(target_os = "linux"))]
+    // WebView2 handles browser shortcuts itself: F5 / Ctrl+R reload the page (an unsaved project is lost), Ctrl+F opens
+    // find, Ctrl+J downloads, Ctrl+0/+/- zoom, Ctrl+P its print dialog, Esc stops loading. The ID-X windows use these
+    // keys (Ctrl+F/G/H table filter, Ctrl+J next marker, Ctrl+0 purple dye, Ctrl+P print, Esc close), so the browser
+    // accelerator keys are turned off; text editing keys (Ctrl+C/V/X/A/Z, arrows, Home/End) stay as they are.
+    #[cfg(windows)]
+    {
+        let _ = w.with_webview(|wv| {
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+            use windows_core::Interface;
+            let r = unsafe { wv.controller().CoreWebView2().and_then(|c| c.Settings()).and_then(|s| s.cast::<ICoreWebView2Settings3>()).and_then(|s| s.SetAreBrowserAcceleratorKeysEnabled(false)) };
+            if let Err(e) = r {
+                crate::dlog!("[desktop] cannot turn off browser accelerator keys: {}", e);
+            }
+        });
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     let _ = w;
 }
 

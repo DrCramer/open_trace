@@ -43,6 +43,11 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
+[target.'cfg(windows)'.dependencies]
+# Same versions as wry's: only used to turn off WebView2 browser accelerator keys (see windows::platform_tweaks).
+webview2-com = "0.39"
+windows-core = "0.62"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Same version as wry's: only used to align WebKitGTK popup settings with WebView2.
 webkit2gtk = "2.0"
