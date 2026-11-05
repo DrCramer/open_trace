@@ -82,6 +82,14 @@ const { chromium } = require('playwright');
   out.selected_after_label_click = await plot.evaluate(() => window.__otView.selPeaks.size);
   out.delete_enabled = await plot.evaluate(() => !document.getElementById('eb_delete').disabled);
   out.hint = await plot.evaluate(() => document.getElementById('ebHint').textContent);
+  // arrows after a click on a label: next / previous allele label of the pane
+  const selKey = () => plot.evaluate(() => [...window.__otView.selPeaks.keys()].join());
+  const k0 = await selKey();
+  await plot.keyboard.press('ArrowRight');
+  const k1 = await selKey();
+  await plot.keyboard.press('ArrowLeft');
+  const k2 = await selKey(); out.arrows_dbg = [k0, k1, k2];
+  out.arrows_label_mode = k1 !== k0 && k2 === k0;
 
   // 2. Right-click: the ID-X peak popup.
   await plot.mouse.click(p.x, p.y, { button: 'right' });
@@ -133,7 +141,7 @@ const { chromium } = require('playwright');
   if (shots) await plot.screenshot({ path: shots + '/plot_after_range_delete.png' });
   out.page_errors = errors;
   console.log(JSON.stringify(out, null, 1));
-  const ok = out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
+  const ok = out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
     out.row_selects_peak === 1 && out.row_marked === 1 && out.rows_selected_filter === 1 && out.rows_call_filter === out.calls_start && out.rows_all_again === out.sizing_rows &&
     out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
     /Удалить обозначения|Delete Label/.test(out.popup[0]) && out.rename_submenu.length >= 2 &&

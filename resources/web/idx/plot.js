@@ -125,10 +125,13 @@ let paintObserver=null;
 function lazyPaint(area,canvas,fn){
  if(!('IntersectionObserver' in window)){requestAnimationFrame(fn);return}
  if(!paintObserver||paintObserver.root!==area)paintObserver=new IntersectionObserver(es=>{for(const e of es)if(e.isIntersecting){paintObserver.unobserve(e.target);const f=e.target._lazyPaint;e.target._lazyPaint=null;if(f)f()}},{root:area,rootMargin:'100% 0px'});
- canvas._lazyPaint=fn;paintObserver.observe(canvas)}
+ canvas._lazyPaint=fn;canvas._paint=fn;paintObserver.observe(canvas)}
+// Selection changes repaint the panes already drawn in place (no new canvases): fast with hundreds of panes, and the
+// panes keep their geometry, so arrow keys pressed in quick succession always find the selected peak.
+function repaint(){for(const cv of document.querySelectorAll('#plotarea canvas'))if(cv._geom&&cv._paint)cv._paint();renderLower()}
 
 function paint(cv,items,x0,x1,onlyMarker){
- const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv.height;cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
+ const dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=cv._h??(cv._h=cv.height);cv.width=W*dpr;cv.height=H*dpr;cv.style.height=H+'px';
  const g=cv.getContext('2d');g.scale(dpr,dpr);g.fillStyle='#fff';g.fillRect(0,0,W,H);g.font='11px Tahoma,Arial';
  const LS=setting?.labels||PlotSettings.base('').labels;const fs=LS.size||11;const lineH=fs+5;
  const maxLines=Math.max(1,...['assigned','custom','ladder','artifact'].map(k=>{const i=LS[k].indexOf('none');return i<0?4:Math.max(1,i)}));const labelH=maxLines*lineH+3;
@@ -282,7 +285,7 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
   if(singleClickOn()&&box.sample.editable&&!multi){deleteLabelsOf([{s:box.sample,label:box.call?{call:box.call}:{artifact:box.artifact}}]);return}
   const pp=G.peakPts.find(p=>p.sample===box.sample&&p.tag===lab.channel&&Math.abs(p.peak.size_bp-lab.size_bp)<0.05)
    ||{x:(box.x0+box.x1)/2,y:G.bottom,peak:{size_bp:lab.size_bp,scan:lab.scan,height:lab.height??0},tag:lab.channel,sample:box.sample};
-  selectPeak(pp,multi);return}
+  view.arrowLabels=true;selectPeak(pp,multi);return}
  const z=zoneAt(G,x,y);
  if(z==='x'){drag={cv,mode:'x',x0:x,y0:y};e.preventDefault();return}
  if(z==='y'){drag={cv,mode:'y',x0:x,y0:y};e.preventDefault();return}
@@ -296,9 +299,9 @@ document.addEventListener('mousedown',e=>{const cv=e.target.closest('canvas');if
  // ID-X SinglePlotPane: with single-click editing a click on a labeled peak deletes its label (not on the size standard)
  if(singleClickOn()&&!multi&&near.sample.editable&&near.tag!==near.sample.analysis?.sizing?.reference_channel){const lab=labelAt(near.sample,near.tag,near.peak.size_bp);
   if(lab){e.preventDefault();deleteLabelsOf([{s:near.sample,label:lab}]);return}}
- selectPeak(near,multi)});
+ view.arrowLabels=false;selectPeak(near,multi)});
 function selectPeak(near,multi){const k=peakKey(near.sample,near.tag,near.peak);if(!multi){const had=view.selPeaks.has(k)&&view.selPeaks.size===1;view.selPeaks.clear();if(!had)view.selPeaks.set(k,near)}
- else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);draw();showPhr()}
+ else if(view.selPeaks.has(k))view.selPeaks.delete(k);else view.selPeaks.set(k,near);repaint();showPhr()}
 document.addEventListener('mousemove',e=>{if(!drag)return;const r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved&&drag.mode!=='move')bandShow(drag.cv,drag,x,y)});
 // Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
@@ -314,9 +317,9 @@ document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;b
   edit(t.sample,{action:'move',marker:mk.name,callId:d.call.id,new:binLabel(mk,bp),peak:{scan:t.peak.scan,size_bp:bp,height:t.peak.height,channel:t.tag}});return}
  if(d.mode==='x'){const a=invX(Math.min(d.x0,x)),b=invX(Math.max(d.x0,x));if(b-a>1&&Math.abs(x-d.x0)>3){view.x0=a;view.x1=b;view.userZoom=true;draw()}return}
  if(d.mode==='y'){if(Math.abs(y-d.y0)>3){yZoomTo(invY(Math.min(d.y0,y)))}return}
- if(d.mode==='h'){if(!d.moved||Math.abs(y-d.y0)<=4){if(!d.multi&&view.selPeaks.size){view.selPeaks.clear();draw();showPhr()}return}yZoomTo(invY(Math.min(d.y0,y)));return}
+ if(d.mode==='h'){if(!d.moved||Math.abs(y-d.y0)<=4){if(!d.multi&&view.selPeaks.size){view.selPeaks.clear();repaint();showPhr()}return}yZoomTo(invY(Math.min(d.y0,y)));return}
  if(d.mode==='sel'){const lo=Math.min(d.x0,x),hi=Math.max(d.x0,x);if(!d.moved)return;
-  for(const p of G.peakPts)if(p.x>=lo&&p.x<=hi)view.selPeaks.set(peakKey(p.sample,p.tag,p.peak),p);draw();showPhr()}});
+  for(const p of G.peakPts)if(p.x>=lo&&p.x<=hi)view.selPeaks.set(peakKey(p.sample,p.tag,p.peak),p);repaint();showPhr()}});
 // Y zoom: all panes take the entered value as the Y maximum (ID-X: Zoom To on the Y axis; Full View returns to individual scaling)
 function yZoomTo(v){if(!(v>1))return;view.yAxis='entered';view.yValue=Math.round(v);build();draw()}
 function yFullView(){view.yAxis='individual';build();draw()}
@@ -335,9 +338,10 @@ document.addEventListener('dblclick',e=>{const cv=e.target.closest('canvas');if(
 // Right arrow / left arrow: move the selection to the next / previous peak of the pane (Shift adds to the selection), wrapping round, as in ID-X.
 document.addEventListener('keydown',e=>{if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;if(e.ctrlKey||e.metaKey||e.target.closest('input,textarea,select'))return;
  const last=[...view.selPeaks.keys()].pop();if(!last)return;
- for(const cv of document.querySelectorAll('canvas')){const pts=(cv._geom?.peakPts||[]).slice().sort((a,b)=>a.x-b.x);const i=pts.findIndex(p=>peakKey(p.sample,p.tag,p.peak)===last);if(i<0)continue;
+ // ID-X SinglePlotPane.keyPressed: after a click on a label the arrows step through the allele labels of the pane, otherwise through its peaks
+ for(const cv of document.querySelectorAll('canvas')){const pts=(cv._geom?.peakPts||[]).filter(p=>!view.arrowLabels||labelAt(p.sample,p.tag,p.peak.size_bp)?.call||peakKey(p.sample,p.tag,p.peak)===last).sort((a,b)=>a.x-b.x);const i=pts.findIndex(p=>peakKey(p.sample,p.tag,p.peak)===last);if(i<0)continue;
   const dir=e.key==='ArrowRight'?1:pts.length-1;let j=(i+dir)%pts.length;if(e.altKey)for(let g=0;g<pts.length&&Math.abs(pts[j].x-pts[i].x)<0.5;g++)j=(j+dir)%pts.length; // Alt: next peak at another scan position
-  const n=pts[j];e.preventDefault();if(!e.shiftKey)view.selPeaks.clear();view.selPeaks.set(peakKey(n.sample,n.tag,n.peak),n);draw();showPhr();return}});
+  const n=pts[j];e.preventDefault();if(!e.shiftKey)view.selPeaks.clear();view.selPeaks.set(peakKey(n.sample,n.tag,n.peak),n);repaint();showPhr();return}});
 document.addEventListener('mousemove',e=>{const cv=e.target.closest?.('canvas');if(!cv?._geom)return;const G=cv._geom,r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  const xv=G.x0+(x-G.L)/(G.W-G.L-G.R)*(G.x1-G.x0),v=(G.bottom-y)/(G.bottom-G.top)*G.ymax;const bp=G.dp?scanToBp(G.curve,xv):xv;
  $('xy').textContent=`[X ${G.dp?Math.round(xv):xv.toFixed(2)}  Y ${Math.round(v)}]`;
@@ -411,7 +415,7 @@ document.addEventListener('contextmenu',e=>{const cv=e.target.closest('canvas');
  if(box){const lab=box.call||box.artifact;near=G.peakPts.find(p=>p.sample===box.sample&&p.tag===lab.channel&&Math.abs(p.peak.size_bp-lab.size_bp)<0.05)
   ||{x:(box.x0+box.x1)/2,y:G.bottom,peak:{size_bp:lab.size_bp,scan:lab.scan,height:lab.height??0},tag:lab.channel,sample:box.sample}}
  else near=nearPeak(G,x);
- if(near){const k=peakKey(near.sample,near.tag,near.peak);if(!view.selPeaks.has(k)){view.selPeaks.clear();view.selPeaks.set(k,near);draw();showPhr()}
+ if(near){const k=peakKey(near.sample,near.tag,near.peak);if(!view.selPeaks.has(k)){view.selPeaks.clear();view.selPeaks.set(k,near);repaint();showPhr()}
   ctxMenu(e.clientX,e.clientY,peakMenu(G,near));return}
  if(!s.editable)return;
  // blank area of a pane: Delete All Labels for Sample
@@ -676,7 +680,7 @@ function renderSizing(){const grid=$('gtGrid');const f=view.tableFilter||'all';
   t.tBodies[0].addEventListener('mousedown',e=>{const tr=e.target.closest('tr[data-i]');if(!tr)return;const r=sizing.rows[+tr.dataset.i];
    const pp={x:0,y:0,peak:r.pk,tag:r.tag,sample:r.s},multi=e.ctrlKey||e.metaKey||e.shiftKey;
    if(!multi)view.selPeaks.clear();if(multi&&view.selPeaks.has(r.key))view.selPeaks.delete(r.key);else view.selPeaks.set(r.key,pp);
-   sizing.fromTable=true;revealPane(r.s.id,r.tag);draw();showPhr()});
+   sizing.fromTable=true;revealPane(r.s.id,r.tag);repaint();showPhr()});
   grid.onscroll=()=>sizingPaint(false)}
  const selSig=[...view.selPeaks.keys()].join(';');const changed=selSig!==sizing.selSig;sizing.selSig=selSig;
  // a peak selected in the plot: bring its row into view
@@ -844,7 +848,7 @@ document.addEventListener('keydown',e=>{if(e.key!=='Delete'||e.ctrlKey||e.altKey
 let escBusy=false;document.addEventListener('keydown',e=>{if(e.key==='Escape'){escBusy=!!document.querySelector('.dlg,.backdrop,.menu.show');document.querySelectorAll('.menu.ctx').forEach(m=>m.remove())}},true);
 document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||e.ctrlKey||e.altKey||e.shiftKey)return;
  if(escBusy)return;if(e.target.closest('input,textarea,select'))return;
- if(view.selPeaks&&view.selPeaks.size){view.selPeaks.clear();draw();return}
+ if(view.selPeaks&&view.selPeaks.size){view.selPeaks.clear();repaint();showPhr();return}
  if(window.opener)window.close()});
 window.addEventListener('resize',()=>draw());
 // Follow the project window's selection (Project Options: update plots when the selection changes).
