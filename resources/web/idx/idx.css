@@ -382,6 +382,9 @@ table.g td.c{text-align:center}
 .editbar .eb.on{background:#d93025;border-color:#a1231b;color:#fff}
 .editbar .eb.on svg path,.editbar .eb.on svg rect{stroke:#fff}
 .editbar .ebsep{width:1px;height:20px;background:var(--shadow);margin:0 4px}
-.editbar .ebhint{margin-left:8px;color:#555;flex:1 1 220px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.editbar .ebhint{flex:0 0 100%;color:#555;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:14px;padding:1px 2px 0} /* always its own line: the plots do not move when the hint changes */
 body.cleanmode #plotarea canvas{cursor:pointer}
 body.cleanmode .editbar .ebhint{color:#a1231b;font-weight:bold}
+.g.sizing .dsw{display:inline-block;width:9px;height:9px;border:1px solid #555;margin-right:4px;vertical-align:-1px}
+.g.sizing tr.vsp td{padding:0;border:0;background:none}
+.g.sizing td{white-space:nowrap}

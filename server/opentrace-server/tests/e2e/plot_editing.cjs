@@ -56,6 +56,26 @@ const { chromium } = require('playwright');
   out.editbar = await plot.evaluate(() => !!document.querySelector('#editbar .eb'));
   out.calls_start = await calls();
 
+  // 0. Sizing table (ID-X SamplePlotTableModel): every sized peak of the shown dyes, row <-> peak selection, Ctrl+V / Ctrl+G filters.
+  await plot.evaluate(() => { const b = [...document.querySelectorAll('#toolbar2 .tb')].find(x => x.title === T('sizingTable')); b.click(); });
+  out.sizing_rows = await plot.evaluate(() => document.querySelectorAll('#gtGrid table.sizing tbody tr').length);
+  out.sized_peaks = await plot.evaluate(() => { const p = window.opener.OT.plotPayload(), v = window.__otView; let n = 0;
+    for (const s of p.samples) for (const c of (s.analysis.channels || [])) if (v.dyes.has(c.tag)) n += (c.peaks || []).filter(k => k.size_bp != null).length; return n; });
+  out.sizing_call_cells = await plot.evaluate(() => [...document.querySelectorAll('#gtGrid table.sizing tbody tr')].filter(tr => tr.lastElementChild.textContent).length);
+  await plot.evaluate(() => { const tr = [...document.querySelectorAll('#gtGrid table.sizing tbody tr')].find(tr => tr.lastElementChild.textContent);
+    tr.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+  out.row_selects_peak = await plot.evaluate(() => window.__otView.selPeaks.size);
+  out.row_marked = await plot.evaluate(() => document.querySelectorAll('#gtGrid table.sizing tbody tr.sel').length);
+  await plot.keyboard.press('Control+g');
+  out.rows_selected_filter = await plot.evaluate(() => document.querySelectorAll('#gtGrid table.sizing tbody tr').length);
+  await plot.keyboard.press('Control+v');
+  out.rows_call_filter = await plot.evaluate(() => document.querySelectorAll('#gtGrid table.sizing tbody tr').length);
+  await plot.keyboard.press('Control+f');
+  out.rows_all_again = await plot.evaluate(() => document.querySelectorAll('#gtGrid table.sizing tbody tr').length);
+  if (shots) await plot.screenshot({ path: shots + '/plot_sizing_table.png' });
+  await plot.evaluate(() => { const b = [...document.querySelectorAll('#toolbar2 .tb')].find(x => x.title === T('genotypesTable')); b.click(); window.__otView.selPeaks.clear(); });
+  await plot.waitForFunction(() => [...document.querySelectorAll('#plotarea canvas')].some(c => c._geom && c._geom.labelBoxes.length));
+
   // 1. Click on a label selects its peak; the bar enables Delete.
   let p = await labelPoint(0);
   await plot.mouse.click(p.x, p.y);
@@ -113,7 +133,9 @@ const { chromium } = require('playwright');
   if (shots) await plot.screenshot({ path: shots + '/plot_after_range_delete.png' });
   out.page_errors = errors;
   console.log(JSON.stringify(out, null, 1));
-  const ok = out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
+  const ok = out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
+    out.row_selects_peak === 1 && out.row_marked === 1 && out.rows_selected_filter === 1 && out.rows_call_filter === out.calls_start && out.rows_all_again === out.sizing_rows &&
+    out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
     /Удалить обозначения|Delete Label/.test(out.popup[0]) && out.rename_submenu.length >= 2 &&
     out.calls_after_delete === out.calls_start - 1 && out.calls_after_undo === out.calls_start && out.clean_on && out.clean_off &&
     out.calls_after_click_delete === out.calls_start - 1 && out.range_selected > 1 && out.calls_after_second_undo === out.calls_start && out.range_deleted === out.pane_labels && out.range_deleted > 1 && !errors.length;

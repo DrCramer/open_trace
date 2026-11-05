@@ -111,7 +111,7 @@ function draw(){
    for(const k of PQV_KEYS.filter(on)){const c=el('div',{class:'c',style:'width:46px;justify-content:center'});c.innerHTML=p.overlay?'':pqv(s.pqv?.[k],k!=='SQ'&&sampleEdited(s));head.append(c)}
    if(!p.overlay){const lab=el('label',{class:'c',style:'gap:4px'});lab.append(el('input',{type:'checkbox'}),T('markSample'));head.append(lab);head._sample=s;head.title=T('headerMenuHint')}
    pane.append(head)}
-  const canvas=el('canvas');canvas.height=h;pane.append(canvas);area.append(pane);
+  const canvas=el('canvas');canvas.height=h;canvas._sid=s.id;canvas._dyes=items.flatMap(i=>i.dyes);pane.append(canvas);area.append(pane);
   // the Genotypes plot shows the marker size range plus the Marker Margin of the plot setting
   let px0=x0,px1=x1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);
    px0=p.marker.min_bp-mg;px1=p.marker.max_bp+mg;if(view.xAxis==='dp'){px0=bpToScan(c,px0);px1=bpToScan(c,px1)}}
@@ -302,7 +302,7 @@ function selectPeak(near,multi){const k=peakKey(near.sample,near.tag,near.peak);
 document.addEventListener('mousemove',e=>{if(!drag)return;const r=drag.cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
  if(Math.abs(x-drag.x0)+Math.abs(y-drag.y0)>4)drag.moved=true;if(drag.moved&&drag.mode!=='move')bandShow(drag.cv,drag,x,y)});
 // Calculating Peak Height Ratio: Ctrl+click two peaks, the ratio (smaller / larger height) is shown in the status bar
-function showPhr(){if((view.tableFilter||'all')!=='all'&&view.table==='sizing')try{renderLower()}catch(e){}
+function showPhr(){
  try{build()}catch(e){}
  const c=$('phr');if(!c)return;const sel=[...view.selPeaks.values()];
  if(sel.length!==2){c.textContent='';return}const [a,b]=sel.map(p=>p.peak.height);c.textContent=fmt('phrStatus',(Math.min(a,b)/Math.max(a,b)).toFixed(2),Math.round(a),Math.round(b))}
@@ -541,7 +541,11 @@ async function undoLast(){if(!payload)return;if(window.Sec&&!Sec.can('UPDATE_PRO
  let r=null;try{r=window.opener.OT.undoLast(payload.samples.map(s=>s.id))}catch(e){return message(String(e.message||e))}
  if(!r)return message(T('nothingToUndo'));try{payload=window.opener.OT.plotPayload()}catch(e){}build();draw();
  $('markerInfo').textContent=fmt('undoneEdit',T('act_'+r.action)===('act_'+r.action)?r.action:T('act_'+r.action),r.marker,r.sample)}
-function copyPlotTable(){const rows=[...document.querySelectorAll('#gtGrid table tr')].map(tr=>[...tr.children].map(c=>c.textContent).join('\t')).join('\n');
+function copyPlotTable(){
+ // the sizing table is virtual: copy all of its rows from the data, not from the DOM
+ const rows=view.table==='sizing'&&sizing?[[...sizing.table.tHead.rows[0].cells].map(c=>c.textContent).join('\t'),...sizing.rows.map(r=>[r.s.name,...sizing.scols.map(([id])=>({sampleFileName:r.s.file,marker:r.call?.marker||'',
+   dyeSamplePeak:`${DYE_LETTER[r.tag]||'?'},${r.n}${r.star?' *':''}`,minutes:'',size:r.pk.size_bp.toFixed(2),height:String(Math.round(r.pk.height)),area:String(r.pk.area??''),dataPoint:String(Math.round(r.pk.scan)),alleleCall:r.call?String(r.call.label):''})[id])].join('\t'))].join('\n')
+  :[...document.querySelectorAll('#gtGrid table tr')].map(tr=>[...tr.children].map(c=>c.textContent).join('\t')).join('\n');
  if(!rows)return;try{navigator.clipboard.writeText(rows);$('markerInfo').textContent=T('copiedTable')}catch(e){message(String(e.message||e))}}
 
 // ---------- plot printing (Page Setup > Plot tab: Honor Plots per Pane, Small, Medium, Large) ----------
@@ -641,26 +645,73 @@ function zoomNextMarker(){const cv=[...document.querySelectorAll('canvas')].find
 function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;draw()}
 
 // ---------- lower: genotypes table + QVD ----------
+// Sizing table as in ID-X (SamplePlotTableModel): one row per detected peak of the shown dyes of every shown sample, dyes in
+// pane order, peaks by position; "B,3" = 3rd blue peak, "*" = peak matched to the size standard; Marker and Allele only for
+// called peaks. A row click selects the peak in the plot (Ctrl/Shift add), a peak selected in the plot highlights its row.
+// Table Filter: Show All Rows (Ctrl+F), Show Selected Rows (Ctrl+G) / Hide Selected Rows (Ctrl+H) - the rows selected at that
+// moment, Show Allele Call Rows (Ctrl+V). Built once per content; selection changes only re-mark rows.
+const DYE_LETTER={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R',DATA105:'O',DATA106:'P'};
+let sizing=null;
+const escH=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function sizingRows(){const out=[];
+ for(const s of payload.samples){const a=s.analysis;if(!a)continue;const ref=a.sizing?.reference_channel;const matched=new Set((a.sizing?.matched||[]).map(m=>m.scan));
+  for(const tag of DYE_KEYS){if(!view.dyes.has(tag))continue;const ch=(a.channels||[]).find(c=>c.tag===tag);if(!ch)continue;
+   const calls=(s.report?.calls||[]).filter(c=>c.channel===tag);let n=0;
+   for(const pk of [...(ch.peaks||[])].sort((p,q)=>p.scan-q.scan)){if(pk.size_bp==null)continue;n++;
+    const call=calls.find(c=>Math.abs(c.size_bp-pk.size_bp)<0.05);
+    out.push({s,tag,pk,n,call,key:peakKey(s,tag,pk),star:tag===ref&&matched.has(pk.scan)})}}}
+ return out}
+// Rows are virtual: only the visible part of the table is in the DOM (96 samples can have 100 000 peaks).
+function renderSizing(){const grid=$('gtGrid');const f=view.tableFilter||'all';
+ const sig=[payload,[...view.dyes].join(),f,f==='selected'||f==='hide'?[...(view.filterKeys||[])].join(';'):'',JSON.stringify(setting?.sizingTable||{}),I18N.lang];
+ if(!sizing||sizing.sig.length!==sig.length||sizing.sig.some((v,i)=>v!==sig[i])||!grid.contains(sizing.table)){
+  const SC=(setting?.sizingTable?.cols)||{};const scols=PlotSettings.SIZING_COLS.filter(([id])=>SC[id]!==false);
+  let rows=sizingRows();
+  if(f==='selected')rows=rows.filter(r=>view.filterKeys?.has(r.key));else if(f==='hide')rows=rows.filter(r=>!view.filterKeys?.has(r.key));else if(f==='calls')rows=rows.filter(r=>r.call);
+  const head=[T('colSampleName'),...scols.map(([id,,h])=>T('psCol_'+id)==='psCol_'+id?h:T('psCol_'+id))];
+  const t=el('table',{class:'g sizing'});if(setting)t.style.font=`${setting.sizingTable.size}px ${PlotSettings.cssFont(setting.sizingTable.font)}`;
+  t.innerHTML=`<thead><tr>${head.map(h=>`<th>${escH(h)}</th>`).join('')}</tr></thead><tbody></tbody>`;
+  grid.replaceChildren(t);grid.scrollTop=0;
+  sizing={sig,table:t,body:t.tBodies[0],rows,scols,index:new Map(rows.map((r,i)=>[r.key,i])),rowH:0,from:-1,to:-1,selSig:''};
+  t.tBodies[0].addEventListener('mousedown',e=>{const tr=e.target.closest('tr[data-i]');if(!tr)return;const r=sizing.rows[+tr.dataset.i];
+   const pp={x:0,y:0,peak:r.pk,tag:r.tag,sample:r.s},multi=e.ctrlKey||e.metaKey||e.shiftKey;
+   if(!multi)view.selPeaks.clear();if(multi&&view.selPeaks.has(r.key))view.selPeaks.delete(r.key);else view.selPeaks.set(r.key,pp);
+   sizing.fromTable=true;revealPane(r.s.id,r.tag);draw();showPhr()});
+  grid.onscroll=()=>sizingPaint(false)}
+ const selSig=[...view.selPeaks.keys()].join(';');const changed=selSig!==sizing.selSig;sizing.selSig=selSig;
+ // a peak selected in the plot: bring its row into view
+ if(changed&&!sizing.fromTable){const i=[...view.selPeaks.keys()].map(k=>sizing.index.get(k)).filter(i=>i!=null).sort((a,b)=>a-b)[0];
+  if(i!=null){sizingPaint(true);const rh=sizing.rowH||18,hh=sizing.table.tHead.offsetHeight,y=hh+i*rh;if(y<grid.scrollTop+hh||y+rh>grid.scrollTop+grid.clientHeight)grid.scrollTop=Math.max(0,y-grid.clientHeight/2)}}
+ sizing.fromTable=false;sizingPaint(changed)}
+function sizingPaint(force){const S=sizing;if(!S)return;const grid=$('gtGrid');const n=S.rows.length;
+ const num=new Set(['size','height','area','dataPoint']);
+ const row=i=>{const r=S.rows[i];const col=DYE_COLORS[r.tag]==='#000000'?'#e5d300':DYE_COLORS[r.tag];
+  const val={sampleFileName:r.s.file,marker:r.call?.marker||'',dyeSamplePeak:`<span class="dsw" style="background:${col}"></span>${DYE_LETTER[r.tag]||'?'},${r.n}${r.star?' *':''}`,minutes:'',
+   size:r.pk.size_bp.toFixed(2),height:String(Math.round(r.pk.height)),area:String(r.pk.area??''),dataPoint:String(Math.round(r.pk.scan)),alleleCall:r.call?String(r.call.label):''};
+  return `<tr data-i="${i}"${view.selPeaks.has(r.key)?' class="sel"':''}><td>${escH(r.s.name)}</td>`+S.scols.map(([id])=>`<td${num.has(id)?' class="num"':''}>${id==='dyeSamplePeak'?val[id]:escH(val[id])}</td>`).join('')+'</tr>'};
+ if(!S.rowH&&n){S.body.innerHTML=row(0);S.rowH=S.body.rows[0].offsetHeight||18}
+ const rh=S.rowH||18,hh=S.table.tHead.offsetHeight;
+ const from=Math.max(0,Math.floor((grid.scrollTop-hh)/rh)-30),to=Math.min(n,from+Math.ceil(grid.clientHeight/rh)+60);
+ if(!force&&from===S.from&&to===S.to)return;S.from=from;S.to=to;
+ const cs=S.scols.length+1,sp=h=>h>0?`<tr class="vsp"><td colspan="${cs}" style="height:${h}px"></td></tr>`:'';
+ let h=sp(from*rh);for(let i=from;i<to;i++)h+=row(i);h+=sp((n-to)*rh);S.body.innerHTML=h}
+// scroll the plot area to the pane of a sample (and dye) selected in a table
+function revealPane(sid,tag){const cv=[...document.querySelectorAll('#plotarea canvas')].find(c=>c._sid===sid&&(!tag||!c._dyes||c._dyes.includes(tag)));
+ if(cv){const a=$('plotarea').getBoundingClientRect(),r=cv.getBoundingClientRect();if(r.top<a.top||r.bottom>a.bottom)cv.scrollIntoView({block:'nearest'})}}
 function renderLower(){
- $('lower').style.display=view.table==='none'?'none':'flex';
- const grid=$('gtGrid');grid.replaceChildren();if(!payload)return;
+ $('lower').style.display=view.table==='none'?'none':'flex';$('qvd').style.display=view.table==='sizing'?'none':'';
+ const grid=$('gtGrid');if(!payload){grid.replaceChildren();return}
+ if(view.table==='sizing'){renderSizing();return}
+ sizing=null;grid.onscroll=null;grid.replaceChildren();
  const t=el('table',{class:'g'});
- const SC=(setting?.sizingTable?.cols)||{};const scols=PlotSettings.SIZING_COLS.filter(([id])=>SC[id]!==false);
- if(view.table==='sizing'&&setting){t.style.font=`${setting.sizingTable.size}px ${setting.sizingTable.font}`}
- const cols=view.table==='sizing'?[T('colSampleName'),...scols.map(([id,,h])=>T('psCol_'+id)==='psCol_'+id?h:T('psCol_'+id))]:[T('colSampleName'),T('colMarker'),T('colAllele')+' 1',T('colAllele')+' 2','GQ'];
+ const cols=[T('colSampleName'),T('colMarker'),T('colAllele')+' 1',T('colAllele')+' 2','GQ'];
  const hr=el('tr');for(const c of cols)hr.append(el('th',{text:c}));t.append(el('thead',{},hr));const tb=el('tbody');
  for(const s of payload.samples){
-  if(view.table==='sizing'){const letters={DATA1:'B',DATA2:'G',DATA3:'Y',DATA4:'R',DATA105:'O',DATA106:'P'};const nth={};
-   for(const c of s.report?.calls||[]){const pk=(s.report.peaks||[]).find(p=>p.id===c.source_peak_id);nth[c.channel]=(nth[c.channel]||0)+1;
-    {const f=view.tableFilter||'all';if(f!=='all'){const on=view.selPeaks.has(`${s.id}|${c.channel}|${c.size_bp.toFixed(3)}`);if((f==='selected')!==on)continue}}
-    const val={sampleFileName:s.file,marker:c.marker,dyeSamplePeak:`${letters[c.channel]||'?'},${nth[c.channel]}`,minutes:'',size:c.size_bp.toFixed(2),
-     height:String(Math.round(c.height)),area:String(pk?.area??''),dataPoint:String(Math.round(c.scan)),alleleCall:String(c.label)};
-    tb.append(el('tr',{},el('td',{text:s.name}),...scols.map(([id])=>el('td',{class:['size','height','area','dataPoint'].includes(id)?'num':'',text:val[id]}))))}continue}
   const gsel=isGeno()?new Set(payload.genoSel||[]):null;
   for(const m of (s.markers||[]).filter(m=>!gsel||gsel.has(s.id+'|'+m.marker))){const tr=el('tr',{class:view.selMarker===m.marker&&view.selSample===s.id?'sel':''});
    const g=el('td',{class:'ic'});g.innerHTML=pqv(m.gqCat);
    tr.append(el('td',{text:s.name}),el('td',{text:m.marker}),el('td',{text:m.calls[0]?.label||''}),el('td',{text:m.calls[1]?.label||''}),g);
-   tr.addEventListener('mousedown',()=>{view.selMarker=m.marker;view.selSample=s.id;renderLower()});tb.append(tr)}}
+   tr.addEventListener('mousedown',()=>{view.selMarker=m.marker;view.selSample=s.id;revealPane(s.id,((s.kit||payload.kit)?.markers||[]).find(k=>k.name===m.marker)?.channel);renderLower();try{build()}catch(e){}});tb.append(tr)}}
  t.append(tb);grid.append(t);
  const q=$('qvd');q.replaceChildren(el('h3',{text:T('qvd')}));
  const s=payload.samples.find(x=>x.id===view.selSample);const row=s?.report?.quality?.marker_gq?.markers?.find(m=>m.marker===view.selMarker);
@@ -674,6 +725,8 @@ function renderLower(){
   tt.append(el('tr',{},el('td',{text:METRIC_PQV[k]||k}),el('td',{text:String(v)}),el('td',{text:thr?String(sc.thresholds?.[thr]??'N/A'):'N/A'}),el('td',{text:String(sc.weights?.[k]??'')})))}
  q.append(tt)}
 
+// Table Filter: Show / Hide Selected Rows take the rows selected now (ID-X showOnlySelectedRows), Ctrl+V the allele call rows
+function tableFilter(f){if(f==='calls'&&view.table!=='sizing')return;view.tableFilter=f;view.filterKeys=f==='selected'||f==='hide'?new Set(view.selPeaks.keys()):null;build();renderLower()}
 // ---------- chrome ----------
 function build(){
  document.documentElement.lang=I18N.lang;
@@ -706,8 +759,8 @@ function build(){
    {label:T('pmOffscale'),checked:view.offscale,run:set('offscale',!view.offscale)},'-',
    {label:T('dyes'),sub:[...dyeItems.map((d,i)=>({...d,label:DYE_NAMES[DYE_KEYS[i]]})),'-',{label:T('allDyes'),sc:'Ctrl+6',run:()=>{DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw()}}]},
    {label:T('plots'),sub:[{label:T('combine'),sc:'Ctrl+7',checked:ck('layout','combine'),run:set('layout','combine')},{label:T('separate'),sc:'Ctrl+8',checked:ck('layout','separate'),run:set('layout','separate')},{label:T('overlay'),sc:'Ctrl+9',checked:ck('layout','overlay'),run:set('layout','overlay')}]},
-   {label:T('pmTableFilter'),sub:[{label:T('pmShowAllRows'),sc:'Ctrl+F',checked:(view.tableFilter||'all')==='all',run:set('tableFilter','all')},{label:T('pmShowSelRows'),sc:'Ctrl+G',checked:view.tableFilter==='selected',run:set('tableFilter','selected')},
-    {label:T('pmHideSelRows'),sc:'Ctrl+H',checked:view.tableFilter==='hide',run:set('tableFilter','hide')}]},
+   {label:T('pmTableFilter'),sub:[{label:T('pmShowAllRows'),sc:'Ctrl+F',checked:(view.tableFilter||'all')==='all',run:()=>tableFilter('all')},{label:T('pmShowSelRows'),sc:'Ctrl+G',checked:view.tableFilter==='selected',run:()=>tableFilter('selected')},
+    {label:T('pmHideSelRows'),sc:'Ctrl+H',checked:view.tableFilter==='hide',run:()=>tableFilter('hide')},{label:T('pmShowCallRows'),sc:'Ctrl+V',disabled:view.table!=='sizing',checked:view.tableFilter==='calls',run:()=>tableFilter('calls')}]},
    {label:T('pmTables'),sub:[{label:T('noTable'),checked:ck('table','none'),run:set('table','none')},{label:T('sizingTable'),checked:ck('table','sizing'),run:set('table','sizing')},{label:T('genotypesTable'),checked:ck('table','genotypes'),run:set('table','genotypes')}]},'-',
    {label:T('showHeader'),checked:view.header,run:set('header',!view.header)},{label:T('markerRange'),sc:'Ctrl+R',checked:view.markerRange,run:set('markerRange',!view.markerRange)},
    {label:T('markerIndicator'),sc:'Ctrl+K',checked:view.markerIndicator,run:()=>{view.markerIndicator=!view.markerIndicator;build();draw()}},
@@ -779,7 +832,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(k==='s'){e.preventDefault();try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(err){message(String(err.message||err))}return}
  if(e.code==='NumpadAdd'){e.preventDefault();zoom(.5);return}
  if(e.code==='NumpadSubtract'){e.preventDefault();zoom(2);return}
- if(!inField&&{f:'all',g:'selected',h:'hide'}[k]){e.preventDefault();view.tableFilter={f:'all',g:'selected',h:'hide'}[k];build();draw();return}
+ if(!inField&&{f:'all',g:'selected',h:'hide',v:'calls'}[k]){e.preventDefault();tableFilter({f:'all',g:'selected',h:'hide',v:'calls'}[k]);return}
  if(k==='p'){e.preventDefault();printPlots(false);return}
  if(k==='z'&&!inField){e.preventDefault();undoLast();return}
  if(k==='e'){e.preventDefault();exportPlotTable();return}
