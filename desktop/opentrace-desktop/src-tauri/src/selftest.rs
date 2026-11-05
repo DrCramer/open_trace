@@ -69,6 +69,61 @@ pub fn profile() -> Option<(String, i64)> {
     Some((n.to_string(), ver.parse().ok()?))
 }
 
+/// Presses key chords like `ctrl+j`, `ctrl+shift+n`, `f5` as real keyboard input after focusing the window `label`
+/// (Windows). Elsewhere `{"native": false}`: WebKitGTK has no browser shortcuts to check.
+pub fn send_keys(app: &AppHandle, label: &str, keys: &[String]) -> Value {
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn keybd_event(vk: u8, scan: u8, flags: u32, extra: usize);
+            fn GetForegroundWindow() -> isize;
+        }
+        const KEYUP: u32 = 0x0002;
+        let Some(w) = app.get_webview_window(label) else { return json!({"native": true, "error": "no window"}) };
+        let _ = w.set_focus();
+        let _ = AsRef::<tauri::Webview>::as_ref(&w).set_focus();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let fg = unsafe { GetForegroundWindow() };
+        let ours = w.hwnd().map(|h| h.0 as isize == fg).unwrap_or(false);
+        let mut sent = Vec::new();
+        for k in keys {
+            let mut vks: Vec<u8> = Vec::new();
+            for part in k.to_ascii_lowercase().split('+') {
+                let vk = match part {
+                    "ctrl" => 0x11,
+                    "shift" => 0x10,
+                    "alt" => 0x12,
+                    "esc" => 0x1B,
+                    "delete" => 0x2E,
+                    "left" => 0x25,
+                    "right" => 0x27,
+                    f if f.len() >= 2 && f.starts_with('f') && f[1..].parse::<u8>().map(|n| (1..=12).contains(&n)).unwrap_or(false) => 0x6F + f[1..].parse::<u8>().unwrap_or(1),
+                    c if c.len() == 1 && c.as_bytes()[0].is_ascii_alphanumeric() => c.as_bytes()[0].to_ascii_uppercase(),
+                    _ => return json!({"native": true, "error": format!("unknown key {}", part)}),
+                };
+                vks.push(vk);
+            }
+            unsafe {
+                for vk in &vks {
+                    keybd_event(*vk, 0, 0, 0);
+                }
+                for vk in vks.iter().rev() {
+                    keybd_event(*vk, 0, KEYUP, 0);
+                }
+            }
+            sent.push(k.clone());
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
+        json!({"native": true, "foreground_is_window": ours, "sent": sent})
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (app, label, keys);
+        json!({"native": false})
+    }
+}
+
 pub struct SelfTest {
     pub out: PathBuf,
     started: std::time::Instant,
@@ -110,6 +165,14 @@ impl SelfTest {
             && plot["colored_pixels"].as_u64().unwrap_or(0) > 100
             && plot["samples_in_payload"].as_u64().unwrap_or(0) >= 1
             && plot["kit_untouched"] == true
+            // Windows: real key presses reach the page (ID-X keys) and F5 does not reload the plot window.
+            && (!cfg!(windows)
+                || (main["native_keys"]["ctrl_j_next_marker"] == true
+                    && main["native_keys"]["ctrl_0_purple_dye"] == true
+                    && main["native_keys"]["ctrl_r_marker_range"] == true
+                    && main["native_keys"]["ctrl_n_data_points"] == true
+                    && main["native_keys"]["no_reload"] == true
+                    && main["native_keys"]["window_kept_state"] == true))
             && (std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()
                 || (main["sync"]["done"].as_u64().unwrap_or(0) >= 1
                     && main["ws_saved"] == true

@@ -267,6 +267,17 @@
           if (dg.hangs >= 1) break;
         }
         c.watchdog = dg;
+        // Real key presses into the plot window (Windows): see the plot window's __otKeysTest.
+        try {
+          var kw = window.OT.state.plotWin;
+          if (kw && !kw.closed && kw.__otKeysTest) {
+            var kt = await Promise.race([kw.__otKeysTest(), sleep(20000).then(function () { return { timeout: true }; })]);
+            var still = false;
+            try { still = !kw.closed && kw.__otKeysMark === true; } catch (e) {}
+            kt.window_kept_state = still; // false after F5 reloaded the page (the old JS context is gone)
+            c.native_keys = kt;
+          } else c.native_keys = { skipped: 'plot window not available' };
+        } catch (e) { c.native_keys = { error: String(e) }; }
         if (window.__OT_SELFTEST_SERVER__) {
           // The analysed FSA must reach the server in the background (HEAD/PUT by SHA-256).
           var t1 = Date.now();
@@ -375,6 +386,30 @@
         var kits = [pl.kit].concat((pl.samples || []).map(function (x) { return x.kit; })).filter(Boolean);
         c.kit_untouched = kits.length > 0 && kits.every(function (k) { return (k.markers || []).every(function (m) { return !Object.prototype.hasOwnProperty.call(m, '_hit'); }); });
         c.menubar_items = document.querySelectorAll('#menubar > *').length;
+        // Real key presses (called by the main window when no other window takes the focus, Windows only): the ID-X
+        // keys must reach the page and F5 must not reload the window (WebView2 browser accelerator keys are off).
+        window.__otKeysTest = async function () {
+          var v = window.__otView, r = { trusted: [] };
+          document.addEventListener('keydown', function (e) { if (e.isTrusted) r.trusted.push((e.ctrlKey ? 'ctrl+' : '') + (e.shiftKey ? 'shift+' : '') + String(e.key).toLowerCase()); }, true);
+          var send = async function (k) { var x = await (await fetch('/desktop/api/selftest/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: [k] }) })).json(); await sleep(600); return x; };
+          var x0 = v.x0, purple = v.dyes.has('DATA106'), mr = v.markerRange;
+          r.first = await send('right'); // not a browser key: shows whether real input reaches the window at all
+          if (!r.first.native) return r;
+          r.input_reaches_page = r.trusted.length > 0;
+          await send('ctrl+j');
+          r.ctrl_j_next_marker = v.x0 != null && v.x0 !== x0;
+          await send('ctrl+0');
+          r.ctrl_0_purple_dye = v.dyes.has('DATA106') !== purple;
+          await send('ctrl+r');
+          r.ctrl_r_marker_range = v.markerRange !== mr;
+          await send('f5');
+          await send('ctrl+n');
+          r.ctrl_n_data_points = v.xAxis === 'dp';
+          await send('ctrl+y');
+          r.no_reload = window.__otKeysMark === true;
+          return r;
+        };
+        window.__otKeysMark = true;
       } catch (e) {
         c.error = String((e && e.stack) || e);
       }

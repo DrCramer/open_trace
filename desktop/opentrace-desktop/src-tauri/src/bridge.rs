@@ -594,6 +594,12 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             let name = body_json(req)["project"].as_str().unwrap_or("").to_string();
             json_response(200, &json!({"dropped": st.workspace.drop_lease_on_server(&name)}))
         }
+        // Real key presses (Windows: keybd_event) into the window that asks, after focusing it: checks that WebView2
+        // gives the ID-X keys to the page instead of using them as browser shortcuts.
+        ("api/selftest/keys", true) if st.selftest.is_some() => {
+            let keys: Vec<String> = body_json(req)["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(String::from)).collect()).unwrap_or_default();
+            json_response(200, &crate::selftest::send_keys(app, label, &keys))
+        }
         ("api/selftest/memory", false) if st.selftest.is_some() => json_response(200, &json!({"process_tree_rss_mib": crate::selftest::process_tree_rss_mib()})),
         ("api/selftest/report", true) if st.selftest.is_some() => {
             let v = body_json(req);
