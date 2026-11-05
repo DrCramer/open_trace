@@ -80,6 +80,15 @@ function paneList(){
  if(view.layout==='overlay')return out.length?[{overlay:true,items:out}]:[];
  return out}
 
+// X range of a pane: the zoom, or the whole domain; the Genotypes plot shows the marker size range plus the Marker Margin
+// of the plot setting unless the user zoomed.
+let curDomain=null,lastPanes=null;
+function paneRange(p,s){const [d0,d1]=curDomain||domain();let a=view.x0??d0,b=view.x1??d1;
+ if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);a=p.marker.min_bp-mg;b=p.marker.max_bp+mg;if(view.xAxis==='dp'){a=bpToScan(c,a);b=bpToScan(c,b)}}
+ return [a,b]}
+function yGlobalOf(panes){return view.yAxis==='max'?Math.max(1,...panes.flatMap(p=>(p.overlay?p.items:[p]).flatMap(it=>{const [a,b]=paneRange(p,it.sample);return traceData(it,a,b).map(t=>t.max)}))):null}
+// Zoom / Y scale changes: same panes, new ranges - repaint instead of rebuilding hundreds of canvases.
+function rezoom(){if(!lastPanes||!document.querySelector('#plotarea canvas'))return draw();curDomain=domain();view.yGlobal=yGlobalOf(lastPanes);repaint()}
 function draw(){
  const area=$('plotarea');paintObserver?.disconnect();area.replaceChildren();
  if(!payload||!payload.samples.length){area.append(el('div',{class:'empty',text:T('selectSamplesFirst')}));renderLower();return}
@@ -88,9 +97,7 @@ function draw(){
  const LSd=setting?.labels;const nl=LSd?Math.max(1,...['assigned','custom','ladder','artifact'].map(k=>{const i=LSd[k].indexOf('none');return i<0?4:Math.max(1,i)})):1;
  const extra=view.labels==='none'?0:2*(nl-1)*((LSd?.size||11)+3);
  const h=Math.max(150+extra,Math.floor((area.clientHeight-2)/Math.max(1,view.panes)));
- const [d0,d1]=domain();const x0=view.x0??d0,x1=view.x1??d1;
- view.yGlobal=view.yAxis==='max'?Math.max(1,...panes.flatMap(p=>(p.overlay?p.items:[p]).flatMap(it=>{let a=x0,b=x1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5;a=p.marker.min_bp-mg;b=p.marker.max_bp+mg;
-  if(view.xAxis==='dp'){const c=curveOf(it.sample.analysis);a=bpToScan(c,a);b=bpToScan(c,b)}}return traceData(it,a,b).map(t=>t.max)}))):null;
+ curDomain=domain();lastPanes=panes;view.yGlobal=yGlobalOf(panes);
  for(const p of panes){
   const items=p.overlay?p.items:[p];const s=items[0].sample;
   const pane=el('div',{class:'pane'});
@@ -112,10 +119,8 @@ function draw(){
    if(!p.overlay){const lab=el('label',{class:'c',style:'gap:4px'});lab.append(el('input',{type:'checkbox'}),T('markSample'));head.append(lab);head._sample=s;head.title=T('headerMenuHint')}
    pane.append(head)}
   const canvas=el('canvas');canvas.height=h;canvas._sid=s.id;canvas._dyes=items.flatMap(i=>i.dyes);pane.append(canvas);area.append(pane);
-  // the Genotypes plot shows the marker size range plus the Marker Margin of the plot setting
-  let px0=x0,px1=x1;if(p.marker&&!view.userZoom){const mg=setting?.display?.markerMargin??5,c=curveOf(s.analysis);
-   px0=p.marker.min_bp-mg;px1=p.marker.max_bp+mg;if(view.xAxis==='dp'){px0=bpToScan(c,px0);px1=bpToScan(c,px1)}}
-  lazyPaint(area,canvas,()=>paint(canvas,items,px0,px1,p.marker))}
+  // the X range is read when the pane is painted, so a zoom repaints the existing panes (rezoom) instead of rebuilding them
+  lazyPaint(area,canvas,()=>{const [a,b]=paneRange(p,s);paint(canvas,items,a,b,p.marker)})}
  renderLower()}
 
 // A pane is painted when it scrolls near the visible part of the plot area, not all at once: 96 samples in separate
@@ -319,19 +324,19 @@ document.addEventListener('mouseup',e=>{if(!drag)return;const d=drag;drag=null;b
   const mk=G.markers.find(m=>m.name===d.call.marker);if(!mk||bp<mk.min_bp||bp>mk.max_bp)return;
   const taken=(t.sample.report?.calls||[]).some(c=>c.channel===t.tag&&Math.abs(c.size_bp-bp)<0.05&&c!==d.call);if(taken)return;
   edit(t.sample,{action:'move',marker:mk.name,callId:d.call.id,new:binLabel(mk,bp),peak:{scan:t.peak.scan,size_bp:bp,height:t.peak.height,channel:t.tag}});return}
- if(d.mode==='x'){const a=invX(Math.min(d.x0,x)),b=invX(Math.max(d.x0,x));if(b-a>1&&Math.abs(x-d.x0)>3){view.x0=a;view.x1=b;view.userZoom=true;draw()}return}
+ if(d.mode==='x'){const a=invX(Math.min(d.x0,x)),b=invX(Math.max(d.x0,x));if(b-a>1&&Math.abs(x-d.x0)>3){view.x0=a;view.x1=b;view.userZoom=true;rezoom()}return}
  if(d.mode==='y'){if(Math.abs(y-d.y0)>3){yZoomTo(invY(Math.min(d.y0,y)))}return}
  if(d.mode==='h'){if(!d.moved||Math.abs(y-d.y0)<=4){if(!d.multi&&view.selPeaks.size){view.selPeaks.clear();repaint();showPhr()}return}yZoomTo(invY(Math.min(d.y0,y)));return}
  if(d.mode==='sel'){const lo=Math.min(d.x0,x),hi=Math.max(d.x0,x);if(!d.moved)return;
   for(const p of G.peakPts)if(p.x>=lo&&p.x<=hi)view.selPeaks.set(peakKey(p.sample,p.tag,p.peak),p);repaint();showPhr()}});
 // Y zoom: all panes take the entered value as the Y maximum (ID-X: Zoom To on the Y axis; Full View returns to individual scaling)
-function yZoomTo(v){if(!(v>1))return;view.yAxis='entered';view.yValue=Math.round(v);build();draw()}
+function yZoomTo(v){if(!(v>1))return;view.yAxis='entered';view.yValue=Math.round(v);build();rezoom()}
 function xAxisTo(a){if(view.xAxis===a)return;view.xAxis=a;view.x0=view.x1=null;view.userZoom=false;build();draw()}
-function yAxisTo(a){view.yAxis=a;build();draw()}
-function yFullView(){view.yAxis='individual';build();draw()}
-function xFullView(){view.x0=view.x1=null;view.userZoom=false;draw()}
+function yAxisTo(a){view.yAxis=a;build();rezoom()}
+function yFullView(){view.yAxis='individual';build();rezoom()}
+function xFullView(){view.x0=view.x1=null;view.userZoom=false;rezoom()}
 function xZoomToDlg(){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1;const v=prompt(T('zoomToXPrompt'),(+a).toFixed(1)+' - '+(+b).toFixed(1));if(v==null)return;
- const n=v.match(/-?\d+(?:[.,]\d+)?/g);if(!n||n.length<2)return;const lo=+n[0].replace(',','.'),hi=+n[1].replace(',','.');if(hi>lo){view.x0=lo;view.x1=hi;view.userZoom=true;draw()}}
+ const n=v.match(/-?\d+(?:[.,]\d+)?/g);if(!n||n.length<2)return;const lo=+n[0].replace(',','.'),hi=+n[1].replace(',','.');if(hi>lo){view.x0=lo;view.x1=hi;view.userZoom=true;rezoom()}}
 function yZoomToDlg(){const v=prompt(T('zoomToYPrompt'),String(view.yValue||''));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));if(n>1)yZoomTo(n)}
 // Double click: X axis = full view (Y too when Y is entered), Y axis = full Y view; elsewhere nothing, as in ID-X.
 document.addEventListener('dblclick',e=>{const cv=e.target.closest('canvas');if(!cv?._geom)return;const r=cv.getBoundingClientRect(),z=zoneAt(cv._geom,e.clientX-r.left,e.clientY-r.top);
@@ -656,7 +661,7 @@ function zoomToMarkerDlg(){const cv=[...document.querySelectorAll('canvas')].fin
  const names=[...new Set(G.markers.map(m=>m.name))];const v=prompt(T('pmZoomToMarkerPrompt')+'\n'+names.join(', '),names[0]||'');if(v==null)return;
  const m=G.markers.find(m=>m.name.toLowerCase()===v.trim().toLowerCase());if(!m){message(T('pmNoMarker').replace('{0}',v));return}
  const mg=setting?.display?.markerMargin??5;let a=m.min_bp-mg,b=m.max_bp+mg;if(G.dp){a=bpToScan(G.curve,a);b=bpToScan(G.curve,b)}
- view.x0=a;view.x1=b;view.userZoom=true;draw()}
+ view.x0=a;view.x1=b;view.userZoom=true;rezoom()}
 function markerMarginDlg(){const cur=setting?.display?.markerMargin??5;const v=prompt(T('pmMarkerMarginPrompt'),String(cur));if(v==null)return;const n=parseFloat(String(v).replace(',','.'));
  if(!(n>=0&&n<=100)||!setting){message(T('pmMarginInvalid'));return}setting.display.markerMargin=n;view.userZoom=false;view.x0=view.x1=null;build();draw()}
 function zoomNextMarker(){const cv=[...document.querySelectorAll('canvas')].find(c=>c._geom);if(!cv)return;const G=cv._geom;
@@ -664,8 +669,8 @@ function zoomNextMarker(){const cv=[...document.querySelectorAll('canvas')].find
  const mid=G.dp?scanToBp(G.curve,(G.x0+G.x1)/2):(G.x0+G.x1)/2;
  const cur=ms.findIndex(m=>mid>=m.min_bp&&mid<=m.max_bp);const n=ms[(cur<0?ms.findIndex(m=>m.min_bp>mid):cur+1)%ms.length]||ms[0];
  const mg=setting?.display?.markerMargin??5;let a=n.min_bp-mg,b=n.max_bp+mg;if(G.dp){a=bpToScan(G.curve,a);b=bpToScan(G.curve,b)}
- view.x0=a;view.x1=b;view.userZoom=true;draw()}
-function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;draw()}
+ view.x0=a;view.x1=b;view.userZoom=true;rezoom()}
+function zoom(f){const [d0,d1]=domain();const a=view.x0??d0,b=view.x1??d1,c=(a+b)/2,w=(b-a)*f/2;view.x0=c-w;view.x1=c+w;view.userZoom=true;rezoom()}
 
 // ---------- lower: genotypes table + QVD ----------
 // Sizing table as in ID-X (SamplePlotTableModel): one row per detected peak of the shown dyes of every shown sample, dyes in
@@ -818,7 +823,7 @@ function build(){
  const t2=$('toolbar2');t2.replaceChildren(
   tg('header',T('showHeader'),view.header,set('header',!view.header)),tg('markerRange',T('markerRange'),view.markerRange,set('markerRange',!view.markerRange)),tsep(),
   tg('noLabels',T('noLabels'),ck('labels','none'),set('labels','none')),tg('hLabels',T('hLabels'),ck('labels','h'),set('labels','h')),tg('vLabels',T('vLabels'),ck('labels','v'),set('labels','v')),
-  tg('bins',T('showBins'),view.bins,set('bins',!view.bins)),tsep(),tbutton('fullView',T('fullView'),()=>{view.x0=view.x1=null;draw()}),tsep(),
+  tg('bins',T('showBins'),view.bins,set('bins',!view.bins)),tsep(),tbutton('fullView',T('fullView'),()=>{view.x0=view.x1=null;rezoom()}),tsep(),
   tg('combine',T('combine'),ck('layout','combine'),set('layout','combine')),tg('separate',T('separate'),ck('layout','separate'),set('layout','separate')),tg('overlay',T('overlay'),ck('layout','overlay'),set('layout','overlay')),tsep(),
   tbutton('combine',T('multipleDyePlot'),multipleDyePlot,{id:'tbMultiDye'}),tsep(),
   tg('noTable',T('noTable'),ck('table','none'),set('table','none')),tg('sizingTable',T('sizingTable'),ck('table','sizing'),set('table','sizing')),tg('genotypesTable',T('genotypesTable'),ck('table','genotypes'),set('table','genotypes')));
@@ -848,7 +853,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(DYE_BY_DIGIT[code]&&!inField){e.preventDefault();const t=DYE_BY_DIGIT[code];view.dyes.has(t)?view.dyes.delete(t):view.dyes.add(t);build();draw();return}
  if(code==='Digit6'&&!inField){e.preventDefault();DYE_KEYS.forEach(t=>view.dyes.add(t));build();draw();return}
  if(LAYOUT_BY_DIGIT[code]&&!inField){e.preventDefault();view.layout=LAYOUT_BY_DIGIT[code];build();draw();return}
- if(e.key===']'&&!inField){e.preventDefault();view.x0=view.x1=null;draw();return}
+ if(e.key===']'&&!inField){e.preventDefault();view.x0=view.x1=null;rezoom();return}
  if(/^F[123]$/.test(e.key)&&!inField){e.preventDefault();sampleView({F1:'info',F2:'raw',F3:'ept'}[e.key]);return}
  if(k==='j'&&!inField){e.preventDefault();zoomNextMarker();return}
  // Ctrl+Y / Ctrl+N: X axis in basepairs / data points; Ctrl+Q / Ctrl+A / Ctrl+W: no table / sizing table / genotypes table (ID-X PlotMgrPane)
