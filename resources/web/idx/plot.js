@@ -532,14 +532,27 @@ function renderEditBar(){const bar=$('editbar');if(!bar)return;
   el('span',{class:'ebhint',id:'ebHint',text:!any?T('ebReadOnly'):singleClickOn()?T('ebHintClean'):sel.length?fmt('ebHintSel',sel.length,nl):T('ebHintIdle')}));
  document.body.classList.toggle('cleanmode',singleClickOn()&&any)}
 // Multiple Dye Plot: all dyes of a sample within the range of the selected (or first) marker
+// ID-X GenotypeMultipleDyePane: "Sample File" and "Marker" lines, View > Combine Dyes (default) / Separate Dyes, the dyes
+// switched on in the plot window, the X range of the pane (its zoom, or the marker range with the Marker Margin), and the
+// mouse position in the status line.
 function multipleDyePlot(){
  const cv=[...document.querySelectorAll('#plotarea canvas')].find(c=>c._geom&&(view.selSample==null||c._geom.sample.id===view.selSample))||document.querySelector('#plotarea canvas');
  const G=cv?._geom;if(!G)return message(T('selectSamplesFirst'));const s=G.sample;
  const m=G.markers.find(x=>x.name===view.selMarker)||(isGeno()?G.markers[0]:null);if(!m)return message(T('selectMarkerHeader'));
- const tags=(s.analysis?.channels||[]).filter(c=>c.group!=='auxiliary'&&DYE_KEYS.includes(c.tag)&&c.tag!==s.analysis?.sizing?.reference_channel).map(c=>c.tag);
- dialog(fmt('multipleDyeTitle',m.name,s.name),b=>{b.classList.add('mdpdlg');const c=el('canvas',{style:'width:900px;max-width:86vw'});c.height=320;b.append(c);
-  const mg=setting?.display?.markerMargin??5,cur=curveOf(s.analysis);let a=m.min_bp-mg,z=m.max_bp+mg;if(view.xAxis==='dp'){a=bpToScan(cur,a);z=bpToScan(cur,z)}
-  requestAnimationFrame(()=>paint(c,[{sample:s,dyes:tags}],a,z,m))},[[T('ok'),()=>true,true]])}
+ const tags=(s.analysis?.channels||[]).filter(c=>c.group!=='auxiliary'&&DYE_KEYS.includes(c.tag)&&view.dyes.has(c.tag)).map(c=>c.tag);
+ const mg=setting?.display?.markerMargin??5,cur=curveOf(s.analysis);let a=m.min_bp-mg,z=m.max_bp+mg;if(view.xAxis==='dp'){a=bpToScan(cur,a);z=bpToScan(cur,z)}
+ if(view.userZoom&&view.x0!=null&&view.x1!=null){a=view.x0;z=view.x1}
+ let mode='combine';
+ dialog(T('mdpTitle'),b=>{b.classList.add('mdpdlg');
+  const host=el('div',{class:'mdphost'}),st=el('div',{class:'mdpstatus',text:' '});
+  const radio=(v,label)=>{const r=el('input',{type:'radio',name:'mdpMode',value:v,id:'mdp_'+v});r.checked=mode===v;r.addEventListener('change',()=>{mode=v;render()});return el('label',{class:'chk'},r,document.createTextNode(' '+label))};
+  const render=()=>{host.replaceChildren();const groups=mode==='combine'?[tags]:tags.map(t=>[t]);const h=mode==='combine'?320:Math.max(180,Math.floor(640/Math.max(1,groups.length)));
+   for(const g of groups){const c=el('canvas',{style:'width:900px;max-width:86vw;display:block'});c.height=h;host.append(c);requestAnimationFrame(()=>paint(c,[{sample:s,dyes:g}],a,z,m))}};
+  host.addEventListener('mousemove',e=>{const c=e.target.closest('canvas');const g=c?._geom;if(!g)return;const r=c.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+   const xv=g.x0+(x-g.L)/(g.W-g.L-g.R)*(g.x1-g.x0),v=(g.bottom-y)/(g.bottom-g.top)*g.ymax;st.textContent=`[X ${g.dp?Math.round(xv):xv.toFixed(2)}  Y ${Math.round(v)}]`});
+  b.append(el('div',{class:'mdphead'},el('div',{text:fmt('mdpSampleFile',s.file)}),el('div',{text:fmt('mdpMarker',m.name)})),
+   el('div',{class:'mdpmodes'},radio('combine',T('combine')),radio('separate',T('separate'))),host,st);
+  render()},[[T('closeWin'),()=>true,true]])}
 // ---------- Edit / View menu ----------
 function curSample(){return payload?.samples.find(s=>s.id===view.selSample)||payload?.samples[0]||null}
 function sampleView(tab){const s=curSample();if(!s)return;try{window.opener.OT.showSampleView(s.id,tab);window.opener.focus()}catch(e){message(String(e.message||e))}}

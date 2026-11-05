@@ -139,6 +139,15 @@ const { chromium } = require('playwright');
   out.pane_labels = pane.labels;
   out.edits_in_project = await plot.evaluate(() => window.opener.OT.state.project.samples.reduce((n, s) => n + (s.edits || []).filter(e => !e.undone).length, 0));
   if (shots) await plot.screenshot({ path: shots + '/plot_after_range_delete.png' });
+  // 5a. Multiple Dye Plot (ID-X GenotypeMultipleDyePane): combined, then one pane per dye
+  await plot.evaluate(() => { window.__otView.selMarker = window.opener.OT.plotPayload().kit.markers[0].name; window.__otView.selSample = window.opener.OT.plotPayload().samples[0].id; });
+  await plot.click('#tbMultiDye');
+  await plot.waitForSelector('.mdpdlg canvas');
+  const mdp1 = await plot.evaluate(() => document.querySelectorAll('.mdpdlg canvas').length);
+  await plot.click('#mdp_separate');
+  await plot.waitForTimeout(200);
+  out.multiple_dye = [mdp1, await plot.evaluate(() => document.querySelectorAll('.mdpdlg canvas').length)];
+  await plot.evaluate(() => document.querySelector('.mdpdlg').closest('.dlg').querySelector('.foot .btn').click());
   // 6. ID-X plot window keys: Ctrl+N / Ctrl+Y X axis, Ctrl+Shift+M / D Y axis, Ctrl+Shift+N / H labels, Ctrl+A / W / Q tables
   const v = () => plot.evaluate(() => { const v = window.__otView; return [v.xAxis, v.yAxis, v.labels, v.table].join(','); });
   const keys = {};
@@ -151,7 +160,7 @@ const { chromium } = require('playwright');
     keys['Control+a'].endsWith(',sizing') && keys['Control+q'].endsWith(',none') && keys['Control+w'].endsWith(',genotypes');
   out.page_errors = errors;
   console.log(JSON.stringify(out, null, 1));
-  const ok = out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
+  const ok = out.multiple_dye[0] === 1 && out.multiple_dye[1] > 1 && out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
     out.row_selects_peak === 1 && out.row_marked === 1 && out.rows_selected_filter === 1 && out.rows_call_filter === out.calls_start && out.rows_all_again === out.sizing_rows &&
     out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
     /Удалить обозначения|Delete Label/.test(out.popup[0]) && out.rename_submenu.length >= 2 &&

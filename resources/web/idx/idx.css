@@ -388,3 +388,7 @@ body.cleanmode .editbar .ebhint{color:#a1231b;font-weight:bold}
 .g.sizing .dsw{display:inline-block;width:9px;height:9px;border:1px solid #555;margin-right:4px;vertical-align:-1px}
 .g.sizing tr.vsp td{padding:0;border:0;background:none}
 .g.sizing td{white-space:nowrap}
+.mdpdlg .mdphead{text-align:center;font-weight:bold;margin-bottom:4px}
+.mdpdlg .mdpmodes{display:flex;gap:14px;margin:2px 0 6px}
+.mdpdlg .mdphost{max-height:62vh;overflow:auto;background:#fff}
+.mdpdlg .mdpstatus{border:1px solid var(--shadow);padding:1px 4px;margin-top:4px;min-height:14px}
