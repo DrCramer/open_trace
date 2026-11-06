@@ -54,12 +54,13 @@ pub fn sha256_hex(b: &[u8]) -> String {
     crate::sync::hex(&Sha256::digest(b))
 }
 
-/// Query string of an analyze request → settings object (strings as sent; `filename` is not a setting).
+/// Query string of an analyze request → settings object (strings as sent; `filename` and `slim`, which only shapes the
+/// response, are not settings).
 pub fn settings_from_query(query: Option<&str>) -> Value {
     let mut m = Map::new();
     if let Some(q) = query {
         for (k, v) in url::form_urlencoded::parse(q.as_bytes()) {
-            if k != "filename" {
+            if k != "filename" && k != "slim" {
                 m.insert(k.into_owned(), Value::String(v.into_owned()));
             }
         }
@@ -175,6 +176,12 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_exclude_slim() {
+        let s = settings_from_query(Some("threshold=50&slim=1&filename=a.fsa"));
+        assert_eq!(s, json!({"threshold": "50"}));
+    }
 
     #[test]
     fn settings_exclude_file_name_and_keep_strings() {
