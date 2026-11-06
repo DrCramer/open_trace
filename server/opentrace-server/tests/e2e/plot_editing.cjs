@@ -184,12 +184,17 @@ const { chromium } = require('playwright');
     await plot.keyboard.press(k); keys[k] = await v();
   }
   out.keys = keys;
+  // Tools > Manager (Ctrl+M): the GeneMapper Manager opens in the project window
+  await plot.keyboard.press('Control+m');
+  await page.waitForTimeout(400);
+  out.ctrl_m_manager = await page.evaluate(() => !!document.querySelector('.dlg'));
+  await page.evaluate(() => { const d = document.querySelector('.dlg'); if (d) d.closest('.back')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
   out.keys_ok = keys['Control+n'].startsWith('dp,') && keys['Control+y'].startsWith('bp,') && keys['Control+Shift+m'].split(',')[1] === 'max' &&
     keys['Control+Shift+d'].split(',')[1] === 'individual' && keys['Control+Shift+n'].split(',')[2] === 'none' && keys['Control+Shift+h'].split(',')[2] === 'h' &&
     keys['Control+a'].endsWith(',sizing') && keys['Control+q'].endsWith(',none') && keys['Control+w'].endsWith(',genotypes');
   out.page_errors = errors;
   console.log(JSON.stringify(out, null, 1));
-  const ok = out.zoom_x_drag && out.zoom_in_out && out.zoom_full_dblclick && out.zoom_y_band && out.zoom_y_full && out.multiple_dye[0] === 1 && out.multiple_dye[1] > 1 && out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
+  const ok = out.ctrl_m_manager && out.zoom_x_drag && out.zoom_in_out && out.zoom_full_dblclick && out.zoom_y_band && out.zoom_y_full && out.multiple_dye[0] === 1 && out.multiple_dye[1] > 1 && out.keys_ok && out.arrows_label_mode && out.sizing_rows === out.sized_peaks && out.sizing_rows > out.calls_start && out.sizing_call_cells === out.calls_start &&
     out.row_selects_peak === 1 && out.row_marked === 1 && out.rows_selected_filter === 1 && out.rows_call_filter === out.calls_start && out.rows_all_again === out.sizing_rows &&
     out.editbar && out.selected_after_label_click === 1 && out.delete_enabled && out.popup.length >= 3 &&
     /Удалить обозначения|Delete Label/.test(out.popup[0]) && out.rename_submenu.length >= 2 &&

@@ -503,6 +503,8 @@ function renameArtifactItems(){return [{label:T('customArtifactLabel'),run:()=>r
 function renameOne(){const p=selection().find(p=>p.label);if(!p)return message(T('selectOneLabel'));
  if(p.label.call)return edit(p.s,{action:'rename',marker:p.label.call.marker,callId:p.label.call.id,new:p.label.call.label});
  return edit(p.s,{action:'rename_artifact',artifactId:p.label.artifact.id,marker:p.label.artifact.marker,new:p.label.artifact.label})}
+// Tools > Manager (Ctrl+M, ID-X invokeGMMgr): the GeneMapper Manager opens in the project window
+function openManager(){try{window.opener.OT.manager();window.opener.focus()}catch(e){message(String(e.message||e))}}
 function openHistory(){try{window.opener.OT.labelEditViewer();window.opener.focus()}catch(e){}}
 // Peak popup as in ID-X (SinglePlotPane): allele label -> Delete Label(s), Rename Allele Label >, History (edited labels), Peak Raw Data;
 // artifact label -> Rename Artifact Label >, Delete Label(s), Add Allele Label, History, Peak Raw Data;
@@ -802,7 +804,7 @@ function build(){
    {label:T('pmLegend'),checked:!!view.legend,run:set('legend',!view.legend)},
    {label:T('pmMarkerMargin'),run:markerMarginDlg},'-',
    {label:T('multipleDyePlot'),run:multipleDyePlot}]},
-  {label:T('tools'),items:[{label:T('manager'),disabled:true},'-',{label:T('psEditor'),sc:'Ctrl+T',run:editSetting}]},
+  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:openManager},'-',{label:T('psEditor'),sc:'Ctrl+T',run:editSetting}]},
   {label:T('alleles'),items:[
    {label:T('editingMode'),sub:[{label:T('peakSelection'),sc:'Ctrl+;',checked:!singleClickOn(),run:()=>setSingleClick(false)},
     {label:T('singleClickEditing'),checked:singleClickOn(),disabled:!singleClickAllowed(),run:()=>setSingleClick(!view.singleClick)}]},'-',
@@ -870,6 +872,7 @@ document.addEventListener('keydown',e=>{if(!(e.ctrlKey||e.metaKey))return;
  if(e.code==='Semicolon'&&!inField){e.preventDefault();setSingleClick(false);return}
  if(k==='r'&&!inField){e.preventDefault();view.markerRange=!view.markerRange;build();draw();return}
  if(k==='t'&&!inField){e.preventDefault();editSetting();return}
+ if(k==='m'&&!inField){e.preventDefault();openManager();return}
  if(k==='k'&&!inField){e.preventDefault();view.markerIndicator=!view.markerIndicator;build();draw();return}
  if(k==='s'){e.preventDefault();try{window.opener.OT.exportWithStutter(payload.samples.map(s=>s.id));window.opener.focus()}catch(err){message(String(err.message||err))}return}
  if(e.code==='NumpadAdd'){e.preventDefault();zoom(.5);return}
