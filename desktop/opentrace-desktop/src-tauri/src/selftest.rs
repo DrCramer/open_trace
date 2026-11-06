@@ -210,6 +210,8 @@ impl SelfTest {
                 || (main["genotype"]["samples_genotyped"].as_u64() == genotype_size()
                     && main["genotype"]["markers_ok"].as_u64() == genotype_size().map(|n| n * 24)
                     && main["genotype"]["mismatches"].as_u64() == Some(0)
+                    // saved, opened again without kits in memory: the plot window draws the marker headers
+                    && main["genotype"]["reopen_markers"] == true
                     // With a server and a profile: the ladder and every sample saved with provenance attributed to it.
                     && (profile().is_none()
                         || std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()

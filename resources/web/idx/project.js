@@ -24,7 +24,7 @@ const kitCache=new Map(); // panel key + method -> {kit, lq, mq, policy}
 const settingsCache=new Map(); // method + size standard -> analyze() settings
 const EXAMPLE_KEY='__example__';
 function dropCaches(){kitCache.forEach((v,k)=>{if(k!==EXAMPLE_KEY)kitCache.delete(k)});settingsCache.clear()}
-window.OT={state,plotPayload,manager:()=>Methods.openManager(),addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),closeProject:()=>closeProject(),report:null,edit:(id,spec)=>applyEdit(id,spec),editMany:(list,reason)=>applyEdits(list,reason),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
+window.OT={state,plotPayload,manager:()=>Methods.openManager(),dropKitCache:()=>kitCache.clear(),addSampleFiles:(files,run,meth,pkey,std)=>addSampleFiles(files,run,meth,pkey,std),analyze:scope=>analyze(scope),printPayload:()=>printPayload(),loadExample:()=>loadExample(),displayPlots:()=>displayPlots(),writeProject:(n,o)=>writeProject(n,o),loadProject:n=>loadProject(n),closeProject:()=>closeProject(),report:null,edit:(id,spec)=>applyEdit(id,spec),editMany:(list,reason)=>applyEdits(list,reason),editItems:(id,spec)=>editItems(id,spec),peakRawData:(id,scan)=>{state.selected=new Set([id]);SampleViews.focusRaw(scan);buildAfter(()=>showTab('raw'))},labelEditViewer:()=>labelEditViewer(),
  // plot window: Edit > Undo (latest active label edit of the displayed samples), View > Sample Info / Raw Data / EPT Data
  undoLast:(ids)=>{const all=state.project.samples.filter(s=>ids.includes(s.id)).flatMap(s=>(s.edits||[]).filter(e=>!e.undone).map(e=>({s,e})));
   if(!all.length)return null;all.sort((a,b)=>String(a.e.at||a.e.time||'').localeCompare(String(b.e.at||b.e.time||''))||(a.e.id-b.e.id));const {s,e}=all[all.length-1];
@@ -53,6 +53,19 @@ async function kitFor(panelKey,methodName){
  const entry={kit:r.kit,lq:r.ladder_quality_definition,mq:r.marker_quality_definition,policy:'forward_fill',
   binSet:req.binSet,binSetSubstituted:req.binSetSubstituted};kitCache.set(key,entry);return entry}
 const sampleKit=s=>kitCache.get(kitKey(s.panelKey,s.method))?.kit||null;
+// Kits (markers, bins) of the samples: the plot window draws the marker headers and the bins from them. They were built
+// only by Analyze, so a project opened from the library or the server showed electropherograms without loci and bins
+// (and the cache is dropped when the project brings its own panels). Built here in the background after opening and
+// before plotting; the plot window is told when they are ready. Returns the panels that could not be built.
+const kitsPending=new Map();
+async function ensureKits(samples){const need=new Map();
+ for(const s of samples){if(!s.panelKey||!s.method)continue;const k=kitKey(s.panelKey,s.method);if(!kitCache.has(k)&&!need.has(k))need.set(k,s)}
+ const failed=[];let added=0;
+ for(const [k,s] of need){let p=kitsPending.get(k);if(!p){p=kitFor(s.panelKey,s.method).finally(()=>kitsPending.delete(k));kitsPending.set(k,p)}
+  try{await p;added++}catch(e){failed.push((s.panel||s.panelKey)+' / '+s.method+': '+e.message)}}
+ if(added){render();try{const w=state.plotWin;if(w&&!w.closed&&w.otKitsReady)w.otKitsReady()}catch(e){}}
+ return failed}
+function ensureKitsQuiet(samples){ensureKits(samples).then(f=>{if(f.length){state.lastMessage=T('kitsNotBuilt')+' '+f.join('; ');render()}}).catch(()=>{})}
 async function analyzeSettings(methodName,sizeStd){
  const key=methodName+'\u0001'+sizeStd;if(settingsCache.has(key))return settingsCache.get(key);
  const method=Methods.get(methodName);if(!method)throw Error(T('methodMissing')+' '+methodName);
@@ -668,7 +681,7 @@ async function loadProject(name){
   state.nextId=meta.samples.length+1;
   Object.assign(state.project,{securityGroup:meta.security_group||Sec.DEFAULT_GROUP,owner:meta.owner||'',mixture:meta.mixture&&typeof meta.mixture==='object'?meta.mixture:{},reports:Array.isArray(meta.reports)?meta.reports:[],binOffsets:Array.isArray(meta.bin_offsets)?meta.bin_offsets:[],name:meta.name,savedAs:meta.name,comment:meta.comment||'',runFolders:meta.run_folders||[...new Set(samples.map(s=>s.runFolder))],samples,dirty:false});
   state.selected.clear();state.filter=null;state.sort=null;
-  state.lastMessage=T('projectOpened')+': '+meta.name;sniffSamples(state.project.samples);rememberProject(meta.name);WebLease.start(meta.name,meta.opentrace_server);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
+  state.lastMessage=T('projectOpened')+': '+meta.name;sniffSamples(state.project.samples);rememberProject(meta.name);WebLease.start(meta.name,meta.opentrace_server);ensureKitsQuiet(state.project.samples);if(notes.length)message(T('projectAddedObjects')+'\n'+notes.join('\n'))}
  catch(e){message(e.message)}finally{state.busy=false;render()}}
 // ---------- OpenTrace Server: one editor per project (web) ----------
 // Only when the server says so (opentrace_server.web_lease): the desktop app and the stand-alone web app keep their own
@@ -1048,7 +1061,8 @@ function displayPlots(){
  if(state.tab==='genotypes'&&!state.genoSel.length&&state.selected.size)plotPayload();
  if(state.tab==='genotypes'?!state.genoSel.length:!state.selected.size)return message(T(state.tab==='genotypes'?'selectMarkersFirst':'selectSamplesFirst'));
  const w=window.open('/idx/plot.html','opentrace-plot','width=1100,height=760');
- if(!w)message(T('plotWindowBlocked'));else{state.plotWin=w;w.focus()}}
+ if(!w)message(T('plotWindowBlocked'));else{state.plotWin=w;w.focus()}
+ ensureKitsQuiet(state.project.samples.filter(s=>state.selected.has(s.id)))}
 
 // ---------- export format (ID-X "Format of Exported, Copied, and Report Results") ----------
 const STATUS_TEXT={analyzed:'Analyzed',unanalyzed:'Not Analyzed',changed:'Analysis setting changed'};

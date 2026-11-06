@@ -897,6 +897,8 @@ function refresh(){const sig=p=>JSON.stringify([p?.mode,p?.genoSel,p?.samples?.m
  if(next&&sig(next)!==before&&next.samples.length){payload=next;view.x0=view.x1=null;build();draw()}
  else if(next){payload.project=next.project;payload.printComment=next.printComment;printHead()}}
 window.otRefresh=refresh;
+// The project window built the kits of these samples (marker headers, bins): same samples and view, new payload.
+window.otKitsReady=()=>{let next=null;try{next=window.opener?.OT?.plotPayload()}catch(e){}if(next&&next.samples.length){payload=next;build();draw()}};
 window.PV={view,get setting(){return setting}};
 window.addEventListener('focus',refresh);
 function printHead(){const h=document.getElementById('printHead');if(!h)return;

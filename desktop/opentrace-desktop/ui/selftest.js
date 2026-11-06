@@ -99,6 +99,20 @@
       g.lab_profile = ws.lab_profile;
       await fetch('/desktop/api/workspace/source', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'local' }) });
     }
+    // The project saved and opened again with no kit built in this session (as after a restart): the plot window still
+    // shows the marker headers (loci) and the bins.
+    try {
+      var rname = 'Selftest reopen ' + Date.now();
+      g.reopen_saved = await OT.writeProject(rname, { create: true });
+      OT.dropKitCache();
+      await OT.loadProject(rname);
+      OT.state.selected.clear();
+      OT.state.project.samples.filter(function (x) { return x.type !== 'ladder'; }).slice(0, 1).forEach(function (x) { OT.state.selected.add(x.id); });
+      OT.displayPlots();
+      var rw = OT.state.plotWin;
+      g.reopen_markers = await wait(function () { try { return Array.prototype.some.call(rw.document.querySelectorAll('#plotarea canvas'), function (cv) { return cv._geom && cv._geom.markers.length > 0; }); } catch (e) { return false; } }, 30000);
+      try { g.reopen_bins_shown = !!rw.__otView.bins; } catch (e) {}
+    } catch (e) { g.reopen_error = String(e); }
     return g;
   };
 
