@@ -396,7 +396,7 @@ function genoRows(s){
   const f=k=>metrics[k]===1?'check':metrics[k]===0?'pass':'na';
   const flags={OS:f('offscale'),BIN:f('binning'),PHR:f('ratio'),LPH:f('absolute_height'),MPH:f('high_height'),SPK:f('spike'),
    AN:f('allele_number'),BD:f('broad'),OVL:f('overlap'),ACC:(isAmel(m.name)||kitM.get(m.name)?.y_marker)?acc:'na',CC:ccFlag(rep,m.name),
-   ADO:calls.filter(c=>c.label).length>nShow?'check':'pass',PLI:eff.pli.has(m.name)?'check':'na',ME:eff.edited.has(m.name)?'check':'pass',
+   ADO:s.type==='ladder'?'na':calls.filter(c=>c.label).length>nShow?'check':'pass',PLI:eff.pli.has(m.name)?'check':'na',ME:eff.edited.has(m.name)?'check':'pass',
    GQ:eff.gqOverride.has(m.name)?'override':g?code(g.category?.code):'na'};
   return {sample:s,marker:m.name,channel:m.channel,calls,gq:eff.gqOverride.has(m.name)?1:g?.score?.gq,flags,peaks:rep.peaks||[],reason:eff.reasons[m.name]||'',mec:eff.mec[m.name]||''}})}
 function genoCell(id,r,i){
@@ -951,6 +951,11 @@ function groups(){const out=[];
  return out}
 const ladderInput=s=>({ladder_id:s.file,analysis:s.compact||compactAnalysis(s.analysis)});
 const sqPass=s=>{const q=samplePqv(s).SQ;return q==='pass'||q==='override'};
+function ladderReport(rep,match){if(!rep)return rep;
+ const keep=c=>{const l=match?.get(c.marker)?.get(c.scan);if(l==null)return null;return {...c,label:l}};
+ rep.calls=(rep.calls||[]).map(keep).filter(Boolean);
+ for(const m of rep.allele_calling?.markers||[])if(Array.isArray(m.calls))m.calls=m.calls.map(c=>keep({...c,marker:c.marker||m.name})).filter(Boolean);
+ rep.ladder_labels=true;return rep}
 async function judgeLadders(g){
  const lad=g.group.filter(s=>s.type==='ladder');
  for(const s of lad){s.ladderQuality=null;s.ladderUsed=false}
@@ -960,6 +965,8 @@ async function judgeLadders(g){
  const rep=await jsonPost('/api/str-run',{sample:ladderInput(probe).analysis,ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
  const used=new Set(Object.values(rep.ladder?.markers||{}).flatMap(m=>m.status==='accepted'?m.source_ladders||[]:[]));
  for(const l of rep.quality?.run_ladders||[]){const s=lad.find(x=>x.file===l.ladder_id);if(s){s.ladderQuality=l.quality_code;s.ladderUsed=used.has(s.file)}}
+ // Allelic ladder labels as in ID-X: each peak matched to a ladder allele carries that allele's name (marker -> scan -> allele).
+ g.ladderMatch=new Map((rep.quality?.run_ladders||[]).map(l=>[l.ladder_id,new Map(Object.entries(l.matching?.markers||{}).map(([m,v])=>[m,new Map((v.matched||[]).map(p=>[p.scan,p.label]))]))]));
  g.pass=['accepted','partial'].includes(rep.ladder?.status)&&lad.some(s=>s.ladderQuality===0&&sqPass(s));
  // ID-X bin offsets: passing allelic ladders with green SQ (Project Options > Bin Offsets: or green and/or yellow SQ) contribute.
  const bo=ProjectOptions.get().binOffsets;const green=lad.filter(s=>sqPass(s)||(bo==='greenYellow'&&samplePqv(s).SQ==='check'));let offRep=rep;g.offLadders=g.ladders;
@@ -1032,7 +1039,15 @@ async function genotype(){
    s.report=slimReport(rep);s.referenceBins=!g.pass;s.rev=(s.rev||0)+1};
   // independent samples: several requests in flight keep the server's worker processes busy
   await Promise.all(Array.from({length:Math.min(ANALYZE_CONCURRENCY,todo.length)},async()=>{while(!state.stop){const s=todo[at++];if(!s)return;await one(s)}}));
-  if(state.stop)return false}
+  if(state.stop)return false
+  // Allelic ladders: peaks and bins like a sample, labels only on the peaks matched to ladder alleles (no GQ).
+  const lk=await kitFor(g.key,g.group.find(x=>x.type==='ladder')?.method||methods[0]);
+  for(const s of g.group.filter(x=>x.type==='ladder')){if(state.stop)return false;
+   $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
+   try{const rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.offLadders||g.ladders,kit:lk.kit,ladder_quality_definition:lk.lq,missing_offset_policy:g.pass?lk.policy:'reference_bins',slim:true});
+    s.report=ladderReport(slimReport(rep),g.ladderMatch?.get(s.file));s.genotypeError=null}
+   catch(e){s.report=null;s.genotypeError=e.message}
+   s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
  return true}
 
 async function loadExample(){
