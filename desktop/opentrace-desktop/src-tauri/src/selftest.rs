@@ -177,7 +177,12 @@ impl SelfTest {
                     && main["native_keys"]["window_kept_state"] == true
                     && main["native_keys"]["delete_removes_label"] == true
                     && main["native_keys"]["ctrl_z_restores"] == true
-                    && main["native_keys"]["esc_closes"] == true))
+                    && main["native_keys"]["esc_closes"] == true
+                    && main["native_keys_project"]["tab_summary"] == true
+                    && main["native_keys_project"]["tab_genotypes"] == true
+                    && main["native_keys_project"]["tab_samples"] == true
+                    && main["native_keys_project"]["find_dialog"] == true
+                    && main["native_keys_project"]["esc_closes_dialog"] == true))
             && (std::env::var_os("OPENTRACE_SELFTEST_SERVER_URL").is_none()
                 || (main["sync"]["done"].as_u64().unwrap_or(0) >= 1
                     && main["ws_saved"] == true

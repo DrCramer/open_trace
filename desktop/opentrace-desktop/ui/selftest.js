@@ -282,6 +282,28 @@
             c.native_keys = kt;
           } else c.native_keys = { skipped: 'plot window not available' };
         } catch (e) { c.native_keys = { error: String(e) }; }
+        // Real key presses into the project window (Windows): Ctrl+Shift+1/2/3 tabs, Ctrl+F Find dialog, Esc closes it.
+        try {
+          var mk = { trusted: [] }, st0 = window.OT.state;
+          var onKey = function (e) { if (e.isTrusted) mk.trusted.push((e.ctrlKey ? 'ctrl+' : '') + (e.shiftKey ? 'shift+' : '') + String(e.key).toLowerCase()); };
+          document.addEventListener('keydown', onKey, true);
+          var msend = async function (k) { var x = await (await fetch('/desktop/api/selftest/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: [k] }) })).json(); await sleep(700); return x; };
+          var first = await msend('ctrl+shift+2');
+          if (first.native) {
+            mk.tab_summary = st0.tab === 'summary';
+            await msend('ctrl+shift+3');
+            mk.tab_genotypes = st0.tab === 'genotypes';
+            await msend('ctrl+shift+1');
+            mk.tab_samples = st0.tab === 'samples';
+            await msend('ctrl+f');
+            mk.find_dialog = !!document.querySelector('.dlg');
+            await msend('esc');
+            mk.esc_closes_dialog = !document.querySelector('.dlg');
+            while (document.querySelector('.dlg')) { document.querySelector('.dlg .foot .btn:last-child').click(); await sleep(100); }
+          } else mk.native = false;
+          document.removeEventListener('keydown', onKey, true);
+          c.native_keys_project = mk;
+        } catch (e) { c.native_keys_project = { error: String(e) }; }
         if (window.__OT_SELFTEST_SERVER__) {
           // The analysed FSA must reach the server in the background (HEAD/PUT by SHA-256).
           var t1 = Date.now();
