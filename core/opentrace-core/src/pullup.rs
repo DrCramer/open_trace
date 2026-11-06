@@ -197,7 +197,7 @@ fn full_set(state: &mut Map<String, Value>, value: bool, ratio: Option<f64>, thr
 }
 
 /// Python `_binary_search`: midpoint search over reference scans; returns (insertion position, exact match).
-fn binary_search(references: &[Value], scan: f64) -> (usize, bool) {
+fn binary_search(references: &[&Value], scan: f64) -> (usize, bool) {
     let mut low: i64 = 0;
     let mut high: i64 = references.len() as i64 - 1;
     while low <= high {
@@ -220,8 +220,8 @@ struct Settings {
 }
 
 /// Python `_attempt`: one candidate against one reference; updates the candidate state in place.
-fn attempt(candidate: &Value, reference: &Value, state: &mut Map<String, Value>, settings: &Settings) -> Res<Value> {
-    let before = Value::Object(state.clone());
+fn attempt(candidate: &Value, reference: &Value, state: &mut Map<String, Value>, settings: &Settings, trace: bool) -> Res<Value> {
+    let before = if trace { Value::Object(state.clone()) } else { Value::Null };
     full_set(state, false, None, None);
     let height = num(&reference["height"]).unwrap_or(f64::NAN);
     let cand_height = num(&candidate["height"]).unwrap_or(f64::NAN);
@@ -251,6 +251,9 @@ fn attempt(candidate: &Value, reference: &Value, state: &mut Map<String, Value>,
     } else {
         "matched"
     };
+    if !trace {
+        return Ok(Value::Null);
+    }
     Ok(json!({
         "reference_id": reference["_pullup_id"],
         "distance_scan": distance,
@@ -263,7 +266,7 @@ fn attempt(candidate: &Value, reference: &Value, state: &mut Map<String, Value>,
     }))
 }
 
-fn sum_scans_distinct(references: &[Value]) -> usize {
+fn sum_scans_distinct(references: &[&Value]) -> usize {
     let mut seen = HashSet::new();
     for r in references {
         let x = num(&r["scan"]).unwrap_or(f64::NAN);
@@ -278,6 +281,18 @@ pub fn apply_pullup_detection(
     definition: &Value,
     selected_group: &Value,
     reference_channel: &Value,
+) -> Res<Value> {
+    apply_pullup_detection_opts(channels, definition, selected_group, reference_channel, true)
+}
+
+/// `trace == false`: the per-attempt events are not built (each becomes `null`, so their number is kept); for callers
+/// that keep only `event_count` (`/api/analyze?slim=1`). Classifications and states are the same.
+pub fn apply_pullup_detection_opts(
+    channels: &Value,
+    definition: &Value,
+    selected_group: &Value,
+    reference_channel: &Value,
+    trace: bool,
 ) -> Res<Value> {
     let definition = load_pullup_definition(definition)?;
     let group = match selected_group.as_str() {
@@ -381,9 +396,11 @@ pub fn apply_pullup_detection(
             histories.push(h);
         }
     }
-    let index_of = |id: &str| ids.iter().position(|x| x == id).unwrap();
-    let peaks_of = |tag: &str| -> Vec<Value> {
-        chosen.iter().find(|(t, _)| t == tag).map(|(_, p)| p.clone()).unwrap_or_default()
+    // id -> position (ids are unique "<tag>:<index>"); the peak lists are borrowed, not copied per route
+    let id_pos: std::collections::HashMap<&str, usize> = ids.iter().enumerate().map(|(i, x)| (x.as_str(), i)).collect();
+    let index_of = |id: &str| id_pos[id];
+    let peaks_of = |tag: &str| -> Vec<&Value> {
+        chosen.iter().find(|(t, _)| t == tag).map(|(_, p)| p.iter().collect()).unwrap_or_default()
     };
 
     let mut passes: Vec<Value> = Vec::new();
@@ -397,7 +414,7 @@ pub fn apply_pullup_detection(
             num(&a["scan"]).unwrap_or(f64::NAN).partial_cmp(&num(&b["scan"]).unwrap_or(f64::NAN)).unwrap()
         });
         let (mut attempted, mut skipped, mut matched) = (0u64, 0u64, 0u64);
-        for candidate in &candidates {
+        for &candidate in &candidates {
             let cmap = candidate.as_object().unwrap();
             let id = cmap["_pullup_id"].as_str().unwrap().to_string();
             let k = index_of(&id);
@@ -434,12 +451,13 @@ pub fn apply_pullup_detection(
                 vec![position, position - 1]
             };
             for index in indices {
-                let mut event = attempt(candidate, &references[index], &mut states[k], &settings)?;
-                let emap = event.as_object_mut().unwrap();
-                emap.insert("pass_index".into(), json!(order));
-                emap.insert("binary_search_position".into(), json!(position));
-                emap.insert("exact_scan_match".into(), json!(exact));
-                emap.insert("reference_sorted_index".into(), json!(index));
+                let mut event = attempt(candidate, references[index], &mut states[k], &settings, trace)?;
+                if let Some(emap) = event.as_object_mut() {
+                    emap.insert("pass_index".into(), json!(order));
+                    emap.insert("binary_search_position".into(), json!(position));
+                    emap.insert("exact_scan_match".into(), json!(exact));
+                    emap.insert("reference_sorted_index".into(), json!(index));
+                }
                 histories[k]["events"].as_array_mut().unwrap().push(event);
                 attempted += 1;
                 attempt_count += 1;
@@ -476,21 +494,24 @@ pub fn apply_pullup_detection(
     }
 
     let mut output = Map::new();
-    for (tag, peaks) in &chosen {
-        if *tag == reference {
+    drop(index_of);
+    drop(peaks_of);
+    for (tag, peaks) in chosen {
+        if tag == reference {
             continue;
         }
         let mut out_peaks = Vec::with_capacity(peaks.len());
         for peak in peaks {
-            let pmap = peak.as_object().unwrap();
-            let id = pmap["_pullup_id"].as_str().unwrap().to_string();
-            let k = index_of(&id);
-            let mut rebuilt = Map::new();
-            for (key, v) in pmap {
-                if key != "_pullup_id" {
-                    rebuilt.insert(key.clone(), v.clone());
-                }
-            }
+            let mut rebuilt = match peak {
+                Value::Object(m) => m,
+                _ => unreachable!(),
+            };
+            // `_pullup_id` was appended last: removing it leaves the other keys in their order
+            let id = match rebuilt.shift_remove("_pullup_id") {
+                Some(Value::String(s)) => s,
+                _ => unreachable!(),
+            };
+            let k = id_pos[id.as_str()];
             let ratio_provenance = if histories[k]["matched_reference_id"].is_null() {
                 "supplied_or_fresh_state"
             } else {
@@ -500,7 +521,7 @@ pub fn apply_pullup_detection(
             histories[k].insert("scope".into(), json!("explicit_cross_channel_body_reconstruction"));
             histories[k].insert("ratio_provenance".into(), json!(ratio_provenance));
             rebuilt.insert("pullup".into(), states[k]["pullup"].clone());
-            rebuilt.insert("pullup_classification".into(), Value::Object(histories[k].clone()));
+            rebuilt.insert("pullup_classification".into(), Value::Object(std::mem::take(&mut histories[k])));
             out_peaks.push(Value::Object(rebuilt));
         }
         output.insert(tag.clone(), Value::Array(out_peaks));

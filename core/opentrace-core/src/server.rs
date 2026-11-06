@@ -460,7 +460,12 @@ impl App {
         if !POST_PATHS.contains(&path) {
             return Self::json(404, json!({"error": "Not found"}));
         }
-        match self.dispatch(path, query, req) {
+        let t0 = std::time::Instant::now();
+        let out = self.dispatch(path, query, req);
+        if timing_enabled() {
+            eprintln!("[timing] {} in={}KB out={}KB total={}ms", path, req.body.len() / 1024, out.as_ref().map_or(0, |b| b.len() / 1024), t0.elapsed().as_millis());
+        }
+        match out {
             Ok(body) => Response { code: 200, body, kind: "application/json; charset=utf-8".into() },
             Err(HErr::Bad(m)) => Self::json(400, json!({"error": m})),
             Err(HErr::Denied(m)) => Self::json(403, json!({"error": m, "access_denied": true})),
@@ -567,8 +572,17 @@ impl App {
                     "/api/demo-pipeline" => demo::pipeline_demo_bytes(),
                     _ => raw.clone(),
                 };
-                let (filename, kwargs) = analyze_kwargs(&params)?;
-                ok(analyze(&data, &filename, &kwargs)?)
+                let (filename, mut kwargs) = analyze_kwargs(&params)?;
+                let slim = first(&params, "slim") == Some("1");
+                if slim {
+                    // the event trace is dropped below anyway: do not build it
+                    kwargs.insert("pullup_event_trace".into(), json!(false));
+                }
+                let mut v = analyze(&data, &filename, &kwargs)?;
+                if slim {
+                    slim_analysis(&mut v);
+                }
+                ok(v)
             }
         }
     }
@@ -627,14 +641,44 @@ fn analyze_kwargs(p: &BTreeMap<String, Vec<String>>) -> HR<(String, Map<String, 
     Ok((first(p, "filename").unwrap_or("synthetic.fsa").to_string(), kw))
 }
 
-/// Same reduction the project window applies to a stored report: per-attempt pull-up events become a count and the
-/// run ladders keep only identity and quality code.
+/// `/api/analyze?slim=1`: the per-attempt pull-up event trace of every peak becomes `event_count`, as the project
+/// window stores it (the trace is about 5 KB per peak, most of a multi-megabyte response, and nothing reads it later).
+fn slim_analysis(analysis: &mut Value) {
+    if let Some(chs) = analysis.get_mut("channels").and_then(|c| c.as_array_mut()) {
+        for ch in chs.iter_mut() {
+            if let Some(peaks) = ch.get_mut("peaks").and_then(|p| p.as_array_mut()) {
+                for p in peaks.iter_mut() {
+                    if let Some(pc) = p.get_mut("pullup_classification").and_then(|v| v.as_object_mut()) {
+                        if let Some(Value::Array(ev)) = pc.shift_remove("events") {
+                            pc.insert("event_count".into(), json!(ev.len()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Same reduction the project window applies to a stored report: per-attempt pull-up events become a count, the
+/// run ladders keep only identity and quality code, the run ladder offsets lose their per-bin trace.
 fn slim_report(report: &mut Value) {
     if let Some(peaks) = report.get_mut("peaks").and_then(|p| p.as_array_mut()) {
         for p in peaks.iter_mut() {
             if let Some(pc) = p.get_mut("pullup_classification").and_then(|v| v.as_object_mut()) {
                 if let Some(Value::Array(ev)) = pc.remove("events") {
                     pc.insert("event_count".into(), json!(ev.len()));
+                }
+            }
+        }
+    }
+    // The run's offset state is the same in every sample report of the run (about 1 MB each): the slim report keeps
+    // per marker its status, offsets and source ladders, not the per-bin contributor trace and the offset event state.
+    if let Some(l) = report.get_mut("ladder").and_then(|l| l.as_object_mut()) {
+        l.shift_remove("state");
+        if let Some(ms) = l.get_mut("markers").and_then(|m| m.as_object_mut()) {
+            for (_, m) in ms.iter_mut() {
+                if let Some(m) = m.as_object_mut() {
+                    m.shift_remove("per_key");
                 }
             }
         }
@@ -649,9 +693,17 @@ fn slim_report(report: &mut Value) {
     }
 }
 
+/// `OPENTRACE_TIMING=1`: per-stage timings of the analysis requests on stderr (sizes and milliseconds only).
+pub fn timing_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("OPENTRACE_TIMING").map_or(false, |v| !v.is_empty() && v != "0"))
+}
+
 /// Body of the heavy JSON endpoints (`_json_task`).
 pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
+    let t0 = std::time::Instant::now();
     let request = loads_bytes(raw)?;
+    let t_parse = t0.elapsed();
     let obj_of = |msg: &'static str| request.as_object().ok_or(HErr::Bad(msg.into()));
     match kind {
         "str-run" => {
@@ -681,7 +733,10 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
                 }
             };
             let slim = obj.get("slim").and_then(|v| v.as_bool()) == Some(true);
+            let t1 = std::time::Instant::now();
             let mut report = crate::run_workflow::run_str_run_workflow_cached(&jget(obj, "sample"), ladders, &jget(obj, "kit"), &opts, set_id.as_deref(), slim)?;
+            let t_run = t1.elapsed();
+            let t2 = std::time::Instant::now();
             // Optional: marker quality and the slimmed report in the same round trip (no 10 MB report echoed back by the client).
             let mq = obj.get("marker_quality_definition").filter(|v| !v.is_null());
             if let Some(def) = mq {
@@ -691,6 +746,9 @@ pub fn json_task(kind: &str, raw: &[u8]) -> HR<Value> {
             }
             if slim {
                 slim_report(&mut report);
+            }
+            if timing_enabled() {
+                eprintln!("[timing] str-run body={}KB parse={}ms run={}ms mq+slim={}ms", raw.len() / 1024, t_parse.as_millis(), t_run.as_millis(), t2.elapsed().as_millis());
             }
             Ok(report)
         }

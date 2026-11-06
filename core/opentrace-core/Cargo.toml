@@ -24,9 +24,14 @@ getrandom = "0.2"
 libm = { version = "0.2", optional = true }
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 des = "0.8"
+# Allocator: the analysis builds and drops large serde_json trees; mimalloc is markedly faster than the system
+# allocators here (glibc malloc_consolidate, Windows HeapAlloc). Results do not depend on the allocator.
+mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [features]
-default = []
+# fast-alloc: mimalloc as the global allocator of every binary linking the core (CLI, Desktop, Server)
+default = ["fast-alloc"]
+fast-alloc = ["dep:mimalloc"]
 # Pure-Rust libm (musl port) instead of the platform C library: identical bits on Windows/Linux. Opt-in until the
 # golden corpora prove it equal to glibc on Linux (see docs/desktop/BASELINE_AUDIT.md, "Numerical portability").
 portable-math = ["dep:libm"]

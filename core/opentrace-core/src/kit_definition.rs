@@ -254,7 +254,37 @@ fn casefold(s: &str) -> String {
 }
 
 /// Python `_load_kit_definition` for a parsed mapping. Returns the normalized kit object.
+/// JSON equality that also requires the same key order (serde_json's `==` ignores object key order).
+pub(crate) fn strict_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|((ka, va), (kb, vb))| ka == kb && strict_eq(va, vb))
+        }
+        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| strict_eq(p, q)),
+        _ => a == b,
+    }
+}
+
+/// `load_kit_definition` is pure and called many times per genotyping request with the same kit (every workflow stage
+/// validates it again): the last few results are remembered and returned for an identical input.
 pub fn load_kit_definition(source: &Value) -> Res<Value> {
+    static MEMO: std::sync::Mutex<Vec<(Value, Value)>> = std::sync::Mutex::new(Vec::new());
+    if let Ok(memo) = MEMO.lock() {
+        if let Some((_, out)) = memo.iter().find(|(input, _)| strict_eq(input, source)) {
+            return Ok(out.clone());
+        }
+    }
+    let out = load_kit_definition_uncached(source)?;
+    if let Ok(mut memo) = MEMO.lock() {
+        if memo.len() >= 8 {
+            memo.remove(0);
+        }
+        memo.push((source.clone(), out.clone()));
+    }
+    Ok(out)
+}
+
+fn load_kit_definition_uncached(source: &Value) -> Res<Value> {
     if let Value::String(text) = source {
         if text.len() > MAX_JSON_BYTES {
             return Err("Kit JSON exceeds 1048576 bytes".into());

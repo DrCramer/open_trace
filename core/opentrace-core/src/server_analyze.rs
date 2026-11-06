@@ -1060,13 +1060,28 @@ pub fn analyze(raw: &[u8], filename: &str, kwargs: &Obj) -> Res<Value> {
     }
     if !pullup_definition.is_null() {
         let sg = selected_group.clone().unwrap_or_default();
-        let all = Value::Array(channels.iter().cloned().map(Value::Object).collect());
-        let detection = crate::pullup::apply_pullup_detection(&all, &pullup_definition, &json!(sg), &json!(standard_channel))?;
-        if let Some(by) = detection["peaks_by_channel"].as_object() {
+        // the detector reads only tag, group and peaks: the trace values are not copied for it
+        let all = Value::Array(
+            channels
+                .iter()
+                .map(|c| {
+                    let mut m = Obj::new();
+                    for k in ["tag", "group", "peaks"] {
+                        if let Some(v) = c.get(k) {
+                            m.insert(k.into(), v.clone());
+                        }
+                    }
+                    Value::Object(m)
+                })
+                .collect(),
+        );
+        let trace = kw(kwargs, "pullup_event_trace") != Some(&json!(false));
+        let mut detection = crate::pullup::apply_pullup_detection_opts(&all, &pullup_definition, &json!(sg), &json!(standard_channel), trace)?;
+        if let Some(by) = detection["peaks_by_channel"].as_object_mut() {
             for ch in channels.iter_mut() {
                 let tag = ch["tag"].as_str().unwrap().to_string();
-                if let Some(p) = by.get(&tag) {
-                    ch.insert("peaks".into(), p.clone());
+                if let Some(p) = by.get_mut(&tag) {
+                    ch.insert("peaks".into(), std::mem::take(p));
                 }
             }
         }

@@ -898,7 +898,12 @@ function normalizationWarning(samples){
  dialog(T('nwTitle'),b=>{b.classList.add('nwdlg');b.append(el('p',{text:T(all?'nwAll':'nwSome')}),el('p',{text:T('nwNotApplied').replace('{0}',bad.length)}),
    el('label',{class:'chk'},el('input',{type:'checkbox',id:'nwHide'}),document.createTextNode(' '+T('nwHide'))))},
   [[T('ok'),body=>{if(body.querySelector('#nwHide').checked)try{sessionStorage.setItem('opentrace.hideNormWarning','1')}catch(e){}return true},true]])}
-const ANALYZE_CONCURRENCY=4;
+// Requests in flight at once: the local server runs each on its own thread, so up to the number of cores helps; the
+// browser keeps at most 6 connections per host.
+const ANALYZE_CONCURRENCY=Math.max(2,Math.min(6,navigator.hardwareConcurrency||4));
+// limiter(n)(fn): runs fn when fewer than n limited tasks are running
+function limiter(n){let active=0;const q=[];const next=()=>{if(active>=n||!q.length)return;active++;const [fn,res,rej]=q.shift();
+ Promise.resolve().then(fn).then(res,rej).finally(()=>{active--;next()})};return fn=>new Promise((res,rej)=>{q.push([fn,res,rej]);next()})}
 async function analyze(scope){
  let targets=state.project.samples.filter(s=>scope==='all'||(scope==='selected'?state.selected.has(s.id):s.status!=='analyzed'));
  if(!targets.length||state.busy)return;if(!Sec.need('UPDATE_PROJECT'))return;
@@ -916,7 +921,7 @@ async function analyze(scope){
  // Samples are independent: several requests in flight let the server's worker processes use more than one core.
  const analyzeOne=async s=>{
    progress(i,order.length,`${T('analyzing')}: ${s.file}`);
-   if(s.blob){const p=new URLSearchParams({...(await analyzeSettings(s.method,s.sizeStd)),filename:s.file});
+   if(s.blob){const p=new URLSearchParams({...(await analyzeSettings(s.method,s.sizeStd)),filename:s.file,slim:'1'});
     if(s.sqOverride)p.set('sizing_override',JSON.stringify(s.sqOverride));
     if(s.inst?.is310&&s.matrix&&Matrices.get(s.matrix))p.set('matrix',JSON.stringify(Matrices.get(s.matrix).values));
     let r;try{r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob})}
@@ -956,13 +961,23 @@ function ladderReport(rep,match){if(!rep)return rep;
  rep.calls=(rep.calls||[]).map(keep).filter(Boolean);
  for(const m of rep.allele_calling?.markers||[])if(Array.isArray(m.calls))m.calls=m.calls.map(c=>keep({...c,marker:c.marker||m.name})).filter(Boolean);
  rep.ladder_labels=true;return rep}
+// Ladder cohort registered on the server (id) or null when that is not possible (inline ladders are sent then).
+async function registerLadders(ladders){try{return (await jsonPost('/api/ladder-set',{ladders})).ladder_set||null}catch(e){return null}}
+// /api/str-run with the registered ladder set g[key]; an unknown set (server restarted) is registered again once.
+async function strRunWithSet(body,g,key,ladders){
+ if(!g[key])return jsonPost('/api/str-run',{...body,ladders});
+ try{return await jsonPost('/api/str-run',{...body,ladder_set:g[key]})}
+ catch(e){if(!/ladder_set/.test(e.message))throw e;g[key]=await registerLadders(ladders);return jsonPost('/api/str-run',g[key]?{...body,ladder_set:g[key]}:{...body,ladders})}}
 async function judgeLadders(g){
  const lad=g.group.filter(s=>s.type==='ladder');
  for(const s of lad){s.ladderQuality=null;s.ladderUsed=false}
  g.ladders=lad.map(ladderInput);g.pass=false;
  const probe=lad.find(s=>s.analysis?.sizing?.status==='accepted');if(!probe)return g;
  const k=await kitFor(g.key,probe.method);
- const rep=await jsonPost('/api/str-run',{sample:ladderInput(probe).analysis,ladders:g.ladders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
+ // The run's ladders go to the server once (/api/ladder-set): the ladder cohort it computes for this judgement is
+ // cached and reused by every sample and ladder of the run instead of being recomputed per request.
+ g.ladderSet=await registerLadders(g.ladders);g.offSet=g.ladderSet;
+ const rep=await strRunWithSet({sample:ladderInput(probe).analysis,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy},g,'ladderSet',g.ladders);
  const used=new Set(Object.values(rep.ladder?.markers||{}).flatMap(m=>m.status==='accepted'?m.source_ladders||[]:[]));
  for(const l of rep.quality?.run_ladders||[]){const s=lad.find(x=>x.file===l.ladder_id);if(s){s.ladderQuality=l.quality_code;s.ladderUsed=used.has(s.file)}}
  // Allelic ladder labels as in ID-X: each peak matched to a ladder allele carries that allele's name (marker -> scan -> allele).
@@ -972,8 +987,8 @@ async function judgeLadders(g){
  const bo=ProjectOptions.get().binOffsets;const green=lad.filter(s=>sqPass(s)||(bo==='greenYellow'&&samplePqv(s).SQ==='check'));let offRep=rep;g.offLadders=g.ladders;
  if(green.length&&green.length<lad.length){g.offLadders=green.map(ladderInput);
   const gp=green.find(s=>s.analysis?.sizing?.status==='accepted')||probe;
-  try{offRep=await jsonPost('/api/str-run',{sample:ladderInput(gp).analysis,ladders:g.offLadders,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy});
-   g.pass=g.pass&&['accepted','partial'].includes(offRep.ladder?.status)}catch(e){g.offLadders=g.ladders;offRep=rep}}
+  try{g.offSet=await registerLadders(g.offLadders);offRep=await strRunWithSet({sample:ladderInput(gp).analysis,kit:k.kit,ladder_quality_definition:k.lq,missing_offset_policy:k.policy},g,'offSet',g.offLadders);
+   g.pass=g.pass&&['accepted','partial'].includes(offRep.ladder?.status)}catch(e){g.offLadders=g.ladders;g.offSet=g.ladderSet;offRep=rep}}
  recordBinOffsets(g,k,offRep.ladder);
  return g}
 // Bin offsets per run folder and panel (View > Bin Offsets): Run, Bin Set, Panel, Marker, Bin, Offset.
@@ -1007,19 +1022,23 @@ function ladderSummary(gs){
 async function genotype(){
  const gs=groups();if(!gs.length)return true;
  for(const s of state.project.samples){if(gs.some(g=>g.group.includes(s))){s.alasSkipped=false;s.referenceBins=false}}
- for(const g of gs){if(state.stop)return false;$('statusText').textContent=`${T('ladderEval')}: ${g.rf}`;await judgeLadders(g)}
+ // run folders are independent: their ladders are judged in parallel (the server uses one worker per request)
+ {let at=0;await Promise.all(Array.from({length:Math.min(ANALYZE_CONCURRENCY,gs.length)},async()=>{while(!state.stop){const g=gs[at++];if(!g)return;$('statusText').textContent=`${T('ladderEval')}: ${g.rf}`;await judgeLadders(g)}}))}
+ if(state.stop)return false;
  const failing=gs.filter(g=>!g.pass);let mode='passing';
  if(failing.length){const o=ProjectOptions.get().alas;mode=o==='stop'?await ladderSummary(gs):o;
   if(mode==='view'){for(const g of failing)for(const s of g.group)if(s.type!=='ladder')s.report=null;return 'view'}}
- for(const g of gs){
+ // Run folders are genotyped side by side; one limiter keeps at most ANALYZE_CONCURRENCY requests in flight in total.
+ const slots=limiter(ANALYZE_CONCURRENCY);
+ const runGroup=async g=>{
   if(!g.pass&&mode!=='all'){for(const s of g.group)if(s.type!=='ladder'){s.report=null;s.alasSkipped=true;s.rev=(s.rev||0)+1}
-   if(!g.ladders.length)state.noLadder=g.rf;continue}
+   if(!g.ladders.length)state.noLadder=g.rf;return}
   const methods=[...new Set(g.group.filter(s=>s.type!=='ladder').map(s=>s.method))];
   const kits={};for(const mname of methods)kits[mname]=await kitFor(g.key,mname);
   const todo=g.group.filter(x=>x.type!=='ladder');let at=0;
   // The run's ladders are identical for every sample: send them once and let the server cache the ladder cohort.
-  const register=async()=>{try{return (await jsonPost('/api/ladder-set',{ladders:g.offLadders||g.ladders})).ladder_set}catch(e){return null}};
-  let ladderSet=await register();
+  const register=async()=>registerLadders(g.offLadders||g.ladders);
+  let ladderSet=g.offSet||await register();
   const one=async s=>{
    const k=kits[s.method];if(k.binSetSubstituted)state.binSetNote=k.binSet;
    $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
@@ -1038,16 +1057,20 @@ async function genotype(){
    if(rep.allele_calling&&(s.type==='positive'||s.type==='negative')){const def=controlDefinition(s);if(def)try{rep=await jsonPost('/api/controls',{report:rep,definition:def})}catch(e){rep.quality=rep.quality||{};rep.quality.controls_error=e.message}}
    s.report=slimReport(rep);s.referenceBins=!g.pass;s.rev=(s.rev||0)+1};
   // independent samples: several requests in flight keep the server's worker processes busy
-  await Promise.all(Array.from({length:Math.min(ANALYZE_CONCURRENCY,todo.length)},async()=>{while(!state.stop){const s=todo[at++];if(!s)return;await one(s)}}));
-  if(state.stop)return false
+  await Promise.all(todo.map(s=>slots(async()=>{if(!state.stop)await one(s)})));
+  if(state.stop)return
   // Allelic ladders: peaks and bins like a sample, labels only on the peaks matched to ladder alleles (no GQ).
   const lk=await kitFor(g.key,g.group.find(x=>x.type==='ladder')?.method||methods[0]);
-  for(const s of g.group.filter(x=>x.type==='ladder')){if(state.stop)return false;
-   $('statusText').textContent=`${T('genotyping')}: ${s.file}`;
-   try{const rep=await jsonPost('/api/str-run',{sample:s.compact||compactAnalysis(s.analysis),ladders:g.offLadders||g.ladders,kit:lk.kit,ladder_quality_definition:lk.lq,missing_offset_policy:g.pass?lk.policy:'reference_bins',slim:true});
+  g.offSet=ladderSet;
+  await Promise.all(g.group.filter(x=>x.type==='ladder').map(s=>slots(async()=>{if(state.stop)return;
+   try{const rep=await strRunWithSet({sample:s.compact||compactAnalysis(s.analysis),kit:lk.kit,ladder_quality_definition:lk.lq,missing_offset_policy:g.pass?lk.policy:'reference_bins',slim:true},g,'offSet',g.offLadders||g.ladders);
     s.report=ladderReport(slimReport(rep),g.ladderMatch?.get(s.file));s.genotypeError=null}
    catch(e){s.report=null;s.genotypeError=e.message}
-   s.referenceBins=!g.pass;s.rev=(s.rev||0)+1}}
+   s.referenceBins=!g.pass;s.rev=(s.rev||0)+1})));
+  };
+ await Promise.all(gs.map(runGroup));
+ if(state.stop)return false;
+
  return true}
 
 async function loadExample(){
