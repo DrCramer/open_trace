@@ -429,7 +429,11 @@ impl App {
         if path == "/api/health" {
             return Self::json(200, json!({"status": "ok", "analysis_version": analysis_version(), "research_only": true}));
         }
-        if path == "/api/shipped-table-settings" {
+        if path == "/api/hid-codec" {
+            // Whether .hid files can be read here (the codec comes from the local GeneMapper ID-X GMp.jar; no key bytes).
+            return Self::json(200, crate::hid::status_json());
+        }
+                if path == "/api/shipped-table-settings" {
             return Self::json(200, json!({"settings": self.shipped_table_settings}));
         }
         Self::json(404, json!({"error": "Not found"}))

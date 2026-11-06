@@ -38,6 +38,9 @@ pub struct ServerConfig {
     pub resources: Option<PathBuf>,
     /// Login attempts per client IP per minute (in addition to the account lockout policy of the security store).
     pub login_attempts_per_minute: u32,
+    /// `GMp.jar` of the laboratory's licensed GeneMapper ID-X 1.6: needed to read encrypted .hid files on this server
+    /// (the decoding parameters are read from it; OpenTrace does not ship them). Also `OPENTRACE_IDX_GMP_JAR`.
+    pub idx_gmp_jar: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -56,6 +59,7 @@ impl Default for ServerConfig {
             legacy_web: true,
             resources: None,
             login_attempts_per_minute: 10,
+            idx_gmp_jar: None,
         }
     }
 }
@@ -116,6 +120,9 @@ impl ServerConfig {
         }
         if let Some(v) = get("OPENTRACE_SERVER_SESSION_TTL_HOURS") {
             self.session_ttl_hours = num("OPENTRACE_SERVER_SESSION_TTL_HOURS", v)?;
+        }
+        if let Some(v) = get("OPENTRACE_SERVER_IDX_GMP_JAR") {
+            self.idx_gmp_jar = if v.is_empty() { None } else { Some(PathBuf::from(v)) };
         }
         if let Some(v) = get("OPENTRACE_RESOURCES") {
             if !v.is_empty() {

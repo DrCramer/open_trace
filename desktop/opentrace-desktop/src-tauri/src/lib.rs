@@ -63,6 +63,8 @@ fn setup(app: &mut tauri::App, selftest: Option<Arc<selftest::SelfTest>>) -> Res
     };
     let core = Arc::new(opentrace_core::server::App::new(&core_cfg)?);
     let cfg = config::DesktopConfig::load(&cfg_path);
+    // .hid files: decoding parameters from the user's own GeneMapper ID-X installation (configured path or usual places).
+    opentrace_core::hid::set_configured_jars(cfg.idx_gmp_jar.iter().cloned().collect());
     // Self-test: popup geometry in memory only (deterministic start, nothing written outside the test directory).
     let geometry_path = if selftest.is_some() { None } else { cfg_path.parent().map(|d| d.join("popup-geometry.json")) };
     let remote = Arc::new(remote::Remote::new(selftest.is_none()));

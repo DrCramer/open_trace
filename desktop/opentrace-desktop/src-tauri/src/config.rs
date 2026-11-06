@@ -19,11 +19,14 @@ pub struct DesktopConfig {
     pub project_source: String,
     /// Approved laboratory profile (name, version) that analyses are checked against for provenance.
     pub lab_profile: Option<(String, i64)>,
+    /// `GMp.jar` of the user's licensed GeneMapper ID-X 1.6 installation: the parameters for reading encrypted .hid
+    /// files are taken from it at run time (OpenTrace does not ship them).
+    pub idx_gmp_jar: Option<PathBuf>,
 }
 
 impl Default for DesktopConfig {
     fn default() -> Self {
-        DesktopConfig { server_url: None, allow_insecure_http: false, username: None, ca_cert_pem: None, fsa_cache_max_mib: 4096, sync_fsa: true, project_source: "local".into(), lab_profile: None }
+        DesktopConfig { server_url: None, allow_insecure_http: false, username: None, ca_cert_pem: None, fsa_cache_max_mib: 4096, sync_fsa: true, project_source: "local".into(), lab_profile: None, idx_gmp_jar: None }
     }
 }
 

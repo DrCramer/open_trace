@@ -80,6 +80,21 @@ pub fn save_as(app: &AppHandle, st: &DesktopState, label: &str, name: &str, data
     Ok(Some(path))
 }
 
+/// Native "open file" dialog (parented to the asking window); `None` when cancelled or in a self-test run.
+pub fn pick_file(app: &AppHandle, label: &str, filter_name: &str, exts: &[&str]) -> Result<Option<PathBuf>, String> {
+    if std::env::var_os("OPENTRACE_DESKTOP_SELFTEST").is_some_and(|v| !v.is_empty()) {
+        return Ok(None);
+    }
+    let mut d = app.dialog().file().add_filter(filter_name, exts);
+    if let Some(w) = app.get_webview_window(label) {
+        d = d.set_parent(&w);
+    }
+    match d.blocking_pick_file() {
+        Some(f) => f.into_path().map(Some).map_err(|e| e.to_string()),
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -96,6 +96,24 @@
   $('openStandards').addEventListener('click', function () { window.open('/desktop/standards.html', 'opentrace-standards', 'width=1100,height=760'); });
   $('retry').addEventListener('click', async function () { await api('sync/retry', {}); syncTick(); });
 
+  function hidShow(h) {
+    $('gmp').value = h.path || '';
+    $('hidOut').innerHTML = h.available
+      ? '<span class="ok">Чтение .hid доступно</span> (параметры из ' + esc(h.source) + ')'
+      : '<span class="err">Чтение .hid недоступно: GMp.jar не найден.</span> Укажите путь к GMp.jar установки GeneMapper ID-X 1.6.' +
+        ((h.searched || []).length ? '<br>Проверено: ' + (h.searched || []).map(esc).join('; ') : '');
+  }
+  async function hidLoad() { try { hidShow(await api('hid')); } catch (e) { $('hidOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; } }
+  $('gmpBrowse').addEventListener('click', async function () {
+    try { var r = await api('hid/browse', {}); if (r.path) { $('gmp').value = r.path; $('gmpSave').click(); } }
+    catch (e) { $('hidOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  });
+  $('gmpSave').addEventListener('click', async function () {
+    try { hidShow(await api('hid', { path: $('gmp').value.trim() })); }
+    catch (e) { $('hidOut').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  });
+  hidLoad();
+
   async function syncTick() {
     try {
       var s = await api('sync/status');

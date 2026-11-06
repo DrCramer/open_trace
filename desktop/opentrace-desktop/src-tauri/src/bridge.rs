@@ -510,6 +510,31 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             }
             json_response(200, &json!({"active": status}))
         }
+        ("api/hid", false) => {
+            let mut v = opentrace_core::hid::status_json();
+            v["path"] = json!(st.config().idx_gmp_jar);
+            json_response(200, &v)
+        }
+        ("api/hid", true) => {
+            // {path}: reads the decoding parameters from that GMp.jar, uses them now and remembers the path; {} forgets it.
+            let path = body_json(req)["path"].as_str().map(str::trim).filter(|p| !p.is_empty()).map(std::path::PathBuf::from);
+            match &path {
+                Some(p) => match opentrace_core::hid::from_jar_file(p) {
+                    Ok(codec) => opentrace_core::hid::install(codec, &p.display().to_string()),
+                    Err(e) => return json_response(400, &json!({"error": format!("Не удалось прочитать параметры HID: {}", e)})),
+                },
+                None => {}
+            }
+            st.update_config(|c| c.idx_gmp_jar = path.clone());
+            opentrace_core::hid::set_configured_jars(path.iter().cloned().collect());
+            let mut v = opentrace_core::hid::status_json();
+            v["path"] = json!(path);
+            json_response(200, &v)
+        }
+        ("api/hid/browse", true) => match crate::saveas::pick_file(app, label, "GMp.jar", &["jar"]) {
+            Ok(p) => json_response(200, &json!({"path": p})),
+            Err(e) => json_response(500, &json!({"error": e})),
+        },
         ("api/workspace/source", true) => {
             let src = body_json(req)["source"].as_str().unwrap_or("").to_string();
             if src != "local" && src != "server" {

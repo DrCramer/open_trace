@@ -212,11 +212,10 @@ impl AbifFile {
             return err("Expected ABIF signature and 128-byte header");
         }
         let version = read_u16(data, 4);
-        if version / 100 != 1 {
-            return err(format!(
-                "Unsupported ABIF version {}; this reader supports v1. HID/ABIF v3 requires a separate documented decoder.",
-                version
-            ));
+        // v1: .fsa; v3: .hid of HID instruments (typed payloads may be compressed or encrypted, see `hid`).
+        let hid = version / 100 == 3;
+        if version / 100 != 1 && !hid {
+            return err(format!("Unsupported ABIF version {}; this reader supports v1 (.fsa) and v3 (.hid).", version));
         }
         // Root entry at offset 6: count is the 'count' field, directory is the 'offset' field.
         let count = read_u32(data, 6 + 12);
@@ -249,6 +248,25 @@ impl AbifFile {
             } else {
                 check_range(data.len(), offset as usize, size as usize, &format!("{}{}", name, number))?;
                 data[offset as usize..offset as usize + size as usize].to_vec()
+            };
+            let (kind, width, n, size, payload) = if hid && (27..=35).contains(&kind) {
+                // ID-X ABIF.j: the high short of the last four entry bytes selects the codec of typed payloads.
+                let mode = read_u16(data, pos + 24);
+                match crate::hid::decode_payload(kind, mode, &payload) {
+                    Ok(decoded) => {
+                        let (k, w) = crate::hid::plain_type(kind);
+                        let dec_len = decoded.len() as u32;
+                        (k, w, dec_len / w as u32, dec_len, decoded)
+                    }
+                    // Signals and dye names are required; other entries ID-X does not read for analysis (for example
+                    // AsyC, the assay definition, which does not decode in some 3500 files) stay opaque bytes.
+                    Err(e) if name == "DATA" || name == "DyeN" || e.contains("needs the GeneMapper") => {
+                        return err(format!("{}{}: {}", name, number, e))
+                    }
+                    Err(_) => (0, 1, size, size, payload),
+                }
+            } else {
+                (kind, width, n, size, payload)
             };
             let tag = Tag { name, number, element_type: kind, element_size: width, count: n, size, offset, data: payload };
             if Tag::numeric_spec(kind).is_some() || matches!(kind, 2 | 10 | 11 | 18 | 19) {

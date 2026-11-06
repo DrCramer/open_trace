@@ -39,6 +39,8 @@ pub fn build_state(cfg: ServerConfig, port: u16, lock: bool) -> Result<Shared, S
     }
     let mut conn = db::open(&cfg.db_path())?;
     db::migrate(&mut conn)?;
+    // Encrypted .hid files: the decoding parameters come from the laboratory's own GeneMapper ID-X installation.
+    opentrace_core::hid::set_configured_jars(cfg.idx_gmp_jar.iter().cloned().collect());
     let core_cfg = opentrace_core::server::Config {
         port,
         host: "127.0.0.1".into(),

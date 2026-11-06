@@ -778,7 +778,7 @@ const SAMPLE_TYPE_TOKENS={
  negative:/^(nc|ntc|neg|negative|negctrl|negcontrol|blank|нк|отр\w*)\d*$/i,
  positive:/^(pc|pos|positive|posctrl|poscontrol|ctrl|control|ctl|9947a?|2800m|пк|пол\w*)\d*$/i};
 function sampleTypeFromName(n){
- const base=String(n).replace(/\.(fsa|ab1)$/i,'');
+ const base=String(n).replace(/\.(fsa|ab1|hid)$/i,'');
  // Words that are unambiguous even when glued to other text ("Ladder_PG", "AllelicLadder", "negctrl").
  if(/ladder|allelic|лестниц|ладдер/i.test(base))return 'ladder';
  if(/(^|[^a-z])(neg(ative)?|ntc|blank)/i.test(base)||/(^|[^а-яё])отриц|нег/i.test(base))return 'negative';
@@ -797,7 +797,7 @@ function addSamples(){
  if(!state.project.name)Object.assign(state.project,{name:T('untitled'),dirty:true});
  let files=[];
  dialog(T('addTitle'),b=>{
-  const list=el('div',{class:'filelist'});const input=el('input',{type:'file',multiple:'',accept:'.fsa,.ab1',style:'display:none'});
+  const list=el('div',{class:'filelist'});const input=el('input',{type:'file',multiple:'',accept:'.fsa,.ab1,.hid',style:'display:none'});
   const sel=new Set();let anchor=-1;
   const redraw=()=>{for(const f of [...sel])if(!files.includes(f))sel.delete(f);
    list.replaceChildren(...files.map((f,i)=>{const d=el('div',{text:f.webkitRelativePath||f.name,class:sel.has(f)?'sel':''});
@@ -805,7 +805,7 @@ function addSamples(){
      else if(e.ctrlKey||e.metaKey){sel.has(f)?sel.delete(f):sel.add(f);anchor=i}else{sel.clear();sel.add(f);anchor=i}redraw()});return d}));
    cnt.textContent=files.length?T('addCount').replace('{0}',files.length):''};
   const addFiles=fl=>{const seen=new Set(files.map(f=>(f.webkitRelativePath||f.name)+'|'+f.size));
-   for(const f of fl){if(!/\.(fsa|ab1)$/i.test(f.name))continue;const k=(f.webkitRelativePath||f.name)+'|'+f.size;if(!seen.has(k)){seen.add(k);files.push(f)}}redraw()};
+   for(const f of fl){if(!/\.(fsa|ab1|hid)$/i.test(f.name))continue;const k=(f.webkitRelativePath||f.name)+'|'+f.size;if(!seen.has(k)){seen.add(k);files.push(f)}}redraw()};
   const cnt=el('div',{class:'note'});
   list.tabIndex=0;list.addEventListener('keydown',e=>{const k=e.code;
    if((e.ctrlKey||e.metaKey)&&k==='KeyA'){e.preventDefault();files.forEach(f=>sel.add(f));redraw()}
@@ -836,7 +836,7 @@ function addSamples(){
     addSampleFiles(files,run,meth,pkey,std);if(andAnalyze)analyze('pending')}return true}}
 function addSampleFiles(files,run,meth,pkey,std){
  if(!state.project.runFolders.includes(run))state.project.runFolders.push(run);
- for(const f of files){const name=f.name.replace(/\.(fsa|ab1)$/i,'');
+ for(const f of files){const name=f.name.replace(/\.(fsa|ab1|hid)$/i,'');
   state.project.samples.push({id:state.nextId++,file:f.name,name,type:ProjectOptions.get().add.type!=='auto'?ProjectOptions.get().add.type:sampleTypeFromName(f.name),typeAuto:ProjectOptions.get().add.type==='auto',
    runFolder:run,method:meth,panelKey:pkey,panel:pkey?pkey.split('\u0001')[1]:'',sizeStd:std,status:'unanalyzed',blob:f,origin:originOf(f),analysis:null,report:null})}
  Sec.record(files.map(f=>({map:'Sample',attribute:'created',instance:`${run}/${f.name}`,old:'',new:f.name,event:'Add Sample'})));
@@ -921,7 +921,12 @@ async function analyze(scope){
     if(s.inst?.is310&&s.matrix&&Matrices.get(s.matrix))p.set('matrix',JSON.stringify(Matrices.get(s.matrix).values));
     let r;try{r=await fetch('/api/analyze?'+p,{method:'POST',headers:{'X-Session-Token':TOKEN},body:s.blob})}
     catch(e){throw Error(`${s.file}: `+T('serverUnreachable').replace('{0}','/api/analyze')+' ('+e.message+')')}
-    let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.analysis=slimAnalysis(j);s.compact=null;s.rev=(s.rev||0)+1}
+    let j;try{j=await r.json()}catch(e){throw Error(`${s.file}: HTTP ${r.status}`)}
+    // A file the core cannot read (damaged, or a .hid that does not decode) is reported and skipped; the other samples
+    // of the run are still analysed (before, the first such file stopped the whole analysis).
+    if(!r.ok&&r.status>=400&&r.status<500){s.analysis=null;s.compact=null;s.report=null;s.status='unanalyzed';s.readError=String(j.error||r.status);
+     state.genotypeErrors.push(`${s.file}: ${s.readError}`);i++;progress(i,order.length);return}
+    if(!r.ok)throw Error(`${s.file}: ${j.error}`);s.readError=null;s.analysis=slimAnalysis(j);s.compact=null;s.rev=(s.rev||0)+1}
    s.status='analyzed';i++;progress(i,order.length)};
  const lane=async()=>{while(!state.stop&&!failure){const s=order[next++];if(!s)return;try{await analyzeOne(s)}catch(e){failure=failure||e;return}}};
  try{

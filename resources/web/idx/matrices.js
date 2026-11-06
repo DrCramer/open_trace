@@ -35,7 +35,8 @@ async function sniff(blob){
   for(let i=0;i<count&&dir+i*28+28<=buf.byteLength;i++){const p=dir+i*28;const name=String.fromCharCode(...new Uint8Array(buf,p,4));const num=d.getInt32(p+4);
    const type=d.getInt16(p+8),n=d.getInt32(p+12),size=d.getInt32(p+16);const off=size<=4?p+20:d.getInt32(p+20);
    if(['MODL','MCHN','HCFG','MTRD','MTRX','SpNm','SMPL','CMNT'].includes(name)&&off>=0&&off+size<=buf.byteLength)tags[name+num]={type,n,size,bytes:new Uint8Array(buf,off,size)}}
-  const txt=k=>{const t=tags[k];if(!t)return '';let b=t.bytes;if(t.type===18)b=b.subarray(1,1+b[0]);return String.fromCharCode(...b).replace(/\0+$/,'')};
+  const txt=k=>{const t=tags[k];if(!t||t.type>=27)return ''; // HID: typed values 27..35 may be encrypted, not text
+  let b=t.bytes;if(t.type===18)b=b.subarray(1,1+b[0]);return String.fromCharCode(...b).replace(/\0+$/,'')};
   const all=['MODL1','MCHN1','HCFG1'].map(txt).join(' ');
   const is310=/310/.test(all)&&!/3100|3130/.test(all);
   const dim=tags.MTRD1?new DataView(tags.MTRD1.bytes.buffer,tags.MTRD1.bytes.byteOffset,2).getInt16(0):0;
@@ -62,7 +63,7 @@ function openEditor(source,{title,onSave,restrict=null}={}){
   const draw=()=>{const n=+dyes.value;settings.replaceChildren(el('legend',{text:T('mxSettings')}),el('div',{class:'note',text:T('mxSelectFiles')}));
    const grid=el('div',{class:'mxgrid'});grid.append(el('span'),el('span',{class:'h',text:T('mxFile')}),el('span',{class:'h',text:T('mxStartAt')}));
    for(let k=0;k<n;k++){if(starts[k]==null)starts[k]=1000;
-    const inp=el('input',{type:'file',accept:'.fsa,.ab1',style:'display:none','data-dye':LETTERS[k]});
+    const inp=el('input',{type:'file',accept:'.fsa,.ab1,.hid',style:'display:none','data-dye':LETTERS[k]});
     const lbl=el('span',{class:'mxfile',id:'mxFile'+LETTERS[k],text:files[k]?.name||T('mxNoFile')});
     inp.addEventListener('change',()=>{if(inp.files[0]){files[k]=inp.files[0];lbl.textContent=files[k].name}});
     const btn=el('button',{class:'btn mxdye',type:'button',text:LETTERS[k],id:'mxBtn'+LETTERS[k]});btn.addEventListener('click',()=>inp.click());
