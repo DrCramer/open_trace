@@ -30,7 +30,7 @@ jobs:
         env:
           QMAKE: /usr/bin/qmake6
         run: cargo build --release --manifest-path desktop/opentrace-qt/Cargo.toml
-      - name: Self-test (offscreen): add 6 invented run files, analyse, plot window, PDF
+      - name: 'Self-test (offscreen) - add 6 invented run files, analyse, plot window, PDF'
         run: |
           out=$RUNNER_TEMP/qt-selftest
           HOME=$RUNNER_TEMP/qt-home QT_QPA_PLATFORM=offscreen OPENTRACE_RESOURCES=$PWD/resources \
