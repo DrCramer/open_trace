@@ -135,7 +135,7 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     }
     ymax *= 1.08;
     auto Y = [&](double y) { return bottom - std::min(y, ymax * 1.2) / ymax * (bottom - top); };
-    if (hits) { hits->labels.clear(); hits->L = L; hits->R = R; hits->top = top; hits->bottom = bottom; hits->ymax = ymax; }
+    if (hits) { hits->labels.clear(); hits->markers.clear(); hits->head = g.head; hits->L = L; hits->R = R; hits->top = top; hits->bottom = bottom; hits->ymax = ymax; }
     QPen axis(Qt::black);
     axis.setWidthF(print ? 0.2 * mm : 1.0);
     axis.setCosmetic(!print);
@@ -146,6 +146,7 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
         if (xb < L || xa > R) continue;
         if (showMarkers) {
             const QRectF hr(xa, g.markerTop, xb - xa, g.markerH);
+            if (hits) hits->markers.push_back({hr, m.name});
             p.fillRect(hr, gqFill(m.gq));
             p.setPen(axis);
             p.drawRect(hr);
@@ -325,7 +326,12 @@ void PaneWidget::mousePressEvent(QMouseEvent *e) {
 
 void PaneWidget::contextMenuEvent(QContextMenuEvent *e) {
     int label, peak;
-    if (!hitTest(e->pos(), label, peak)) return;
+    if (!hitTest(e->pos(), label, peak)) {
+        for (const auto &m : hits_.markers)
+            if (m.first.contains(e->pos())) { win_->headerMenu(index_, m.second, e->globalPos()); return; }
+        if (hits_.head.contains(e->pos())) win_->headerMenu(index_, QString(), e->globalPos());
+        return;
+    }
     win_->select(index_, label, peak);
     win_->editMenu(index_, e->globalPos());
 }
@@ -764,4 +770,36 @@ void PlotWindow::editMenu(int item, const QPoint &globalPos) {
     m.exec(globalPos);
 }
 
+
+// Marker header: Override GQ, Partial Locus Indicator; sample header: Override CGQ (ID-X plot popups).
+void PlotWindow::headerMenu(int item, const QString &marker, const QPoint &globalPos) {
+    const PaneData &d = paneData(item);
+    if (!backend_.sample_editable(static_cast<std::size_t>(d.sample))) return;
+    QMenu m(this);
+    auto apply = [this, &d](const QJsonObject &spec, const QString &what) {
+        const QString reason = askReason(what);
+        if (reason.isEmpty()) return;
+        const QByteArray sp = jsonText(spec).toUtf8(), rs = reason.trimmed().toUtf8();
+        const auto err = backend_.apply_edit_json(static_cast<std::size_t>(d.sample), rust::Str(sp.constData(), sp.size()), rust::Str(rs.constData(), rs.size()));
+        if (!err.empty()) { QMessageBox::warning(this, "OpenTrace", q(err)); return; }
+        afterEdit();
+    };
+    if (!marker.isEmpty()) {
+        const QByteArray mk = marker.toUtf8();
+        const bool pli = backend_.pli_on(static_cast<std::size_t>(d.sample), rust::Str(mk.constData(), mk.size()));
+        m.addSection(marker);
+        m.addAction(QString::fromUtf8("Переопределить GQ"), this, [=] { apply(QJsonObject{{"action", "override_gq"}, {"marker", marker}}, QString::fromUtf8("Переопределить GQ (%1)").arg(marker)); });
+        auto *a = m.addAction(QString::fromUtf8("Частичный локус (PLI)"), this, [=] {
+            apply(QJsonObject{{"action", "pli"}, {"marker", marker}, {"new", pli ? "off" : "on"}}, QString::fromUtf8("PLI %1 (%2)").arg(pli ? QString::fromUtf8("снять") : QString::fromUtf8("отметить"), marker));
+        });
+        a->setCheckable(true);
+        a->setChecked(pli);
+    } else {
+        m.addSection(d.name.isEmpty() ? d.file : d.name);
+        m.addAction(QString::fromUtf8("Переопределить CGQ"), this, [=] { apply(QJsonObject{{"action", "override_cgq"}}, QString::fromUtf8("Переопределить CGQ")); });
+    }
+    m.exec(globalPos);
+}
+
 } // namespace ot
+

@@ -17,7 +17,7 @@ void SampleModel::load() {
     rows_.reserve(static_cast<int>(n));
     for (std::size_t i = 0; i < n; ++i) {
         SampleRow r = backend_.sample_row(i);
-        rows_.push_back(RowView{q(r.file), q(r.name), q(r.run_folder), q(r.status), q(r.sq), q(r.method), q(r.size_std), q(r.instrument), q(r.well), q(r.error), q(r.stype), q(r.panel), q(r.sos), q(r.sspk), q(r.cgq)});
+        rows_.push_back(RowView{q(r.file), q(r.name), q(r.run_folder), q(r.status), q(r.sq), q(r.method), q(r.size_std), q(r.instrument), q(r.well), q(r.error), q(r.stype), q(r.panel), q(r.sos), q(r.sspk), q(r.cgq), q(r.mix), q(r.omr), q(r.se)});
     }
 }
 
@@ -39,7 +39,7 @@ int SampleModel::columnCount(const QModelIndex &parent) const { return parent.is
 QVariant SampleModel::headerData(int section, Qt::Orientation orientation, int role) const {
     if (role != Qt::DisplayRole) return {};
     if (orientation == Qt::Vertical) return section + 1;
-    static const char *h[] = {"Статус", "Файл образца", "Имя образца", "Тип образца", "Папка запуска", "Лунка", "Панель", "Метод анализа", "Стандарт длин", "SOS", "SQ", "SSPK", "CGQ", "Прибор"};
+    static const char *h[] = {"Статус", "Файл образца", "Имя образца", "Тип образца", "Папка запуска", "Лунка", "Панель", "Метод анализа", "Стандарт длин", "SOS", "SQ", "SSPK", "MIX", "OMR", "CGQ", "Прибор"};
     return QString::fromUtf8(h[section]);
 }
 
@@ -62,7 +62,7 @@ QVariant SampleModel::data(const QModelIndex &index, int role) const {
             if (r.stype == "negative") return QString::fromUtf8("Отрицательный контроль");
             return QString::fromUtf8("Образец");
         case Panel: return r.panel;
-        case SOS: case SSPK: case CGQ: return {};
+        case SOS: case SSPK: case MIX: case OMR: case CGQ: return {};
         case RunFolder: return r.runFolder;
         case Well: return r.well;
         case Method: return r.method;
@@ -76,6 +76,8 @@ QVariant SampleModel::data(const QModelIndex &index, int role) const {
         if (c == SOS) return qualityIcon(r.sos);
         if (c == SSPK) return qualityIcon(r.sspk);
         if (c == CGQ) return qualityIcon(r.cgq);
+        if (c == MIX) return qualityIcon(r.mix);
+        if (c == OMR) return qualityIcon(r.omr);
         if (c == Status && r.status == "failed") return qualityIcon("low");
     }
     if (role == Qt::ToolTipRole) {
@@ -83,9 +85,11 @@ QVariant SampleModel::data(const QModelIndex &index, int role) const {
         if (c == SOS) return r.sos;
         if (c == SSPK) return r.sspk;
         if (c == CGQ) return r.cgq;
+        if (c == MIX) return r.mix;
+        if (c == OMR) return r.omr;
         if (!r.error.isEmpty()) return r.error;
     }
-    if (role == Qt::TextAlignmentRole && (c == SQ || c == SOS || c == SSPK || c == CGQ)) return int(Qt::AlignCenter);
+    if (role == Qt::TextAlignmentRole && (c == SQ || c == SOS || c == SSPK || c == MIX || c == OMR || c == CGQ)) return int(Qt::AlignCenter);
     return {};
 }
 

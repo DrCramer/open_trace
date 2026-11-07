@@ -2,6 +2,7 @@
 mod backend;
 mod bridge;
 mod edits;
+mod flags;
 mod genotype;
 mod kits;
 mod project;

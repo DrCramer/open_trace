@@ -1381,7 +1381,9 @@ const reportApi={
   return out},
  plot:files=>{const set=new Set(files);state.selected=new Set(state.project.samples.filter(s=>set.has(s.file)).map(s=>s.id));render();displayPlots()},
  hasProject:()=>!!state.project.samples.length};
-window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.sniffSamples=sniffSamples;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;window.OT.instruments=instrumentsDialog;window.OT.instrumentGroups=instrumentGroups;window.OT.ensureInstruments=ensureInstruments;
+window.OT.report=reportApi;
+// read-only: sample and marker quality flags (comparison of the native desktop interface with this one in tests)
+window.OT.debugFlags=()=>state.project.samples.map(s=>({file:s.file,flags:sampleFlags(s),rows:genoRows(s).map(r=>({marker:r.marker,flags:r.flags}))}));window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.sniffSamples=sniffSamples;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;window.OT.instruments=instrumentsDialog;window.OT.instrumentGroups=instrumentGroups;window.OT.ensureInstruments=ensureInstruments;
 
 // ---------- printing: page setup and print preview ----------
 const PAGE_KEY='opentrace.pageSetup.v1';

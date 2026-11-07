@@ -37,6 +37,7 @@
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QSet>
+#include <QScrollArea>
 #include <QInputDialog>
 #include <QTableWidget>
 #include <QRadioButton>
@@ -60,7 +61,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     setWindowTitle(QString::fromUtf8("OpenTrace Desktop — без имени"));
     backend_->set_data_dir(r(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)));
     model_ = new SampleModel(*backend_, this);
-    proxy_ = new QSortFilterProxyModel(this);
+    proxy_ = new RowFilterProxy(this);
     proxy_->setSourceModel(model_);
     table_ = new QTableView;
     table_->setModel(proxy_);
@@ -87,7 +88,33 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     info_->setReadOnly(true);
     tabs_ = new QTabWidget;
     tabs_->setDocumentMode(true);
-    tabs_->addTab(table_, QString::fromUtf8("Образцы"));
+    auto *samplesPage = new QWidget;
+    {
+        auto *v = new QVBoxLayout(samplesPage);
+        v->setContentsMargins(0, 0, 0, 0);
+        v->setSpacing(0);
+        filterBar_ = new QWidget;
+        auto *h = new QHBoxLayout(filterBar_);
+        h->setContentsMargins(6, 3, 6, 3);
+        filterText_ = new QLabel;
+        auto *clear = new QPushButton(QString::fromUtf8("Показать все образцы"));
+        connect(clear, &QPushButton::clicked, this, [this] { filterRows({}, QString()); });
+        h->addWidget(filterText_, 1);
+        h->addWidget(clear);
+        filterBar_->setStyleSheet("background:#fff3cd");
+        filterBar_->hide();
+        v->addWidget(filterBar_);
+        v->addWidget(table_, 1);
+    }
+    tabs_->addTab(samplesPage, QString::fromUtf8("Образцы"));
+    // Analysis Summary
+    auto *sumScroll = new QScrollArea;
+    sumScroll->setWidgetResizable(true);
+    summary_ = new QWidget;
+    summaryLay_ = new QVBoxLayout(summary_);
+    summaryLay_->setAlignment(Qt::AlignTop);
+    sumScroll->setWidget(summary_);
+    tabs_->addTab(sumScroll, QString::fromUtf8("Сводка анализа"));
     genoTable_ = new QTableWidget;
     genoTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     genoTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -202,7 +229,9 @@ void MainWindow::buildMenus() {
 
     auto *view = menuBar()->addMenu(QString::fromUtf8("&Вид"));
     view->addAction(QString::fromUtf8("&Образцы"), QKeySequence("Ctrl+Shift+1"), this, [this] { tabs_->setCurrentIndex(0); });
-    view->addAction(QString::fromUtf8("&Информация об образце"), QKeySequence("Ctrl+F1"), this, [this] { tabs_->setCurrentIndex(1); });
+    view->addAction(QString::fromUtf8("&Сводка анализа"), QKeySequence("Ctrl+Shift+2"), this, [this] { refreshSummary(); tabs_->setCurrentIndex(1); });
+    view->addAction(QString::fromUtf8("&Генотипы"), QKeySequence("Ctrl+Shift+3"), this, [this] { tabs_->setCurrentWidget(genoTable_); });
+    view->addAction(QString::fromUtf8("&Информация об образце"), QKeySequence("Ctrl+F1"), this, [this] { tabs_->setCurrentWidget(info_); });
     view->addAction(QString::fromUtf8("&Журнал правок обозначений..."), this, [this] { labelEditViewer(); });
     auto *aNav = view->addAction(QString::fromUtf8("&Навигатор"));
     aNav->setCheckable(true);
@@ -365,6 +394,7 @@ void MainWindow::pollProgress() {
                               : QString::fromUtf8("Анализ завершён"));
     updateInfo();
     refreshGenotypes();
+    refreshSummary();
     markDirty();
     if (autotest_) QTimer::singleShot(300, this, [this] {
         const QString out = qEnvironmentVariable("OT_QT_AUTOTEST_OUT", ".");
@@ -374,6 +404,10 @@ void MainWindow::pollProgress() {
         tabs_->setCurrentWidget(genoTable_);
         QApplication::processEvents();
         grab().save(out + "/genotypes.png");
+        refreshSummary();
+        tabs_->setCurrentIndex(1);
+        QApplication::processEvents();
+        grab().save(out + "/summary.png");
         tabs_->setCurrentIndex(0);
         QVector<int> ok;
         int failed = 0;
@@ -416,6 +450,10 @@ void MainWindow::pollProgress() {
                     break;
                 }
             }
+        }
+        {
+            QFile ff(out + "/flags.json");
+            if (ff.open(QIODevice::WriteOnly)) ff.write(q(backend_->flags_json()).toUtf8());
         }
         const QString digest = q(backend_->genotype_digest());
         {
@@ -504,7 +542,7 @@ void MainWindow::exportTable() {
             QStringList row;
             for (int c = 0; c < genoTable_->columnCount(); ++c) {
                 const auto *it = genoTable_->item(i, c);
-                row << cell(it ? (it->text().isEmpty() ? it->toolTip() : it->text()) : QString());
+                row << cell(it ? (it->text().isEmpty() ? it->data(Qt::UserRole).toString() : it->text()) : QString());
             }
             out << row.join(sep) << "\n";
         }
@@ -749,7 +787,8 @@ void MainWindow::refreshGenotypes() {
     for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Аллель %1").arg(k);
     for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Размер %1").arg(k);
     for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Высота %1").arg(k);
-    head << "GQ";
+    static const QStringList FLAGS{"OS", "BIN", "PHR", "LPH", "MPH", "SPK", "AN", "ACC", "BD", "CC", "PLI", "ME", "GQ"};
+    head << FLAGS << QString::fromUtf8("Причина изменения");
     genoTable_->setSortingEnabled(false);
     genoTable_->clear();
     genoTable_->setColumnCount(head.size());
@@ -767,10 +806,17 @@ void MainWindow::refreshGenotypes() {
         for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.alleles.size() ? q(g.alleles[k]) : QString()));
         for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.sizes.size() ? QString::number(g.sizes[k], 'f', 2) : QString()));
         for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.heights.size() ? QString::number(std::lround(g.heights[k])) : QString()));
-        auto *gq = new QTableWidgetItem;
-        gq->setIcon(qualityIcon(q(g.gq)));
-        gq->setToolTip(q(g.gq));
-        genoTable_->setItem(i, c++, gq);
+        QHash<QString, QString> fl;
+        for (const auto &kv : g.flags) { const QString t = q(kv); fl[t.section('=', 0, 0)] = t.section('=', 1); }
+        for (const QString &k : FLAGS) {
+            auto *it = new QTableWidgetItem;
+            const QString v = k == "GQ" ? q(g.gq) : fl.value(k, "na");
+            it->setIcon(qualityIcon(v));
+            it->setToolTip(k + ": " + v);
+            it->setData(Qt::UserRole, v);
+            genoTable_->setItem(i, c++, it);
+        }
+        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.reason)));
         ++i;
     }
     genoTable_->setSortingEnabled(true);
@@ -833,6 +879,7 @@ void MainWindow::openProject() {
     model_->refresh();
     refreshNavigator();
     refreshGenotypes();
+    refreshSummary();
     updateInfo();
     updateTitle();
     status_->setText(QString::fromUtf8("Открыт проект: %1 (образцов: %2)").arg(path).arg(backend_->sample_count()));
@@ -910,6 +957,121 @@ void MainWindow::labelEditViewer() {
     lay->addLayout(row);
     if (tbl->rowCount() == 0) lay->insertWidget(0, new QLabel(QString::fromUtf8("Правок меток в проекте нет.")));
     dlg.exec();
+}
+
+
+void MainWindow::filterRows(const QSet<int> &rows, const QString &label) {
+    const bool on = !label.isEmpty();
+    proxy_->setRows(rows, on);
+    filterBar_->setVisible(on);
+    filterText_->setText(QString::fromUtf8("Отфильтровано: %1 (%2)").arg(label).arg(rows.size()));
+    if (on) tabs_->setCurrentIndex(0);
+}
+
+// Analysis Summary (ID-X): sample status, allelic ladders per run folder, controls, samples, genotyping notes,
+// instruments. Every number is a link that filters the Samples table to those samples.
+void MainWindow::refreshSummary() {
+    QString run = summaryRun_ ? summaryRun_->currentData().toString() : QString();
+    while (QLayoutItem *it = summaryLay_->takeAt(0)) {
+        if (it->widget()) it->widget()->deleteLater();
+        delete it;
+    }
+    summaryRun_ = nullptr;
+    const QByteArray rb = run.toUtf8();
+    const QJsonObject d = QJsonDocument::fromJson(q(backend_->summary_json(rust::Str(rb.constData(), rb.size()))).toUtf8()).object();
+    auto h2 = [&](const QString &t, int size) {
+        auto *l = new QLabel(t);
+        QFont f = l->font();
+        f.setBold(true);
+        f.setPointSizeF(f.pointSizeF() + size);
+        l->setFont(f);
+        summaryLay_->addWidget(l);
+    };
+    auto ids = [](const QJsonValue &v) { QSet<int> s; for (const auto &x : v.toArray()) s.insert(x.toInt()); return s; };
+    auto link = [this, ids](const QJsonValue &v, const QString &label) {
+        const QSet<int> rows = ids(v);
+        auto *l = new QLabel(rows.isEmpty() ? QString("0") : QString("<a href='x'>%1</a>").arg(rows.size()));
+        l->setAlignment(Qt::AlignCenter);
+        connect(l, &QLabel::linkActivated, this, [this, rows, label] { filterRows(rows, label); });
+        return l;
+    };
+    auto table = [&](const QStringList &head, const QList<QList<QWidget *>> &rows) {
+        auto *t = new QTableWidget(rows.size(), head.size());
+        t->setHorizontalHeaderLabels(head);
+        t->verticalHeader()->hide();
+        t->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        t->setSelectionMode(QAbstractItemView::NoSelection);
+        for (int r0 = 0; r0 < rows.size(); ++r0)
+            for (int c = 0; c < rows[r0].size(); ++c) t->setCellWidget(r0, c, rows[r0][c]);
+        t->resizeColumnsToContents();
+        for (int c = 0; c < head.size(); ++c) t->setColumnWidth(c, std::max(t->columnWidth(c) + 24, 110));
+        t->setFixedHeight(t->horizontalHeader()->height() + rows.size() * t->verticalHeader()->defaultSectionSize() + 4);
+        t->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+        auto *wrap = new QWidget;
+        auto *hl = new QHBoxLayout(wrap);
+        hl->setContentsMargins(0, 0, 0, 0);
+        hl->addWidget(t);
+        hl->addStretch(1);
+        summaryLay_->addWidget(wrap);
+    };
+    auto text = [](const QString &s) { auto *l = new QLabel(s); l->setContentsMargins(6, 0, 6, 0); return l; };
+    h2(QString::fromUtf8("Сводка анализа"), 3);
+    {
+        auto *row = new QWidget;
+        auto *hl = new QHBoxLayout(row);
+        hl->setContentsMargins(0, 0, 0, 0);
+        hl->addWidget(new QLabel(QString::fromUtf8("Папка запуска:")));
+        summaryRun_ = new QComboBox;
+        summaryRun_->addItem(QString::fromUtf8("Все папки запуска"), QString());
+        for (const auto &r0 : d["runs"].toArray()) summaryRun_->addItem(r0.toString(), r0.toString());
+        summaryRun_->setCurrentIndex(std::max(0, summaryRun_->findData(run)));
+        summaryRun_->setEnabled(summaryRun_->count() > 2);
+        connect(summaryRun_, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] { QTimer::singleShot(0, this, [this] { refreshSummary(); }); });
+        hl->addWidget(summaryRun_);
+        hl->addStretch(1);
+        summaryLay_->addWidget(row);
+    }
+    const QJsonObject st = d["status"].toObject();
+    table({QString::fromUtf8("Статус образца"), QString::fromUtf8("Всего образцов")},
+          {{text(QString::fromUtf8("Не проанализирован")), link(st["unanalyzed"], QString::fromUtf8("не проанализированы"))},
+           {text(QString::fromUtf8("Проанализирован")), link(st["analyzed"], QString::fromUtf8("проанализированы"))}});
+    h2(QString::fromUtf8("Качество аллельных лестниц по папкам запуска (по SQ и CGQ)"), 1);
+    summaryLay_->addWidget(new QLabel(QString::fromUtf8("Бины смещаются только по лестницам с зелёными SQ и CGQ.")));
+    QList<QList<QWidget *>> lr;
+    for (const auto &lv : d["ladders"].toArray()) {
+        const QJsonObject l = lv.toObject();
+        const QString rf = l["run"].toString();
+        lr.push_back({text(rf), link(l["all"], rf), link(l["used"], rf), link(l["unused"], rf), link(l["low"], rf)});
+    }
+    table({QString::fromUtf8("Папка запуска"), QString::fromUtf8("Всего"), QString::fromUtf8("SQ и CGQ годны (смещение бинов)"), QString::fromUtf8("SQ и CGQ годны (не для смещения)"),
+           QString::fromUtf8("SQ или CGQ не годны")}, lr);
+    auto flagTable = [&](const QString &first, const QJsonArray &rowsJ) {
+        QList<QList<QWidget *>> rr;
+        for (const auto &rv : rowsJ) {
+            const QJsonObject r1 = rv.toObject();
+            const QString lbl = r1["label"].toString();
+            rr.push_back({text(lbl), link(r1["all"], lbl), link(r1["ok"], lbl), link(r1["bad"], lbl)});
+        }
+        table({first, QString::fromUtf8("Всего"), QString::fromUtf8("Все пороги соблюдены"), QString::fromUtf8("Один или более порогов не соблюдены")}, rr);
+    };
+    h2(QString::fromUtf8("Качество контролей (по PQV образца: SOS, SSPK, SQ, CGQ)"), 1);
+    flagTable(QString::fromUtf8("Тип контроля"), d["controls"].toArray());
+    h2(QString::fromUtf8("Качество образцов (по PQV образца: SOS, SSPK, SQ, CGQ)"), 1);
+    flagTable(QString(), d["samples"].toArray());
+    if (!d["skipped"].toArray().isEmpty() || !d["reference_bins"].toArray().isEmpty()) {
+        h2(QString::fromUtf8("Генотипирование"), 1);
+        table({QString(), QString::fromUtf8("Всего")},
+              {{text(QString::fromUtf8("Не генотипированы: в папке нет годной лестницы")), link(d["skipped"], QString::fromUtf8("пропущены"))},
+               {text(QString::fromUtf8("Генотипированы по эталонным бинам (без смещения)")), link(d["reference_bins"], QString::fromUtf8("эталонные бины"))}});
+    }
+    h2(QString::fromUtf8("Приборы"), 1);
+    QList<QList<QWidget *>> ir;
+    for (const auto &iv : d["instruments"].toArray()) {
+        const QJsonObject o = iv.toObject();
+        ir.push_back({text(o["name"].toString()), link(o["samples"], o["name"].toString())});
+    }
+    table({QString::fromUtf8("Прибор (модель и серийный номер из файла)"), QString::fromUtf8("Образцов")}, ir);
+    summaryLay_->addStretch(1);
 }
 
 } // namespace ot

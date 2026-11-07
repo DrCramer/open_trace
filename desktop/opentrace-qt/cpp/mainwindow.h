@@ -12,11 +12,15 @@ class QProgressBar;
 class QPushButton;
 class QTimer;
 class QSortFilterProxyModel;
+class QScrollArea;
+class QComboBox;
+class QVBoxLayout;
 class QTableWidget;
 
 namespace ot {
 struct Backend;
 class SampleModel;
+class RowFilterProxy;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,7 +32,14 @@ protected:
 private:
     rust::Box<Backend> backend_;
     SampleModel *model_ = nullptr;
-    QSortFilterProxyModel *proxy_ = nullptr;
+    class RowFilterProxy *proxy_ = nullptr;
+    QWidget *filterBar_ = nullptr;
+    QLabel *filterText_ = nullptr;
+    QWidget *summary_ = nullptr;
+    QVBoxLayout *summaryLay_ = nullptr;
+    QComboBox *summaryRun_ = nullptr;
+    void refreshSummary();
+    void filterRows(const QSet<int> &rows, const QString &label);
     QTableView *table_ = nullptr;
     QTreeWidget *nav_ = nullptr;
     QTabWidget *tabs_ = nullptr;

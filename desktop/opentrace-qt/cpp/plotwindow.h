@@ -52,6 +52,8 @@ PaneGeometry paneGeometry(const QRectF &rect, const QFontMetricsF &fm, double ga
 // Where things were drawn (mouse hit tests of the screen panes).
 struct PaneHits {
     QVector<QPair<QRectF, int>> labels;   // label box -> index in PaneData::labels
+    QVector<QPair<QRectF, QString>> markers;   // marker header -> marker name
+    QRectF head;                          // sample header
     double L = 0, R = 0, top = 0, bottom = 0, ymax = 1;
 };
 // selection drawn by the pane: label index (-1 none), peak index (-1 none)
@@ -92,6 +94,7 @@ public:
     void select(int item, int label, int peak);
     void editMenu(int item, const QPoint &globalPos);
     void editSelected(const QString &action);
+    void headerMenu(int item, const QString &marker, const QPoint &globalPos);
     // a pane on screen / paper: one sample, all its shown dyes or one dye
     struct PaneItem { int data; QString dye; };
     const PaneData &paneData(int item) const { return panes_[items_[item].data]; }

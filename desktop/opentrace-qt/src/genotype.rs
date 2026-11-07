@@ -383,6 +383,14 @@ impl Inner {
         Ok(entry)
     }
 
+    /// Kit of a sample (panel + method), None without a panel or when the kit cannot be built.
+    pub fn kit_of(&self, s: &Sample) -> Option<Arc<KitEntry>> {
+        if s.panel_key.is_empty() {
+            return None;
+        }
+        self.kit_for(&s.panel_key, &s.method).ok()
+    }
+
     fn register_ladders(&self, ladders: &Value) -> Option<String> {
         self.api("/api/ladder-set", &json!({"ladders": ladders})).ok().and_then(|v| v["ladder_set"].as_str().map(String::from))
     }

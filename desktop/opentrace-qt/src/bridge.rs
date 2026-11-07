@@ -21,6 +21,9 @@ pub mod ffi {
         sos: String,
         sspk: String,
         cgq: String,
+        mix: String,
+        omr: String,
+        se: String,
     }
     /// One row of the Genotypes table (one marker of one sample).
     struct GenoRow {
@@ -33,6 +36,9 @@ pub mod ffi {
         sizes: Vec<f64>,
         heights: Vec<f64>,
         gq: String,
+        /// PQV flags of the marker as "KEY=value" (OS, BIN, PHR, LPH, MPH, SPK, AN, BD, OVL, ACC, CC, ADO, PLI, ME, GQ)
+        flags: Vec<String>,
+        reason: String,
     }
     struct PlotMarker {
         name: String,
@@ -118,6 +124,10 @@ pub mod ffi {
         fn option_get(self: &Backend, key: &str) -> String;
         fn option_set(self: &Backend, key: &str, value: &str) -> bool;
         fn genotype_digest(self: &Backend) -> String;
+        fn flags_json(self: &Backend) -> String;
+        fn summary_json(self: &Backend, run_folder: &str) -> String;
+        fn pli_on(self: &Backend, i: usize, marker: &str) -> bool;
+        fn sample_editable(self: &Backend, i: usize) -> bool;
         fn plot_markers(self: &Backend, i: usize) -> Vec<PlotMarker>;
         /// "" on success, else the error text
         fn save_project_file(self: &Backend, path: &str) -> String;
@@ -247,33 +257,109 @@ impl Backend {
         }
     }
     fn genotype_rows(&self) -> Vec<ffi::GenoRow> {
-        let list = self.samples.lock().unwrap();
+        let list: Vec<crate::backend::Sample> = self.samples.lock().unwrap().clone();
         let mut out = Vec::new();
         for (i, s) in list.iter().enumerate() {
-            let Some(rep) = &s.report else { continue };
-            if rep["allele_calling"].is_null() {
+            if s.report.is_none() {
                 continue;
             }
-            let eff = crate::edits::effective(s);
-            let gq: std::collections::HashMap<String, &serde_json::Value> =
-                rep["quality"]["marker_gq"]["markers"].as_array().into_iter().flatten().filter_map(|m| Some((m["marker"].as_str()?.to_string(), m))).collect();
-            for m in rep["allele_calling"]["markers"].as_array().into_iter().flatten() {
-                let name = m["name"].as_str().unwrap_or("");
-                let calls: Vec<&serde_json::Value> = eff.calls.iter().filter(|c| c["marker"] == name && !c["label"].is_null()).collect();
+            let kit = self.kit_of(s);
+            for r in crate::flags::marker_rows(s, kit.as_ref().map(|k| &k.kit), 2) {
+                let labelled: Vec<&serde_json::Value> = r.calls.iter().filter(|c| !c["label"].is_null()).collect();
                 out.push(ffi::GenoRow {
                     sample: i,
                     file: s.file.clone(),
                     name: s.name.clone(),
-                    marker: name.to_string(),
-                    dye: m["channel"].as_str().unwrap_or("").to_string(),
-                    alleles: calls.iter().map(|c| crate::kits::js_num(&c["label"])).collect(),
-                    sizes: calls.iter().map(|c| c["size_bp"].as_f64().unwrap_or(0.0)).collect(),
-                    heights: calls.iter().map(|c| c["height"].as_f64().unwrap_or(0.0)).collect(),
-                    gq: if s.stype == "ladder" { "na".into() } else if eff.gq_override.contains(name) { "override".into() } else { gq.get(name).map(|g| crate::genotype::code(&g["category"]["code"]).to_string()).unwrap_or_else(|| "na".into()) },
+                    marker: r.marker.clone(),
+                    dye: r.channel.clone(),
+                    alleles: labelled.iter().map(|c| crate::kits::js_num(&c["label"])).collect(),
+                    sizes: labelled.iter().map(|c| c["size_bp"].as_f64().unwrap_or(0.0)).collect(),
+                    heights: labelled.iter().map(|c| c["height"].as_f64().unwrap_or(0.0)).collect(),
+                    gq: if s.stype == "ladder" { "na".into() } else { r.flags["GQ"].to_string() },
+                    flags: r.flags.iter().map(|(k, v)| format!("{k}={v}")).collect(),
+                    reason: if r.mec.is_empty() { r.reason.clone() } else { r.mec.clone() },
                 });
             }
         }
         out
+    }
+    /// Analysis Summary (web `renderSummary`): counts with the sample rows behind each number.
+    fn summary_json(&self, run_folder: &str) -> String {
+        use serde_json::json;
+        let list: Vec<crate::backend::Sample> = self.samples.lock().unwrap().clone();
+        let mut runs: Vec<String> = Vec::new();
+        for s in &list {
+            if !runs.contains(&s.run_folder) {
+                runs.push(s.run_folder.clone());
+            }
+        }
+        let all: Vec<usize> = (0..list.len()).filter(|&i| run_folder.is_empty() || list[i].run_folder == run_folder).collect();
+        let done: Vec<usize> = all.iter().copied().filter(|&i| list[i].status == crate::backend::Status::Analyzed).collect();
+        let worst = |i: usize| -> &'static str {
+            let q = crate::genotype::sample_pqv(&list[i]);
+            let v = [q.sos, q.sq, q.sspk, q.cgq];
+            if v.contains(&"low") { "low" } else if v.contains(&"check") { "check" } else { "pass" }
+        };
+        let row = |label: &str, ids: Vec<usize>| {
+            let ok: Vec<usize> = ids.iter().copied().filter(|&i| worst(i) == "pass").collect();
+            let bad: Vec<usize> = ids.iter().copied().filter(|&i| worst(i) != "pass").collect();
+            json!({"label": label, "all": ids, "ok": ok, "bad": bad})
+        };
+        let typed = |t: &str| -> Vec<usize> { done.iter().copied().filter(|&i| list[i].stype == t).collect() };
+        let ctrl: Vec<usize> = done.iter().copied().filter(|&i| list[i].stype == "positive" || list[i].stype == "negative").collect();
+        let sq_pass = |s: &crate::backend::Sample| matches!(crate::genotype::sample_pqv(s).sq, "pass" | "override");
+        let ladders: Vec<serde_json::Value> = runs
+            .iter()
+            .filter(|r| run_folder.is_empty() || r.as_str() == run_folder)
+            .map(|rf| {
+                let l: Vec<usize> = (0..list.len()).filter(|&i| &list[i].run_folder == rf && list[i].stype == "ladder" && list[i].status != crate::backend::Status::NotAnalyzed).collect();
+                let cls = |i: usize| {
+                    let s = &list[i];
+                    if s.ladder_quality == Some(0) && sq_pass(s) { if s.ladder_used { "used" } else { "unused" } } else { "low" }
+                };
+                json!({"run": rf, "all": l, "used": l.iter().copied().filter(|&i| cls(i) == "used").collect::<Vec<_>>(),
+                       "unused": l.iter().copied().filter(|&i| cls(i) == "unused").collect::<Vec<_>>(), "low": l.iter().copied().filter(|&i| cls(i) == "low").collect::<Vec<_>>()})
+            })
+            .collect();
+        let mut inst: Vec<(String, Vec<usize>)> = Vec::new();
+        for &i in &all {
+            let k = if list[i].instrument.is_empty() { "—".to_string() } else { list[i].instrument.clone() };
+            match inst.iter_mut().find(|(n, _)| *n == k) {
+                Some((_, v)) => v.push(i),
+                None => inst.push((k, vec![i])),
+            }
+        }
+        json!({
+            "runs": runs,
+            "status": {"unanalyzed": all.iter().copied().filter(|&i| list[i].status != crate::backend::Status::Analyzed).collect::<Vec<_>>(), "analyzed": done},
+            "ladders": ladders,
+            "controls": [row("Всего", ctrl), row("Положительный контроль", typed("positive")), row("Отрицательный контроль", typed("negative"))],
+            "samples": [row("Образцы", typed("sample"))],
+            "skipped": all.iter().copied().filter(|&i| list[i].alas_skipped).collect::<Vec<_>>(),
+            "reference_bins": all.iter().copied().filter(|&i| list[i].reference_bins && list[i].report.is_some()).collect::<Vec<_>>(),
+            "instruments": inst.into_iter().map(|(k, v)| json!({"name": k, "samples": v})).collect::<Vec<_>>(),
+        })
+        .to_string()
+    }
+    fn pli_on(&self, i: usize, marker: &str) -> bool {
+        self.samples.lock().unwrap().get(i).is_some_and(|s| crate::edits::effective(s).pli.contains(marker))
+    }
+    /// Labels can be edited: the sample has a genotyping report and is not an allelic ladder.
+    fn sample_editable(&self, i: usize) -> bool {
+        self.samples.lock().unwrap().get(i).is_some_and(|s| s.report.is_some() && s.stype != "ladder")
+    }
+    /// Sample and marker flags of every sample as JSON (comparison with the web UI in tests).
+    fn flags_json(&self) -> String {
+        let list: Vec<crate::backend::Sample> = self.samples.lock().unwrap().clone();
+        let mut out = Vec::new();
+        for s in &list {
+            let kit = self.kit_of(s);
+            let method = self.methods.lock().unwrap().iter().find(|m| m["name"] == s.method.as_str()).cloned();
+            let sf = crate::flags::sample_flags(s, kit.as_ref().map(|k| &k.kit), method.as_ref(), 2);
+            let rows: Vec<serde_json::Value> = crate::flags::marker_rows(s, kit.as_ref().map(|k| &k.kit), 2).iter().map(|r| serde_json::json!({"marker": r.marker, "flags": r.flags})).collect();
+            out.push(serde_json::json!({"file": s.file, "flags": sf, "rows": rows}));
+        }
+        serde_json::Value::Array(out).to_string()
     }
     /// file:marker=allele,... per sample (the same digest the browser tests print) for comparisons with the web UI.
     fn genotype_digest(&self) -> String {
@@ -357,6 +443,7 @@ impl Backend {
         // kit of the sample's panel and method (built from the Panel Manager store when the project was just opened)
         let Ok(k) = self.kit_for(&s.panel_key, &s.method) else { return Vec::new() };
         let rep = s.report.clone();
+        let edited = crate::edits::effective(&s).edited;
         let calling = |name: &str| -> Option<serde_json::Value> {
             let ms = &rep.as_ref()?["allele_calling"]["markers"];
             match ms {
@@ -392,7 +479,8 @@ impl Backend {
                 tag: m["channel"].as_str().unwrap_or("").to_string(),
                 min_bp: m["min_bp"].as_f64().unwrap_or(0.0),
                 max_bp: m["max_bp"].as_f64().unwrap_or(0.0),
-                gq: gq.get(name).cloned().unwrap_or_else(|| "na".into()),
+                // header grey when the marker's labels were edited (web plot window)
+                gq: if edited.contains(name) { "na".into() } else { gq.get(name).cloned().unwrap_or_else(|| "na".into()) },
                 window,
                 bins,
             });
@@ -483,9 +571,15 @@ impl Backend {
         let list = self.samples.lock().unwrap();
         let Some(s) = list.get(i) else {
             let e = String::new;
-            return ffi::SampleRow { file: e(), name: e(), run_folder: e(), status: e(), sq: e(), method: e(), size_std: e(), instrument: e(), well: e(), error: e(), stype: e(), panel: e(), sos: e(), sspk: e(), cgq: e() };
+            return ffi::SampleRow { file: e(), name: e(), run_folder: e(), status: e(), sq: e(), method: e(), size_std: e(), instrument: e(), well: e(), error: e(), stype: e(), panel: e(), sos: e(), sspk: e(), cgq: e(), mix: e(), omr: e(), se: e() };
         };
         let pq = crate::genotype::sample_pqv(s);
+        let s = s.clone();
+        drop(list);
+        let kit = self.kit_of(&s);
+        let method = self.methods.lock().unwrap().iter().find(|m| m["name"] == s.method.as_str()).cloned();
+        let fl = crate::flags::sample_flags(&s, kit.as_ref().map(|k| &k.kit), method.as_ref(), 2);
+        let s = &s;
         ffi::SampleRow {
             file: s.file.clone(),
             name: s.name.clone(),
@@ -507,7 +601,10 @@ impl Backend {
             panel: s.panel_key.split('\u{1}').nth(1).unwrap_or("").to_string(),
             sos: pq.sos.into(),
             sspk: pq.sspk.into(),
-            cgq: pq.cgq.into(),
+            cgq: fl["CGQ"].into(),
+            mix: fl["MIX"].into(),
+            omr: fl["OMR"].into(),
+            se: fl["SE"].into(),
         }
     }
     fn remove_samples(&self, rows: &Vec<usize>) {
