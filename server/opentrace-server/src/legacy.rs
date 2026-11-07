@@ -204,7 +204,7 @@ pub async fn handle(st: Shared, req: Request<Body>) -> Response<Body> {
     let target = req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| "/".into());
     let path = req.uri().path().to_string();
     let headers = req.headers().clone();
-    let limit = if path == "/api/analyze" || path == "/api/sample-info" {
+    let limit = if path == "/api/analyze" || path == "/api/sample-info" || path == "/api/instrument" {
         opentrace_core::abif::MAX_FILE_BYTES
     } else {
         (st.cfg.legacy_max_body_mib * 1024 * 1024) as usize

@@ -695,7 +695,8 @@ function printPlots(preview){if(!payload||!payload.samples.length)return message
   t.append(tr);return t};
  r.pages.forEach((pg,i)=>{const page=el('div',{class:'ppage',style:`width:${r.pw}mm;height:${r.ph-0.5}mm`});
   if(o.header)page.append(el('div',{class:'pphead',style:`height:${r.headH-2}mm`},el('div',{class:'ppapp'},el('b',{text:'OpenTrace'}),el('span',{text:ver})),
-   el('div',{class:'ppproj',text:`Project: ${proj}`+(payload.printComment?` — ${payload.printComment}`:'')}),el('div')));
+   el('div',{class:'ppproj',text:`Project: ${proj}`+(payload.printComment?` — ${payload.printComment}`:'')}),
+   el('div',{class:'ppinstr',text:(payload.instruments||[]).length?`${T('inPrint')}: ${payload.instruments.join('; ')}`:''})));
   const ch=el('table',{class:'ppcols'});ch.append(colgroup(),el('tr',{},...cols.map(c=>el('th',{text:c[1]}))));page.append(ch);
   for(const im of pg){const box=el('div',{class:'ppsvg',style:`width:${r.usableW-2}mm;height:${r.imgH}mm`});box.innerHTML=im.svg;page.append(el('div',{class:'ppane',style:`height:${r.paneH-2}mm`},headRow(im),box))}
   page.append(el('div',{class:'ppfoot'},el('span',{text:date}),el('span',{text:`Printed by: ${user}`}),el('span',{text:`Page ${i+1} of ${r.pages.length}`})));

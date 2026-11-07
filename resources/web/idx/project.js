@@ -554,7 +554,11 @@ function renderSummary(){
  if(skipped.length||refBins.length){const nt=el('table');nt.append(head('',[T('sumTotal')]));
   if(skipped.length)nt.append(el('tr',{},el('td',{text:T('sumSkipped')}),el('td',{},filterLink(skipped.map(s=>s.id),T('sumSkipped')))));
   if(refBins.length)nt.append(el('tr',{},el('td',{text:T('sumRefBins')}),el('td',{},filterLink(refBins.map(s=>s.id),T('sumRefBins')))));
-  box.append(el('h3',{text:T('sumGenotyping')}),nt)}}
+  box.append(el('h3',{text:T('sumGenotyping')}),nt)}
+ // Instruments that recorded these samples (read from the files on first display when the analysis predates it)
+ {const sec=el('div',{class:'suminstr'});box.append(el('h3',{text:T('inSection')}),sec);
+  const fill=()=>{const {table,count}=instrumentsTable(all);sec.replaceChildren(count?table:el('p',{class:'note',text:all.length?T('inNone'):''}))};
+  fill();if(all.some(s=>!instrumentOf(s)&&s.blob&&!s.instrumentTried))ensureInstruments(all).then(ch=>{if(ch&&state.tab==='summary')fill()})}}
 function renderFilterBar(){const bar=$('filterBar');if(!bar)return;const f=state.filter;
  const tc=state.tsCount?.[state.tab==='genotypes'?'genotypes':'samples'];
  bar.hidden=!(f&&f.ids)&&!tc;bar.replaceChildren();if(bar.hidden)return;
@@ -1002,6 +1006,67 @@ function recordBinOffsets(g,k,ladder){
 function binOffsetRows(rf){
  const out=[];for(const e of (state.project.binOffsets||[]).filter(x=>x.run===rf))for(const m of e.markers)for(const [b,v] of m.bins)
   out.push([e.run,e.binSet,e.panel,m.marker,b,String(Math.round(v*1e4)/1e4)]);return out}
+
+// ---------- instruments: which sequencer recorded the samples ----------
+// The identification comes from the sample files (core `instrument.rs`: serial number, model written in the file,
+// capillaries, data collection software, consumables); `/api/analyze?slim=1` returns it with the analysis, older
+// analyses read it from the file on demand. Names are the user's own decoding of serial numbers (this browser/app).
+const INSTR_NAMES_KEY='opentrace.instrumentNames.v1';
+const InstrumentNames={
+ all(){try{return JSON.parse(localStorage.getItem(INSTR_NAMES_KEY)||'{}')||{}}catch(e){return {}}},
+ save(m){try{localStorage.setItem(INSTR_NAMES_KEY,JSON.stringify(m))}catch(e){}},
+ of(serial){return serial?(this.all()[serial]||''):''},
+ put(serial,name){const m=this.all();if(name)m[serial]=name;else delete m[serial];this.save(m)}};
+function instrumentOf(s){return s.analysis?.instrument||s.instrument||null}
+function instrumentLabel(i){if(!i)return '';const n=InstrumentNames.of(i.serial);
+ const tail=[i.model,i.capillaries?i.capillaries+' '+T('inCapShort'):''].filter(Boolean).join(', ');return (n||i.serial||'?')+(tail?` (${tail})`:'')}
+let instrumentsBusy=null;
+async function ensureInstruments(list=state.project.samples){const todo=list.filter(s=>!instrumentOf(s)&&s.blob&&!s.instrumentTried);
+ if(!todo.length)return false;const slots=limiter(ANALYZE_CONCURRENCY);
+ await Promise.all(todo.map(s=>slots(async()=>{s.instrumentTried=true;try{const r=await fetch('/api/instrument?'+new URLSearchParams({filename:s.file}),{method:'POST',
+  headers:{'X-Session-Token':TOKEN,'X-User-Ticket':window.Sec?Sec.ticket():''},body:s.blob});if(r.ok)s.instrument=await r.json()}catch(e){}})));return true}
+// instruments of a sample list grouped by serial number (samples without data are counted apart)
+function instrumentGroups(list){const by=new Map();let unknown=[];
+ for(const s of list){const i=instrumentOf(s);if(!i||(!i.serial&&!i.model)){unknown.push(s);continue}const k=i.serial||i.model;
+  if(!by.has(k))by.set(k,{key:k,info:i,samples:[],runs:new Set(),dates:new Set(),arrayRuns:[],dyes:new Set(),polymers:new Set(),modules:new Set(),arrays:new Set(),dc:new Set()});
+  const g=by.get(k);g.samples.push(s);if(s.runFolder)g.runs.add(s.runFolder);if(i.run_start)g.dates.add(i.run_start.slice(0,10));
+  if(i.array_run!=null)g.arrayRuns.push(i.array_run);if(i.dye_set||i.spectral)g.dyes.add([i.dye_set,i.spectral].filter(Boolean).join(' / '));
+  if(i.polymer||i.polymer_lot)g.polymers.add([i.polymer,i.polymer_lot&&(T('inLot')+' '+i.polymer_lot)].filter(Boolean).join(', '));
+  if(i.run_module)g.modules.add(i.run_module+(i.injection_v!=null?` (${(i.injection_v/1000).toFixed(1)} kV ${i.injection_s??'?'} s)`:''));
+  if(i.array_serial)g.arrays.add(i.array_serial);if(i.data_collection)g.dc.add(i.data_collection+(i.file_format?' · '+i.file_format:''))}
+ return {groups:[...by.values()],unknown}}
+function vendorText(i){return i.vendor==='applied_biosystems'?T('inVendorAB'):i.vendor==='compatible'?T('inVendorCompat'):T('inVendorUnknown')}
+function dateSpan(set){const d=[...set].sort();if(!d.length)return '';const f=x=>x.split('-').reverse().join('.');return d.length===1?f(d[0]):`${f(d[0])} – ${f(d[d.length-1])}`}
+function instrumentsTable(list,{edit=false,onChange}={}){const {groups,unknown}=instrumentGroups(list);
+ const t=el('table',{class:edit?'grid indlg-t':''});
+ const cols=edit?[T('inName'),T('inSerial'),T('inModel'),T('inCaps'),T('inVendor'),T('inDC'),T('inArray'),T('inPolymer'),T('inDyes'),T('inModule'),T('inSamples'),T('inRuns'),T('inDates')]
+  :[T('inName'),T('inSerial'),T('inModel'),T('inCaps'),T('inVendor'),T('inSamples'),T('inDates')];
+ t.append(el('tr',{},...cols.map(c=>el('th',{text:c}))));
+ for(const g of groups){const i=g.info;const name=InstrumentNames.of(i.serial);
+  const nameCell=el('td');
+  if(edit){const inp=el('input',{type:'text',value:name,placeholder:i.name&&i.name!==i.serial?i.name:''});inp.addEventListener('change',()=>{InstrumentNames.put(i.serial||g.key,inp.value.trim());onChange&&onChange()});nameCell.append(inp)}
+  else nameCell.textContent=name||'—';
+  const vend=el('td',{text:vendorText(i)});if((i.vendor_reasons||[]).length)vend.title=i.vendor_reasons.join('\n');if(i.vendor==='compatible')vend.className='warn';
+  const ar=g.arrayRuns.length?`${[...g.arrays].join(', ')} (${T('inArrayRuns')} ${Math.min(...g.arrayRuns)}–${Math.max(...g.arrayRuns)})`:[...g.arrays].join(', ');
+  const samplesCell=el('td',{},filterLink(g.samples.map(x=>x.id),`${T('inSection')}: ${name||i.serial||g.key}`));
+  const row=edit?[nameCell,el('td',{text:i.serial||''}),el('td',{text:[i.model,i.family&&i.family!==i.model?`(${i.family})`:''].filter(Boolean).join(' ')}),el('td',{class:'num',text:i.capillaries??''}),vend,
+    el('td',{text:[...g.dc].join('; ')}),el('td',{text:ar}),el('td',{text:[...g.polymers].join('; ')}),el('td',{text:[...g.dyes].join('; ')}),el('td',{text:[...g.modules].join('; ')}),samplesCell,el('td',{text:[...g.runs].join(', ')}),el('td',{text:dateSpan(g.dates)})]
+   :[nameCell,el('td',{text:i.serial||''}),el('td',{text:i.model||''}),el('td',{class:'num',text:i.capillaries??''}),vend,samplesCell,el('td',{text:dateSpan(g.dates)})];
+  t.append(el('tr',{},...row))}
+ if(unknown.length){const r=el('tr',{},el('td',{text:T('inUnknownRows'),colSpan:edit?10:5}),el('td',{},filterLink(unknown.map(x=>x.id),T('inUnknownRows'))),el('td',{text:''}));if(edit)r.append(el('td'),el('td'));t.append(r)}
+ return {table:t,count:groups.length}}
+async function instrumentsDialog(){
+ const list=state.project.samples;let host;
+ const draw=()=>{if(!host)return;host.replaceChildren();const {table,count}=instrumentsTable(list,{edit:true,onChange:()=>{render()}});
+  host.append(count?el('div',{class:'inwrap'},table):el('p',{class:'note',text:T('inNone')}))};
+ dialog(T('inTitle'),b=>{b.classList.add('indlg');host=el('div',{text:T('inLoading')});b.append(host,el('p',{class:'note',text:T('inNamesNote')}))},
+  [[T('inImport'),()=>{const i=el('input',{type:'file',accept:'.csv,.txt',style:'display:none'});i.addEventListener('change',async()=>{const f=i.files[0];i.remove();if(!f)return;
+     const m=InstrumentNames.all();for(const line of (await f.text()).split(/\r?\n/)){const [k,...v]=line.split(/[;\t]/);const key=(k||'').trim(),val=v.join(' ').trim();if(key&&val&&!/^serial/i.test(key))m[key]=val}
+     InstrumentNames.save(m);draw();render()});document.body.append(i);i.click();return false}],
+   [T('inExport'),()=>{const m=InstrumentNames.all();const keys=new Set([...Object.keys(m),...instrumentGroups(list).groups.map(g=>g.info.serial||g.key)]);
+     saveText('OpenTrace_instruments.csv',['serial;name',...[...keys].sort().map(k=>`${k};${m[k]||''}`)].join('\n')+'\n','csv');return false}],
+   [T('close'),()=>true,true]]);
+ await ensureInstruments(list);draw()}
 function binOffsetsDialog(){
  const rf=state.filter?.run;if(!rf)return;
  const head=[T('boRun'),T('boBinSet'),T('boPanel'),T('boMarker'),T('boBin'),T('boOffset')];const rows=binOffsetRows(rf);
@@ -1095,7 +1160,8 @@ function plotPayload(){
  const po=ProjectOptions.get();
  const mode=state.tab==='genotypes'?'genotypes':'samples';
  if(mode==='genotypes'&&!state.genoSel.length)state.genoSel=state.project.samples.filter(s=>state.selected.has(s.id)).flatMap(s=>genoRows(s).map(r=>s.id+'|'+r.marker));
- return {lang:I18N.lang,mode,genoSel:mode==='genotypes'?state.genoSel.slice():[],project:state.project.name||'',printComment:po.printComment?po.comment:'',kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
+ return {lang:I18N.lang,mode,genoSel:mode==='genotypes'?state.genoSel.slice():[],project:state.project.name||'',printComment:po.printComment?po.comment:'',
+  instruments:[...new Set(samples.map(s=>instrumentLabel(instrumentOf(s))).filter(Boolean))],kit:(samples.map(sampleKit).find(Boolean))||null,samples:samples.map(s=>{const eff=s.report?effective(s):null;const rows=genoRows(s);
   return {id:s.id,file:s.file,name:s.name,type:s.type,analysis:s.analysis,report:s.report?{...s.report,calls:eff.calls,artifacts:eff.artifacts}:null,spk:s.report?spikeArtifacts(s):[],kit:sampleKit(s),pqv:sampleFlags(s),omr:s.report?omrPeaks(s):[],
    editReasons:Object.fromEntries(activeEdits(s).map(e=>[e.callId||('u'+e.id),e.reason||''])),
    markers:rows.map(r=>({marker:r.marker,channel:r.channel,gq:r.gq,gqCat:r.flags.GQ,flags:r.flags,panel:s.panel||'',calls:r.calls,edited:r.flags.ME==='check',pli:r.flags.PLI==='check'})),editable:!!s.report}})}}
@@ -1283,7 +1349,7 @@ const reportApi={
   return out},
  plot:files=>{const set=new Set(files);state.selected=new Set(state.project.samples.filter(s=>set.has(s.file)).map(s=>s.id));render();displayPlots()},
  hasProject:()=>!!state.project.samples.length};
-window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.sniffSamples=sniffSamples;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;
+window.OT.report=reportApi;window.OT.binOffsetRows=binOffsetRows;window.OT.associateFiles=associateFiles;window.OT.sniffSamples=sniffSamples;window.OT.defineSamplePath=defineSamplePath;window.OT.binOffsets=binOffsetsDialog;window.OT.instruments=instrumentsDialog;window.OT.instrumentGroups=instrumentGroups;window.OT.ensureInstruments=ensureInstruments;
 
 // ---------- printing: page setup and print preview ----------
 const PAGE_KEY='opentrace.pageSetup.v1';
@@ -1381,7 +1447,7 @@ function buildChrome(){
    {label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',
    {label:T('fullView'),sc:'Ctrl+]',disabled:!['raw','ept'].includes(state.tab),run:()=>SampleViews.fullView()},
    {label:T('yAxis'),sub:[{label:T('scaleMaxY'),checked:!SampleViews.yRange().custom,disabled:state.tab!=='raw',run:()=>SampleViews.yScaleMax()},{label:T('scaleTo'),checked:SampleViews.yRange().custom,disabled:state.tab!=='raw',run:yScaleToDialog}]},'-',
-   {label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},'-',
+   {label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},{label:T('instruments'),run:instrumentsDialog,disabled:!state.project.samples.length},'-',
    {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},'-',
    {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}/*extra*/]},
   {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},'-',

@@ -9,6 +9,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub mod abif;
 pub mod hid;
+pub mod instrument;
 pub mod cmath;
 pub mod libm_port;
 mod libm_port_data;

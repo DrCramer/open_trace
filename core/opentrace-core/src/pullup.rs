@@ -494,8 +494,6 @@ pub fn apply_pullup_detection_opts(
     }
 
     let mut output = Map::new();
-    drop(index_of);
-    drop(peaks_of);
     for (tag, peaks) in chosen {
         if tag == reference {
             continue;

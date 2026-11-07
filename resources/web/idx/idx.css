@@ -394,3 +394,6 @@ body.cleanmode .editbar .ebhint{color:#a1231b;font-weight:bold}
 .mdpdlg .mdphost{max-height:62vh;overflow:auto;background:#fff}
 .mdpdlg .mdpstatus{border:1px solid var(--shadow);padding:1px 4px;margin-top:4px;min-height:14px}
 #plotPrint .ppage::before{content:'';position:absolute;inset:6mm 6mm 6mm 6mm;border:1px solid #000;pointer-events:none}
+.suminstr table td.warn,.indlg td.warn{color:#a04f00}
+.indlg{max-width:96vw}.indlg .inwrap{max-height:60vh;overflow:auto}.indlg table{font-size:12px;border-collapse:collapse}.indlg td,.indlg th{padding:2px 6px;vertical-align:top}.indlg input{width:150px}
+#plotPrint .ppinstr{font-size:10px;text-align:right;align-self:flex-end}

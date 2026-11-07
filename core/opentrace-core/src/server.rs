@@ -24,11 +24,11 @@ const IDX_FILES: [&str; 26] = [
     "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js",
     "plotsettings.js", "matrices.js",
 ];
-const POST_PATHS: [&str; 22] = [
+const POST_PATHS: [&str; 23] = [
     "/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline", "/api/str", "/api/demo-str", "/api/str-run",
     "/api/demo-str-run", "/api/project", "/api/controls", "/api/marker-quality", "/api/pullup-quality",
     "/api/import-gm-kit", "/api/analysis-method", "/api/idx-project", "/api/codis", "/api/profiles", "/api/mixture",
-    "/api/security", "/api/sample-info", "/api/matrix", "/api/ladder-set",
+    "/api/security", "/api/sample-info", "/api/matrix", "/api/ladder-set", "/api/instrument",
 ];
 const DEMO_VARIANTS: [&str; 22] = [
     "ordinary", "negative", "amel", "ladder", "ladder-rejected", "spike", "spike-unrequested", "spike-low-initial",
@@ -503,6 +503,7 @@ impl App {
         let ticket = req.header("x-user-ticket").unwrap_or("");
         match path {
             "/api/sample-info" => ok(crate::sample_info::sample_info(raw, first(&params, "filename").unwrap_or("sample.fsa"))?),
+            "/api/instrument" => ok(crate::instrument::instrument_request(raw, first(&params, "filename").unwrap_or("sample.fsa"))?),
             "/api/security" => {
                 let request = loads_bytes(raw)?;
                 let mut store = self.security_guard();
@@ -581,6 +582,10 @@ impl App {
                 let mut v = analyze(&data, &filename, &kwargs)?;
                 if slim {
                     slim_analysis(&mut v);
+                    // the instrument that recorded the file (the full response stays as the reference implementation)
+                    if let (Ok(a), Some(o)) = (crate::abif::AbifFile::parse(&data, &filename), v.as_object_mut()) {
+                        o.insert("instrument".into(), crate::instrument::instrument_info(&a));
+                    }
                 }
                 ok(v)
             }
@@ -987,7 +992,7 @@ fn handle_connection(app: &App, mut stream: TcpStream) {
                 }
                 Err(_) => -1,
             };
-            let limit = if path == "/api/analyze" || path == "/api/sample-info" { MAX_FILE_BYTES } else { MAX_JSON_BYTES } as i64;
+            let limit = if path == "/api/analyze" || path == "/api/sample-info" || path == "/api/instrument" { MAX_FILE_BYTES } else { MAX_JSON_BYTES } as i64;
             if length < 0 || length > limit {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
                 let mut left = length.max(0).min(2 * MAX_JSON_BYTES as i64) - body.len() as i64;

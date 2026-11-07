@@ -190,7 +190,7 @@ pub fn handle(app: &AppHandle, st: &DesktopState, label: &str, req: Request<Vec<
             Err(e) => json_response(e.status, &e.body),
         };
     }
-    let limit = if path == "/api/analyze" || path == "/api/sample-info" { opentrace_core::abif::MAX_FILE_BYTES } else { opentrace_core::server::MAX_JSON_BYTES };
+    let limit = if path == "/api/analyze" || path == "/api/sample-info" || path == "/api/instrument" { opentrace_core::abif::MAX_FILE_BYTES } else { opentrace_core::server::MAX_JSON_BYTES };
     if req.body().len() > limit {
         return json_response(413, &json!({"error": format!("Request too large: {} bytes (limit {} MiB)", req.body().len(), limit / (1024 * 1024))}));
     }
