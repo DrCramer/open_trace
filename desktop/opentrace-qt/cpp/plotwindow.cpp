@@ -29,6 +29,9 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QSplitter>
 #include <QContextMenuEvent>
 #include <QInputDialog>
 #include <QMessageBox>
@@ -376,7 +379,30 @@ PlotWindow::PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget
     layout_->setSpacing(0);
     scroll_->setWidget(host_);
     rebuildPanes();
-    setCentralWidget(scroll_);
+    lower_ = new QTableWidget;
+    lower_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    lower_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    lower_->setAlternatingRowColors(true);
+    lower_->verticalHeader()->setDefaultSectionSize(lower_->fontMetrics().height() + 4);
+    connect(lower_, &QTableWidget::cellClicked, this, [this](int row, int) {   // sizing row -> select the peak in its pane
+        const auto *it = lower_->item(row, 0);
+        if (!it || table_ != "sizing") return;
+        const int data = it->data(Qt::UserRole).toInt(), peak = it->data(Qt::UserRole + 1).toInt();
+        const QString tag = panes_[data].peaks[peak].tag;
+        for (int k = 0; k < items_.size(); ++k)
+            if (items_[k].data == data && (items_[k].dye.isEmpty() || items_[k].dye == tag)) {
+                select(k, -1, peak);
+                if (auto *w = host_->findChildren<PaneWidget *>().value(k)) scroll_->ensureWidgetVisible(w);
+                break;
+            }
+    });
+    split_ = new QSplitter(Qt::Vertical);
+    split_->addWidget(scroll_);
+    split_->addWidget(lower_);
+    split_->setStretchFactor(0, 3);
+    split_->setStretchFactor(1, 1);
+    setCentralWidget(split_);
+    fillLower();
     xy_ = new QLabel;
     xy_->setMinimumWidth(160);
     statusBar()->addWidget(xy_);
@@ -414,7 +440,7 @@ void PlotWindow::load() {
         }
         for (const auto &l : backend_.plot_labels(static_cast<std::size_t>(r), bp))
             d.labels << LabelData{q(l.tag), q(l.text), l.x, l.height, l.flagged, q(l.id), q(l.marker), q(l.kind), l.edited};
-        for (const auto &pk : backend_.sample_peaks(static_cast<std::size_t>(r), bp)) d.peaks << PeakData{q(pk.tag), pk.x, pk.height, pk.scan, pk.size_bp};
+        for (const auto &pk : backend_.sample_peaks(static_cast<std::size_t>(r), bp)) d.peaks << PeakData{q(pk.tag), pk.x, pk.height, pk.scan, pk.size_bp, pk.area};
         d.sample = r;
         if (bp) {
             auto range = backend_.sized_range(static_cast<std::size_t>(r));
@@ -530,7 +556,7 @@ void PlotWindow::buildMenus() {
         a->setCheckable(true);
         a->setChecked(view_.dyes.contains(tag));
         a->setShortcut(QKeySequence(keys[k]));
-        connect(a, &QAction::toggled, this, [this, tag](bool on) { if (on) view_.dyes.insert(tag); else view_.dyes.remove(tag); if (view_.separate) rebuildPanes(); else repaintPanes(); });
+        connect(a, &QAction::toggled, this, [this, tag](bool on) { if (on) view_.dyes.insert(tag); else view_.dyes.remove(tag); if (view_.separate) rebuildPanes(); else repaintPanes(); if (table_ == "sizing") fillLower(); });
         tb->addAction(a);
     }
     tb->addSeparator();
@@ -560,6 +586,19 @@ void PlotWindow::buildMenus() {
         aComb->setShortcut(QKeySequence("Ctrl+7"));
         connect(aSep, &QAction::triggered, this, [this] { view_.separate = true; rebuildPanes(); });
         connect(aComb, &QAction::triggered, this, [this] { view_.separate = false; rebuildPanes(); });
+    }
+    {
+        auto *tm = plots->addMenu(QString::fromUtf8("Таблица"));
+        auto *tg = new QActionGroup(this);
+        for (auto [key, label, sc] : {std::tuple{"none", "Без таблицы", "Ctrl+Q"}, std::tuple{"sizing", "Таблица размеров (Sizing)", "Ctrl+A"}, std::tuple{"genotypes", "Таблица генотипов", "Ctrl+W"}}) {
+            auto *a = tm->addAction(QString::fromUtf8(label));
+            a->setCheckable(true);
+            a->setChecked(table_ == key);
+            a->setShortcut(QKeySequence(sc));
+            tg->addAction(a);
+            const QString k = key;
+            connect(a, &QAction::triggered, this, [this, k] { table_ = k; fillLower(); });
+        }
     }
     toggle("Бины", "Ctrl+Shift+B", &ViewState::bins);
     toggle("Диапазоны маркеров", "Ctrl+Shift+R", &ViewState::markerRange);
@@ -739,6 +778,7 @@ bool PlotWindow::addAtPeak(int item, int peak, bool artifact) {
 
 void PlotWindow::afterEdit() {
     load();
+    fillLower();
     sel_ = PaneSelection{};
     selItem_ = -1;
     repaintPanes();
@@ -799,6 +839,71 @@ void PlotWindow::headerMenu(int item, const QString &marker, const QPoint &globa
         m.addAction(QString::fromUtf8("Переопределить CGQ"), this, [=] { apply(QJsonObject{{"action", "override_cgq"}}, QString::fromUtf8("Переопределить CGQ")); });
     }
     m.exec(globalPos);
+}
+
+
+// Lower table of the plot window: Sizing (every sized peak of the shown dyes: dye/peak, file, marker, allele, size,
+// height, area, data point) or Genotypes (the samples' markers) or none.
+void PlotWindow::fillLower() {
+    lower_->setVisible(table_ != "none");
+    lower_->clear();
+    lower_->setRowCount(0);
+    if (table_ == "none") return;
+    static const QHash<QString, QString> letter{{"DATA1", "B"}, {"DATA2", "G"}, {"DATA3", "Y"}, {"DATA4", "R"}, {"DATA105", "O"}, {"DATA106", "P"}};
+    if (table_ == "sizing") {
+        const QStringList head{QString::fromUtf8("Краситель/пик"), QString::fromUtf8("Файл образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Аллель"),
+                               QString::fromUtf8("Размер"), QString::fromUtf8("Высота"), QString::fromUtf8("Площадь"), QString::fromUtf8("Точка данных")};
+        lower_->setColumnCount(head.size());
+        lower_->setHorizontalHeaderLabels(head);
+        int row = 0;
+        for (int di = 0; di < panes_.size(); ++di) {
+            const PaneData &d = panes_[di];
+            for (const char *dye : DYES) {
+                const QString tag = dye;
+                if (!view_.dyes.contains(tag)) continue;
+                QVector<int> idx;
+                for (int k = 0; k < d.peaks.size(); ++k) if (d.peaks[k].tag == tag) idx << k;
+                std::sort(idx.begin(), idx.end(), [&](int a, int b) { return d.peaks[a].scan < d.peaks[b].scan; });
+                int n = 0;
+                for (int k : idx) {
+                    const PeakData &pk = d.peaks[k];
+                    ++n;
+                    const LabelData *lab = nullptr;
+                    for (const auto &l : d.labels) if (l.tag == tag && std::abs(l.x - pk.x) < 0.05) { lab = &l; break; }
+                    lower_->insertRow(row);
+                    const QStringList v{QString("%1,%2").arg(letter.value(tag, tag)).arg(n), d.file, lab ? lab->marker : QString(), lab ? lab->text : QString(),
+                                        QString::number(pk.size, 'f', 2), QString::number(std::lround(pk.height)), QString::number(std::lround(pk.area)), QString::number(std::lround(pk.scan))};
+                    for (int c = 0; c < v.size(); ++c) {
+                        auto *it = new QTableWidgetItem(v[c]);
+                        if (c == 0) { it->setIcon(colorIcon(dyeSwatch(tag))); it->setData(Qt::UserRole, di); it->setData(Qt::UserRole + 1, k); }
+                        lower_->setItem(row, c, it);
+                    }
+                    ++row;
+                }
+            }
+        }
+    } else {
+        QStringList head{QString::fromUtf8("Имя образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Аллель 1"), QString::fromUtf8("Аллель 2"),
+                         QString::fromUtf8("Аллель 3"), QString::fromUtf8("Аллель 4"), "GQ"};
+        lower_->setColumnCount(head.size());
+        lower_->setHorizontalHeaderLabels(head);
+        QSet<int> shown;
+        for (const auto &d : panes_) shown.insert(d.sample);
+        int row = 0;
+        for (const auto &g : backend_.genotype_rows()) {
+            if (!shown.contains(static_cast<int>(g.sample))) continue;
+            lower_->insertRow(row);
+            lower_->setItem(row, 0, new QTableWidgetItem(q(g.name)));
+            lower_->setItem(row, 1, new QTableWidgetItem(q(g.marker)));
+            for (int k = 0; k < 4; ++k) lower_->setItem(row, 2 + k, new QTableWidgetItem(static_cast<std::size_t>(k) < g.alleles.size() ? q(g.alleles[k]) : QString()));
+            auto *gq = new QTableWidgetItem;
+            gq->setIcon(qualityIcon(q(g.gq)));
+            gq->setToolTip(q(g.gq));
+            lower_->setItem(row, 6, gq);
+            ++row;
+        }
+    }
+    lower_->resizeColumnsToContents();
 }
 
 } // namespace ot

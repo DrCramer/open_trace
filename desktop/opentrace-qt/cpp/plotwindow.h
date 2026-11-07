@@ -17,6 +17,8 @@ class QLabel;
 class QSpinBox;
 class QPainter;
 class QPagedPaintDevice;
+class QTableWidget;
+class QSplitter;
 
 namespace ot {
 struct Backend;
@@ -25,7 +27,7 @@ struct TraceData { QString tag; QVector<QPointF> pts; };
 struct BinData { double lo, hi; bool virt; };
 struct MarkerData { QString name, tag, gq; double lo, hi; QVector<double> window; QVector<BinData> bins; };
 struct LabelData { QString tag, text; double x, height; bool flagged; QString id, marker, kind; bool edited; };
-struct PeakData { QString tag; double x, height, scan, size; };
+struct PeakData { QString tag; double x, height, scan, size, area; };
 struct PaneData {
     QString file, name, sq;
     QVector<TraceData> traces;   // x in bp (or data points)
@@ -122,6 +124,10 @@ private:
     QLabel *xy_ = nullptr;
     QSpinBox *panesBox_ = nullptr;
     void load();
+    QTableWidget *lower_ = nullptr;
+    QSplitter *split_ = nullptr;
+    QString table_ = "genotypes";   // none | sizing | genotypes (ID-X Ctrl+Q / Ctrl+A / Ctrl+W)
+    void fillLower();
     int selItem_ = -1;
     PaneSelection sel_;
     bool editLabel(int item, int label, const QString &action);

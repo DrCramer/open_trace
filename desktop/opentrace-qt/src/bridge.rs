@@ -95,6 +95,7 @@ pub mod ffi {
         offscale: bool,
         scan: f64,
         size_bp: f64,
+        area: f64,
     }
     struct ProgressInfo {
         done: usize,
@@ -669,6 +670,7 @@ impl Backend {
                     offscale: p["offscaled"].as_bool().unwrap_or(false),
                     scan,
                     size_bp: p["size_bp"].as_f64().unwrap_or_else(|| backend::scan_to_bp(&c, scan)),
+                    area: p["area"].as_f64().unwrap_or(0.0),
                 });
             }
         }
