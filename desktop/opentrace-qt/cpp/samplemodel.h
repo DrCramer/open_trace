@@ -9,13 +9,13 @@ namespace ot {
 struct Backend;
 
 struct RowView {
-    QString file, name, runFolder, status, sq, method, sizeStd, instrument, well, error;
+    QString file, name, runFolder, status, sq, method, sizeStd, instrument, well, error, stype, panel, sos, sspk, cgq;
 };
 
 class SampleModel : public QAbstractTableModel {
     Q_OBJECT
 public:
-    enum Column { Status, SampleFile, SampleName, RunFolder, Well, Method, SizeStd, SQ, Instrument, ColumnCount };
+    enum Column { Status, SampleFile, SampleName, SampleType, RunFolder, Well, Panel, Method, SizeStd, SOS, SQ, SSPK, CGQ, Instrument, ColumnCount };
     explicit SampleModel(const Backend &backend, QObject *parent = nullptr);
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;

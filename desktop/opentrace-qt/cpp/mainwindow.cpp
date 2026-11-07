@@ -37,6 +37,18 @@
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QSet>
+#include <QInputDialog>
+#include <QTableWidget>
+#include <QRadioButton>
+#include <QButtonGroup>
+#include <QGroupBox>
+#include <QCheckBox>
+#include <QDoubleSpinBox>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QStandardPaths>
 
 namespace ot {
@@ -76,6 +88,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     tabs_ = new QTabWidget;
     tabs_->setDocumentMode(true);
     tabs_->addTab(table_, QString::fromUtf8("Образцы"));
+    genoTable_ = new QTableWidget;
+    genoTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    genoTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    genoTable_->setAlternatingRowColors(true);
+    genoTable_->verticalHeader()->setDefaultSectionSize(table_->fontMetrics().height() + 6);
+    genoTable_->setSortingEnabled(true);
+    tabs_->addTab(genoTable_, QString::fromUtf8("Генотипы"));
     tabs_->addTab(info_, QString::fromUtf8("Информация"));
     auto *split = new QSplitter;
     split->addWidget(nav_);
@@ -140,6 +159,7 @@ void MainWindow::buildMenus() {
     aNew->setShortcut(QKeySequence::New);
     auto *aAdd = file->addAction(s->standardIcon(QStyle::SP_DialogOpenButton), QString::fromUtf8("&Добавить образцы в проект..."), this, [this] { addSamples(); });
     aAdd->setShortcut(QKeySequence("Ctrl+K"));
+    file->addAction(QString::fromUtf8("Параметры &проекта..."), this, [this] { projectOptions(); });
     auto *aExport = file->addAction(s->standardIcon(QStyle::SP_DialogSaveButton), QString::fromUtf8("&Экспорт таблицы..."), this, [this] { exportTable(); });
     aExport->setShortcut(QKeySequence("Ctrl+E"));
     file->addSeparator();
@@ -148,6 +168,18 @@ void MainWindow::buildMenus() {
     auto *edit = menuBar()->addMenu(QString::fromUtf8("&Правка"));
     edit->addAction(QString::fromUtf8("Выделить &всё"), QKeySequence::SelectAll, table_, &QTableView::selectAll);
     auto *aDel = edit->addAction(s->standardIcon(QStyle::SP_TrashIcon), QString::fromUtf8("&Удалить из проекта"), this, [this] { removeSelected(); });
+    edit->addSeparator();
+    edit->addAction(QString::fromUtf8("&Панель для выделенных образцов..."), this, [this] { setPanelForSelected(); });
+    auto *types = edit->addMenu(QString::fromUtf8("&Тип образца"));
+    for (auto [t, label] : {std::pair{"sample", "Образец"}, std::pair{"ladder", "Аллельная лестница"}, std::pair{"positive", "Положительный контроль"}, std::pair{"negative", "Отрицательный контроль"}}) {
+        const QString type = t;
+        types->addAction(QString::fromUtf8(label), this, [this, type] {
+            rust::Vec<std::size_t> v;
+            for (int i : selectedRows()) v.push_back(static_cast<std::size_t>(i));
+            backend_->set_samples_type(v, r(type));
+            model_->refreshValues();
+        });
+    }
     aDel->setShortcut(QKeySequence::Delete);
 
     auto *an = menuBar()->addMenu(QString::fromUtf8("&Анализ"));
@@ -172,6 +204,8 @@ void MainWindow::buildMenus() {
     aPlots->setShortcut(QKeySequence("Ctrl+L"));
 
     auto *tools = menuBar()->addMenu(QString::fromUtf8("&Инструменты"));
+    tools->addAction(QString::fromUtf8("Менеджер &панелей..."), QKeySequence("Ctrl+J"), this, [this] { panelManager(); });
+    tools->addSeparator();
     tools->addAction(QString::fromUtf8("Импорт &метода анализа (GeneMapper XML)..."), this, [this] { importLibraryFile(true); });
     tools->addAction(QString::fromUtf8("Импорт &стандарта длин (GeneMapper XML)..."), this, [this] { importLibraryFile(false); });
 
@@ -211,6 +245,15 @@ void MainWindow::addSamples() {
     form->addRow(QString::fromUtf8("Метод анализа:"), method);
     form->addRow(QString::fromUtf8("Стандарт длин:"), stdBox);
     form->addRow(QString::fromUtf8("Папка запуска:"), run);
+    auto *panel = new QComboBox;
+    panel->addItem(QString::fromUtf8("(без панели — только калибровка)"), QString());
+    for (const auto &o : backend_->panel_options()) panel->addItem(q(o.label), q(o.key));
+    {
+        const int at = panel->findData(st.value("main/panel").toString());
+        if (at >= 0) panel->setCurrentIndex(at);
+        else if (panel->count() > 1) panel->setCurrentIndex(1);
+    }
+    form->addRow(QString::fromUtf8("Панель:"), panel);
     auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
@@ -221,7 +264,8 @@ void MainWindow::addSamples() {
     rust::Vec<rust::String> paths;
     for (const QString &f : files) paths.push_back(r(f));
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    auto errors = backend_->add_sample_files(paths, r(run->text()), r(method->currentText()), r(stdBox->currentText()));
+    st.setValue("main/panel", panel->currentData().toString());
+    auto errors = backend_->add_sample_files(paths, r(run->text()), r(method->currentText()), r(stdBox->currentText()), r(panel->currentData().toString()));
     QApplication::restoreOverrideCursor();
     model_->refresh();
     refreshNavigator();
@@ -278,7 +322,15 @@ void MainWindow::pollProgress() {
     progress_->setValue(static_cast<int>(p.done));
     model_->refreshValues();
     if (p.running) {
-        status_->setText(QString::fromUtf8("Анализ: ") + q(p.message));
+        const QString phase = q(p.phase);
+        status_->setText((phase == "ladders" ? QString::fromUtf8("Оценка аллельных лестниц: ") : phase == "genotype" ? QString::fromUtf8("Генотипирование: ") : QString::fromUtf8("Анализ: ")) + q(p.message));
+        const QString ask = q(backend_->ask_pending());
+        if (!ask.isEmpty() && !asking_) {
+            asking_ = true;
+            const QString a = autotest_ ? QString(qEnvironmentVariable("OT_QT_AUTOTEST_ALAS", "passing")) : alasDialog(ask);
+            backend_->ask_answer(r(a));
+            asking_ = false;
+        }
         return;
     }
     poll_->stop();
@@ -291,11 +343,16 @@ void MainWindow::pollProgress() {
                      : failed ? QString::fromUtf8("Анализ завершён; ошибок: %1").arg(failed)
                               : QString::fromUtf8("Анализ завершён"));
     updateInfo();
+    refreshGenotypes();
     if (autotest_) QTimer::singleShot(300, this, [this] {
         const QString out = qEnvironmentVariable("OT_QT_AUTOTEST_OUT", ".");
         QDir().mkpath(out);
         table_->selectAll();
         grab().save(out + "/main.png");
+        tabs_->setCurrentWidget(genoTable_);
+        QApplication::processEvents();
+        grab().save(out + "/genotypes.png");
+        tabs_->setCurrentIndex(0);
         QVector<int> ok;
         int failed = 0;
         QStringList rows;
@@ -319,10 +376,14 @@ void MainWindow::pollProgress() {
             pdf = w->savePdf(out + "/plots.pdf");
             w->close();
         }
+        {
+            QFile d(out + "/digest.txt");
+            if (d.open(QIODevice::WriteOnly)) d.write(q(backend_->genotype_digest()).toUtf8());
+        }
         QFile f(out + "/result.json");
         if (f.open(QIODevice::WriteOnly)) {
-            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"rows\":[%5]}\n")
-                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(rows.join(",")).toUtf8());
+            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"rows\":[%6]}\n")
+                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).toUtf8());
         }
         QApplication::exit(ok.isEmpty() ? 1 : 0);
     });
@@ -333,12 +394,22 @@ void MainWindow::pollProgress() {
 void MainWindow::autotest() {
     autotest_ = true;
     QStringList files = qEnvironmentVariable("OT_QT_AUTOTEST_FILES").split(';', Qt::SkipEmptyParts);
-    QString synthStd;
+    QString synthStd, synthPanel;
     if (files.size() == 1 && files.first().startsWith("synthetic:")) {   // invented run files of the core (CI)
         const int n = files.first().mid(10).toInt();
         files.clear();
         for (const auto &p : backend_->autotest_synthetic(r(qEnvironmentVariable("OT_QT_AUTOTEST_OUT", ".") + "/fsa"), static_cast<std::size_t>(std::max(1, n)))) files << q(p);
         synthStd = q(synthetic_standard_name());
+        synthPanel = q(backend_->last_import_error());   // panel key of the invented kit
+    }
+    // kit files of a local data set (OT_QT_AUTOTEST_KIT_DIR: GeneMapper *Panels*.txt, *bins*.txt, *stutter*.txt)
+    if (qEnvironmentVariableIsSet("OT_QT_AUTOTEST_KIT_DIR")) {
+        QDir kd(qEnvironmentVariable("OT_QT_AUTOTEST_KIT_DIR"));
+        for (const QString &kind : {QString("panels"), QString("bins"), QString("stutter")})
+            for (const QString &fn : kd.entryList({"*.txt"}, QDir::Files))
+                if (fn.contains(kind, Qt::CaseInsensitive)) backend_->import_kit(r(kd.filePath(fn)), r(kind), r(""));
+        const auto opts = backend_->panel_options();
+        if (!opts.empty()) synthPanel = q(opts[0].key);
     }
     rust::Vec<rust::String> paths;
     for (const QString &f : files) paths.push_back(r(f));
@@ -347,7 +418,7 @@ void MainWindow::autotest() {
     if (qEnvironmentVariableIsSet("OT_QT_AUTOTEST_STD_XML")) stdName = q(backend_->import_size_standard(r(qEnvironmentVariable("OT_QT_AUTOTEST_STD_XML"))));
     if (method.isEmpty() && !backend_->method_list().empty()) method = q(backend_->method_list()[0]);
     if (stdName.isEmpty()) stdName = synthStd.isEmpty() ? QString("GS600_LIZ_(60-460)") : synthStd;
-    backend_->add_sample_files(paths, r("autotest"), r(method), r(stdName));
+    backend_->add_sample_files(paths, r("autotest"), r(method), r(stdName), r(synthPanel));
     model_->refresh();
     refreshNavigator();
     analyze(false);
@@ -420,4 +491,225 @@ void MainWindow::about() {
                            .arg(qVersion(), q(core_version()), q(backend_->resources_dir()).toHtmlEscaped()));
 }
 
+
+void MainWindow::setPanelForSelected() {
+    const auto rows = selectedRows();
+    if (rows.isEmpty()) { QMessageBox::information(this, "OpenTrace", QString::fromUtf8("Выделите образцы в таблице.")); return; }
+    QStringList labels{QString::fromUtf8("(без панели)")};
+    QStringList keys{QString()};
+    for (const auto &o : backend_->panel_options()) { labels << q(o.label); keys << q(o.key); }
+    bool ok = false;
+    const QString pick = QInputDialog::getItem(this, QString::fromUtf8("Панель"), QString::fromUtf8("Панель для выделенных образцов (%1):").arg(rows.size()), labels, labels.size() > 1 ? 1 : 0, false, &ok);
+    if (!ok) return;
+    rust::Vec<std::size_t> v;
+    for (int i : rows) v.push_back(static_cast<std::size_t>(i));
+    backend_->set_samples_panel(v, r(keys[labels.indexOf(pick)]));
+    model_->refreshValues();
+    refreshGenotypes();
+}
+
+// Panel Manager (first version): kits imported from GeneMapper panels / bins / stutter files.
+void MainWindow::panelManager() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("Менеджер панелей"));
+    dlg.resize(900, 420);
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *tbl = new QTableWidget(0, 4);
+    tbl->setHorizontalHeaderLabels({QString::fromUtf8("Набор реагентов"), QString::fromUtf8("Панели"), QString::fromUtf8("Наборы бинов"), QString::fromUtf8("Статтеры")});
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setSelectionMode(QAbstractItemView::SingleSelection);
+    auto fill = [this, tbl] {
+        tbl->setRowCount(0);
+        for (const auto &line : backend_->kit_summary()) {
+            const QStringList c = q(line).split('\t');
+            const int r0 = tbl->rowCount();
+            tbl->insertRow(r0);
+            for (int k = 0; k < 4 && k < c.size(); ++k) tbl->setItem(r0, k, new QTableWidgetItem(c[k]));
+        }
+        tbl->resizeColumnsToContents();
+    };
+    fill();
+    auto *note = new QLabel(QString::fromUtf8("Импортируйте файлы GeneMapper: сначала панели (Panels), затем бины (Bins) и статтеры (Stutter) к выбранному набору."));
+    note->setWordWrap(true);
+    lay->addWidget(note);
+    lay->addWidget(tbl, 1);
+    auto *row = new QHBoxLayout;
+    auto selectedKit = [tbl] { const auto it = tbl->currentRow() >= 0 ? tbl->item(tbl->currentRow(), 0) : nullptr; return it ? it->text() : QString(); };
+    for (auto [kind, label] : {std::pair{"panels", "Импорт панелей..."}, std::pair{"bins", "Импорт бинов..."}, std::pair{"stutter", "Импорт статтеров..."}}) {
+        auto *b = new QPushButton(QString::fromUtf8(label));
+        const QString k = kind;
+        connect(b, &QPushButton::clicked, &dlg, [this, k, fill, selectedKit, &dlg] {
+            QSettings st;
+            const QString path = QFileDialog::getOpenFileName(&dlg, QString::fromUtf8("Файл GeneMapper"), st.value("main/kitDir").toString(), "Text (*.txt);;All files (*)");
+            if (path.isEmpty()) return;
+            st.setValue("main/kitDir", QFileInfo(path).absolutePath());
+            const QString res = q(backend_->import_kit(r(path), r(k), r(selectedKit())));
+            if (res.isEmpty()) QMessageBox::warning(&dlg, "OpenTrace", QString::fromUtf8("Не удалось импортировать:\n") + q(backend_->last_import_error()));
+            else status_->setText(QString::fromUtf8("Импортировано: ") + res);
+            fill();
+        });
+        row->addWidget(b);
+    }
+    auto *del = new QPushButton(QString::fromUtf8("Удалить набор"));
+    connect(del, &QPushButton::clicked, &dlg, [this, fill, selectedKit, &dlg] {
+        const QString k = selectedKit();
+        if (k.isEmpty()) return;
+        if (QMessageBox::question(&dlg, "OpenTrace", QString::fromUtf8("Удалить набор «%1» из Менеджера панелей?").arg(k)) != QMessageBox::Yes) return;
+        backend_->delete_kit(r(k));
+        fill();
+    });
+    row->addWidget(del);
+    row->addStretch(1);
+    auto *close = new QPushButton(QString::fromUtf8("Закрыть"));
+    connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
+    row->addWidget(close);
+    lay->addLayout(row);
+    dlg.exec();
+}
+
+// Project Options (genotyping part): Allelic Ladder Analysis Summary, bin offsets, minimum call heights.
+void MainWindow::projectOptions() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("Параметры проекта"));
+    auto *lay = new QVBoxLayout(&dlg);
+    auto radio = [&](const QString &title, const QString &key, const QList<QPair<QString, QString>> &items) {
+        auto *box = new QGroupBox(title);
+        auto *bl = new QVBoxLayout(box);
+        auto *grp = new QButtonGroup(box);
+        const QString cur = q(backend_->option_get(r(key)));
+        for (const auto &it : items) {
+            auto *rb = new QRadioButton(it.second);
+            rb->setProperty("v", it.first);
+            rb->setChecked(it.first == cur);
+            grp->addButton(rb);
+            bl->addWidget(rb);
+        }
+        lay->addWidget(box);
+        return grp;
+    };
+    auto *alas = radio(QString::fromUtf8("Если аллельная лестница не прошла проверку"), "alas",
+                       {{"stop", QString::fromUtf8("Остановить и показать сводку по лестницам")}, {"passing", QString::fromUtf8("Продолжить с папками, где есть годная лестница")}, {"all", QString::fromUtf8("Генотипировать все папки")}});
+    auto *bo = radio(QString::fromUtf8("Смещение бинов по лестницам"), "bin_offsets",
+                     {{"green", QString::fromUtf8("Лестницы с зелёным SQ")}, {"greenYellow", QString::fromUtf8("Лестницы с зелёным и жёлтым SQ")}});
+    auto *form = new QFormLayout;
+    auto *homo = new QDoubleSpinBox;
+    homo->setRange(0, 100000);
+    homo->setDecimals(0);
+    homo->setValue(q(backend_->option_get(r("homo_min_height"))).toDouble());
+    auto *het = new QDoubleSpinBox;
+    het->setRange(0, 100000);
+    het->setDecimals(0);
+    het->setValue(q(backend_->option_get(r("het_min_height"))).toDouble());
+    auto *pu = new QCheckBox(QString::fromUtf8("Не вызывать аллели на пиках pull-up"));
+    pu->setChecked(q(backend_->option_get(r("pullup_excludes_calls"))) == "true");
+    form->addRow(QString::fromUtf8("Мин. высота вызова, гомозигота (RFU):"), homo);
+    form->addRow(QString::fromUtf8("Мин. высота вызова, гетерозигота (RFU):"), het);
+    lay->addLayout(form);
+    lay->addWidget(pu);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted) return;
+    if (alas->checkedButton()) backend_->option_set(r("alas"), r(alas->checkedButton()->property("v").toString()));
+    if (bo->checkedButton()) backend_->option_set(r("bin_offsets"), r(bo->checkedButton()->property("v").toString()));
+    backend_->option_set(r("homo_min_height"), r(QString::number(homo->value())));
+    backend_->option_set(r("het_min_height"), r(QString::number(het->value())));
+    backend_->option_set(r("pullup_excludes_calls"), r(pu->isChecked() ? "true" : "false"));
+}
+
+// Allelic Ladder Analysis Summary (ID-X): which run folders have no passing ladder; continue with the passing ones,
+// genotype all folders anyway, or stop and look at the ladders.
+QString MainWindow::alasDialog(const QString &summaryJson) {
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("Сводка анализа аллельных лестниц"));
+    dlg.resize(760, 380);
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *intro = new QLabel(QString::fromUtf8("В одной или нескольких папках запуска нет аллельной лестницы, прошедшей требования калибровки (SQ) и генотипирования (CGQ)."));
+    intro->setWordWrap(true);
+    lay->addWidget(intro);
+    auto *tbl = new QTableWidget(0, 5);
+    tbl->setHorizontalHeaderLabels({QString::fromUtf8("Папка запуска"), QString::fromUtf8("Панель"), QString::fromUtf8("Лестница"), "SQ", QString::fromUtf8("Качество")});
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    const QJsonArray groups = QJsonDocument::fromJson(summaryJson.toUtf8()).array();
+    for (const auto &gv : groups) {
+        const QJsonObject g = gv.toObject();
+        const QJsonArray lad = g["ladders"].toArray();
+        auto add = [&](const QString &file, const QString &sq, const QString &qual) {
+            const int r0 = tbl->rowCount();
+            tbl->insertRow(r0);
+            tbl->setItem(r0, 0, new QTableWidgetItem(g["run_folder"].toString()));
+            tbl->setItem(r0, 1, new QTableWidgetItem(g["panel"].toString()));
+            tbl->setItem(r0, 2, new QTableWidgetItem(file));
+            auto *sqi = new QTableWidgetItem;
+            sqi->setIcon(qualityIcon(sq));
+            sqi->setToolTip(sq);
+            tbl->setItem(r0, 3, sqi);
+            auto *qi = new QTableWidgetItem(qual);
+            qi->setIcon(qualityIcon(g["pass"].toBool() ? "pass" : "low"));
+            tbl->setItem(r0, 4, qi);
+        };
+        if (lad.isEmpty()) add(QString::fromUtf8("(нет лестницы)"), "na", g["status"].toString());
+        for (const auto &lv : lad) {
+            const QJsonObject l = lv.toObject();
+            const QString qual = l["quality"].isNull() ? g["status"].toString() : (l["quality"].toInt() == 0 ? QString::fromUtf8("годна") : QString::fromUtf8("не годна (код %1)").arg(l["quality"].toInt()));
+            add(l["file"].toString(), l["sq"].toString(), qual);
+        }
+    }
+    tbl->resizeColumnsToContents();
+    lay->addWidget(tbl, 1);
+    QString answer = "passing";
+    auto *bb = new QDialogButtonBox;
+    auto *bPass = bb->addButton(QString::fromUtf8("Продолжить с годными папками"), QDialogButtonBox::AcceptRole);
+    auto *bAll = bb->addButton(QString::fromUtf8("Генотипировать все"), QDialogButtonBox::ActionRole);
+    auto *bView = bb->addButton(QString::fromUtf8("Остановить и просмотреть"), QDialogButtonBox::RejectRole);
+    connect(bPass, &QPushButton::clicked, &dlg, [&] { answer = "passing"; dlg.accept(); });
+    connect(bAll, &QPushButton::clicked, &dlg, [&] { answer = "all"; dlg.accept(); });
+    connect(bView, &QPushButton::clicked, &dlg, [&] { answer = "view"; dlg.accept(); });
+    lay->addWidget(bb);
+    dlg.exec();
+    return answer;
+}
+
+void MainWindow::refreshGenotypes() {
+    const auto rows = backend_->genotype_rows();
+    std::size_t maxN = 2;
+    for (const auto &g : rows) maxN = std::max<std::size_t>(maxN, g.alleles.size());
+    maxN = std::min<std::size_t>(maxN, 8);
+    QStringList head{QString::fromUtf8("Файл образца"), QString::fromUtf8("Имя образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Краситель")};
+    for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Аллель %1").arg(k);
+    for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Размер %1").arg(k);
+    for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Высота %1").arg(k);
+    head << "GQ";
+    genoTable_->setSortingEnabled(false);
+    genoTable_->clear();
+    genoTable_->setColumnCount(head.size());
+    genoTable_->setHorizontalHeaderLabels(head);
+    genoTable_->setRowCount(static_cast<int>(rows.size()));
+    int i = 0;
+    for (const auto &g : rows) {
+        int c = 0;
+        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.file)));
+        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.name)));
+        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.marker)));
+        auto *dye = new QTableWidgetItem(dyeName(q(g.dye)));
+        dye->setIcon(colorIcon(dyeSwatch(q(g.dye))));
+        genoTable_->setItem(i, c++, dye);
+        for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.alleles.size() ? q(g.alleles[k]) : QString()));
+        for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.sizes.size() ? QString::number(g.sizes[k], 'f', 2) : QString()));
+        for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.heights.size() ? QString::number(std::lround(g.heights[k])) : QString()));
+        auto *gq = new QTableWidgetItem;
+        gq->setIcon(qualityIcon(q(g.gq)));
+        gq->setToolTip(q(g.gq));
+        genoTable_->setItem(i, c++, gq);
+        ++i;
+    }
+    genoTable_->setSortingEnabled(true);
+    genoTable_->resizeColumnsToContents();
+}
+
 } // namespace ot
+

@@ -1,6 +1,8 @@
 //! OpenTrace Desktop, native Qt 6 Widgets interface. Research software, not validated for diagnostic or forensic use.
 mod backend;
 mod bridge;
+mod genotype;
+mod kits;
 
 // Qt support libraries of cxx-qt are linked (their C++ initialisers run before the application starts).
 extern crate cxx_qt;

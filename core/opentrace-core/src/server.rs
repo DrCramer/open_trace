@@ -598,6 +598,32 @@ fn analyze_endpoint(data: &[u8], params: &BTreeMap<String, Vec<String>>) -> HR<V
     Ok(v)
 }
 
+/// In-process equivalent of the stateless JSON endpoints (`POST /api/<name>` with a JSON body) for the native desktop
+/// application: str-run, controls, marker-quality, ladder-set, import-gm-kit, analysis-method, str, codis, mixture,
+/// profiles, matrix, pullup-quality. The same functions as over HTTP; the error text is the HTTP error message.
+pub fn api_json(path: &str, body: &Value, shipped_methods: &Path) -> Result<Value, String> {
+    let text = |e: HErr| match e {
+        HErr::Bad(m) | HErr::Denied(m) | HErr::Other(m) => m,
+    };
+    let obj = || body.as_object().ok_or_else(|| "request must be a JSON object".to_string());
+    let r: Result<Value, String> = match path {
+        "/api/str-run" | "/api/controls" | "/api/marker-quality" => {
+            let raw = serde_json::to_vec(body).map_err(|e| e.to_string())?;
+            json_task(&path[5..], &raw).map_err(text)
+        }
+        "/api/ladder-set" => crate::run_workflow::register_ladder_set(&jget(obj()?, "ladders")),
+        "/api/import-gm-kit" => crate::gm_kit_import::import_request(body),
+        "/api/analysis-method" => crate::analysis_method::method_request(body, shipped_methods),
+        "/api/codis" => crate::codis::codis_request(body),
+        "/api/mixture" => crate::mixture::mixture_request(body),
+        "/api/profiles" => crate::profiles::profile_request(body),
+        "/api/matrix" => crate::matrix::matrix_request(body),
+        "/api/pullup-quality" => crate::pullup_quality::attach_pullup_quality(&jget(obj()?, "report"), &jget(obj()?, "definition")),
+        _ => Err(format!("unknown endpoint {path}")),
+    };
+    r
+}
+
 /// In-process equivalent of `POST /api/analyze?<params>` for the native desktop application: the same parameter
 /// conversion and the same result as the HTTP endpoint (the web UI and the native UI analyse identically).
 pub fn analyze_request(data: &[u8], params: &[(String, String)]) -> Result<Value, String> {

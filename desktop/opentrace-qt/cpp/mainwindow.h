@@ -12,6 +12,7 @@ class QProgressBar;
 class QPushButton;
 class QTimer;
 class QSortFilterProxyModel;
+class QTableWidget;
 
 namespace ot {
 struct Backend;
@@ -49,6 +50,13 @@ private:
     void updateInfo();
     void about();
     void importLibraryFile(bool method);
+    void setPanelForSelected();
+    void panelManager();
+    void projectOptions();
+    QString alasDialog(const QString &summaryJson);
+    void refreshGenotypes();
+    QTableWidget *genoTable_ = nullptr;
+    bool asking_ = false;
     QVector<int> selectedRows() const;
     void autotest();                // OT_QT_AUTOTEST_*: scripted run for CI and screenshots
     bool autotest_ = false;

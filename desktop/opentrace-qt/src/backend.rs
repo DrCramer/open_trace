@@ -48,6 +48,16 @@ pub struct Sample {
     pub instrument: String,
     pub well: String,
     pub analysis: Option<Arc<Value>>,
+    /// sample | ladder | positive | negative (guessed from the file / sample name like the web UI)
+    pub stype: String,
+    /// kit + U+0001 + panel ("" = no panel)
+    pub panel_key: String,
+    pub report: Option<Arc<Value>>,
+    pub ladder_quality: Option<i64>,
+    pub ladder_used: bool,
+    pub reference_bins: bool,
+    pub alas_skipped: bool,
+    pub genotype_error: String,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -65,9 +75,20 @@ pub struct Progress {
     pub total: usize,
     pub running: bool,
     pub message: String,
+    pub phase: String,
 }
 
-pub struct Backend {
+/// The C++ side owns a `Backend`; worker threads share its state through the `Arc`.
+pub struct Backend(pub Arc<Inner>);
+
+impl std::ops::Deref for Backend {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        &self.0
+    }
+}
+
+pub struct Inner {
     pub data_dir: Mutex<Option<PathBuf>>,
     pub resources: PathBuf,
     pub methods: Mutex<Vec<Value>>,
@@ -79,10 +100,20 @@ pub struct Backend {
     pub last_error: Mutex<String>,
     /// names of the methods imported by the user (saved in library.json; the shipped ones are not)
     pub user_methods: Mutex<std::collections::BTreeSet<String>>,
+    pub kits: Mutex<crate::kits::KitDb>,
+    pub kit_cache: Mutex<std::collections::HashMap<String, Arc<crate::genotype::KitEntry>>>,
+    pub options: Mutex<crate::genotype::Options>,
+    pub ask: crate::genotype::Ask,
 }
 
 impl Backend {
     pub fn new() -> Backend {
+        Backend(Arc::new(Inner::new()))
+    }
+}
+
+impl Inner {
+    pub fn new() -> Inner {
         let (resources, mut problem) = match server::resource_root(None) {
             Ok(p) => (p, String::new()),
             Err(e) => (PathBuf::from("resources"), e),
@@ -102,7 +133,11 @@ impl Backend {
                 }
             }
         }
-        Backend {
+        Inner {
+            kits: Mutex::new(Default::default()),
+            kit_cache: Mutex::new(Default::default()),
+            options: Mutex::new(Default::default()),
+            ask: Default::default(),
             data_dir: Mutex::new(None),
             resources,
             methods: Mutex::new(methods),
@@ -117,7 +152,7 @@ impl Backend {
     }
 
     /// User library (imported analysis methods and size standards) of this computer: `<data dir>/library.json`.
-    pub fn set_data_dir(&self, dir: &str) {
+    pub fn load_library(&self, dir: &str) {
         let d = PathBuf::from(dir);
         *self.data_dir.lock().unwrap() = Some(d.clone());
         let Ok(b) = std::fs::read(d.join("library.json")) else { return };
@@ -128,6 +163,25 @@ impl Backend {
                 ms.retain(|x| x["name"] != name);
                 ms.push(m.clone());
                 self.user_methods.lock().unwrap().insert(name.to_string());
+            }
+        }
+        *self.kits.lock().unwrap() = crate::kits::KitDb::from_json(&v["kits"]);
+        if let Some(o) = v["options"].as_object() {
+            let mut op = self.options.lock().unwrap();
+            if let Some(a) = o.get("alas").and_then(|v| v.as_str()).filter(|a| ["stop", "passing", "all"].contains(a)) {
+                op.alas = a.into();
+            }
+            if let Some(a) = o.get("bin_offsets").and_then(|v| v.as_str()).filter(|a| ["green", "greenYellow"].contains(a)) {
+                op.bin_offsets = a.into();
+            }
+            if let Some(b) = o.get("pullup_excludes_calls").and_then(|v| v.as_bool()) {
+                op.pullup_excludes_calls = b;
+            }
+            if let Some(x) = o.get("homo_min_height").and_then(|v| v.as_f64()).filter(|x| *x >= 0.0) {
+                op.homo_min_height = x;
+            }
+            if let Some(x) = o.get("het_min_height").and_then(|v| v.as_f64()).filter(|x| *x >= 0.0) {
+                op.het_min_height = x;
             }
         }
         let mut ss = self.standards.lock().unwrap();
@@ -144,10 +198,14 @@ impl Backend {
         }
     }
 
-    fn save_library(&self) -> Result<(), String> {
+    pub fn save_library(&self) -> Result<(), String> {
         let Some(d) = self.data_dir.lock().unwrap().clone() else { return Ok(()) };
         std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
         let defaults: Vec<String> = default_size_standards().into_iter().map(|s| s.name).collect();
+        let options = {
+            let o = self.options.lock().unwrap();
+            json!({"alas": o.alas, "bin_offsets": o.bin_offsets, "pullup_excludes_calls": o.pullup_excludes_calls, "homo_min_height": o.homo_min_height, "het_min_height": o.het_min_height})
+        };
         let user_methods: Vec<Value> = {
             let user = self.user_methods.lock().unwrap();
             self.methods.lock().unwrap().iter().filter(|m| m["name"].as_str().is_some_and(|n| user.contains(n))).cloned().collect()
@@ -156,6 +214,8 @@ impl Backend {
             "schema_version": 1,
             "methods": user_methods,
             "size_standards": self.standards.lock().unwrap().iter().filter(|s| !defaults.contains(&s.name)).map(|s| json!({"name": s.name, "dye": s.dye, "sizes": s.sizes})).collect::<Vec<_>>(),
+            "kits": self.kits.lock().unwrap().to_json(),
+            "options": options,
         });
         let tmp = d.join("library.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(&v).unwrap()).map_err(|e| e.to_string())?;
@@ -217,15 +277,92 @@ impl Backend {
         let ladder = d.join("Ladder-synthetic.fsa");
         std::fs::write(&ladder, opentrace_core::demo::synthetic_ladder_fsa()).map_err(|e| e.to_string())?;
         out.push(ladder.display().to_string());
+        let mut expected = serde_json::Map::new();
         for k in 0..n {
-            let p = d.join(format!("Sample-synthetic-{:02}.fsa", k + 1));
-            std::fs::write(&p, opentrace_core::demo::synthetic_genotype_fsa(k as u64 + 1).0).map_err(|e| e.to_string())?;
+            let file = format!("Sample-synthetic-{:02}.fsa", k + 1);
+            let p = d.join(&file);
+            let (bytes, genotype) = opentrace_core::demo::synthetic_genotype_fsa(k as u64 + 1);
+            std::fs::write(&p, bytes).map_err(|e| e.to_string())?;
+            expected.insert(file, Value::Object(genotype.into_iter().map(|(m, l)| (m, json!(l))).collect()));
             out.push(p.display().to_string());
         }
+        // the genotypes the invented files were made with (the self-test compares the calls with them)
+        std::fs::write(d.join("expected.json"), serde_json::to_vec_pretty(&expected).unwrap()).map_err(|e| e.to_string())?;
+        let (_, _, panels, bins, stutter) = opentrace_core::demo::synthetic_kit_texts();
+        let key = self.import_kit_texts(&panels, &bins, &stutter)?;
+        *self.last_error.lock().unwrap() = key; // panel key of the synthetic kit for the self-test
         let mut ss = self.standards.lock().unwrap();
         ss.retain(|s| s.name != SYNTHETIC_STANDARD);
         ss.push(SizeStandard { name: SYNTHETIC_STANDARD.into(), dye: "orange".into(), sizes: opentrace_core::demo::SYNTHETIC_RUN_STANDARD_BP.to_vec() });
         Ok(out)
+    }
+
+    /// GeneMapper panels / bins / stutter text file into the Panel Manager store (parsed by the core); returns a
+    /// description of what was imported. Bins and stutter go to the kit named in the file when it is known, else to
+    /// `kit_hint` (case-insensitive), else to the only kit.
+    pub fn import_kit_file(&self, path: &str, kind: &str, kit_hint: &str) -> Result<String, String> {
+        let text = std::fs::read(path).map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&text).into_owned();
+        let shipped = self.resources.join("data").join("shipped_methods.json");
+        let key = match kind {
+            "panels" | "bins" | "stutter" => kind,
+            _ => return Err("unknown kit file kind".into()),
+        };
+        let r = server::api_json("/api/import-gm-kit", &json!({ key: text }), &shipped)?;
+        let doc = &r[key];
+        if doc.is_null() {
+            return Err("the file was not recognised".into());
+        }
+        let msg = {
+            let mut db = self.kits.lock().unwrap();
+            let pick = |db: &crate::kits::KitDb, named: &str| -> String {
+                let names: Vec<String> = db.kits.iter().filter_map(|k| k["name"].as_str().map(String::from)).collect();
+                for cand in [named, kit_hint] {
+                    if cand.is_empty() {
+                        continue;
+                    }
+                    if let Some(n) = names.iter().find(|n| n.as_str() == cand) {
+                        return n.clone();
+                    }
+                    if let Some(n) = names.iter().find(|n| n.eq_ignore_ascii_case(cand)) {
+                        return n.clone();
+                    }
+                }
+                if names.len() == 1 { names[0].clone() } else { kit_hint.to_string() }
+            };
+            match kind {
+                "panels" => format!("панели: {}", db.add_panels(doc).join(", ")),
+                "bins" => {
+                    let k = pick(&db, doc["kit"].as_str().unwrap_or(""));
+                    let (kit, set) = db.add_bin_set(&k, doc)?;
+                    format!("набор бинов {set} → {kit}")
+                }
+                _ => {
+                    let k = pick(&db, doc["kit"].as_str().unwrap_or(""));
+                    format!("статтеры → {}", db.set_stutter(&k, doc)?)
+                }
+            }
+        };
+        self.kit_cache.lock().unwrap().clear();
+        self.save_library()?;
+        Ok(msg)
+    }
+
+    /// Imports kit texts (panels, bins, stutter) given as strings; returns the key of the first panel.
+    pub fn import_kit_texts(&self, panels: &str, bins: &str, stutter: &str) -> Result<String, String> {
+        let shipped = self.resources.join("data").join("shipped_methods.json");
+        let r = server::api_json("/api/import-gm-kit", &json!({"panels": panels}), &shipped)?;
+        let b = server::api_json("/api/import-gm-kit", &json!({"bins": bins}), &shipped)?;
+        let st = server::api_json("/api/import-gm-kit", &json!({"stutter": stutter}), &shipped)?;
+        let mut db = self.kits.lock().unwrap();
+        db.add_panels(&r["panels"]);
+        let kit = r["panels"]["kits"][0]["name"].as_str().unwrap_or("").to_string();
+        db.add_bin_set(&kit, &b["bins"])?;
+        db.set_stutter(&kit, &st["stutter"])?;
+        let key = db.choices().into_iter().find(|c| c.kit == kit).map(|c| c.key).ok_or("no panel")?;
+        drop(db);
+        self.kit_cache.lock().unwrap().clear();
+        Ok(key)
     }
 
     pub fn method_names(&self) -> Vec<String> {
@@ -233,7 +370,7 @@ impl Backend {
     }
 
     /// Reads the files (sample name, well, instrument from the ABIF header); unreadable files are reported, not added.
-    pub fn add_files(&self, paths: &[String], run_folder: &str, method: &str, size_std: &str) -> Vec<String> {
+    pub fn add_files(&self, paths: &[String], run_folder: &str, method: &str, size_std: &str, panel_key: &str) -> Vec<String> {
         let mut errors = Vec::new();
         let mut list = self.samples.lock().unwrap();
         for p in paths {
@@ -261,7 +398,13 @@ impl Backend {
                     continue;
                 }
             };
+            let mut stype = crate::genotype::sample_type_from_name(&file);
+            if stype == "sample" && !name.is_empty() {
+                stype = crate::genotype::sample_type_from_name(&name);
+            }
             list.push(Sample {
+                stype: stype.to_string(),
+                panel_key: panel_key.to_string(),
                 path,
                 file,
                 name,
@@ -296,20 +439,52 @@ impl Backend {
         }
         Ok(q)
     }
+}
 
-    /// Analyses the samples that are not analysed yet on worker threads; progress() reports the state.
+impl Backend {
+    /// Analyses the samples (all, or those not analysed yet) on worker threads, then genotypes the project (run folder
+    /// + panel groups, allelic ladders first) as the web project window does; `progress` reports the state.
     pub fn run_analysis(&self, all: bool) {
         {
             let mut p = self.progress.lock().unwrap();
             if p.running {
                 return;
             }
-            *p = Progress { running: true, ..Default::default() };
+            *p = Progress { running: true, phase: "analysis".into(), ..Default::default() };
         }
         self.stop.store(false, Ordering::SeqCst);
+        let inner = self.0.clone();
+        std::thread::spawn(move || {
+            inner.analysis_phase(all);
+            if !inner.stop.load(Ordering::SeqCst) {
+                crate::genotype::genotype(&inner);
+            }
+            let mut list = inner.samples.lock().unwrap();
+            for s in list.iter_mut().filter(|s| s.status == Status::Running) {
+                s.status = Status::NotAnalyzed;
+            }
+            let mut p = inner.progress.lock().unwrap();
+            p.running = false;
+            p.phase.clear();
+            if inner.stop.load(Ordering::SeqCst) {
+                p.message = "stopped".into();
+            }
+        });
+    }
+}
+
+impl Inner {
+    /// Number of parallel jobs (web UI: max(2, min(6, cores))).
+    pub fn concurrency() -> usize {
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(2, 6)
+    }
+
+    fn analysis_phase(&self, all: bool) {
         let todo: Vec<usize> = {
             let mut list = self.samples.lock().unwrap();
-            let idx: Vec<usize> = list.iter().enumerate().filter(|(_, s)| all || s.status != Status::Analyzed).map(|(i, _)| i).collect();
+            // ladders first (as the web UI orders them)
+            let mut idx: Vec<usize> = list.iter().enumerate().filter(|(_, s)| all || s.status != Status::Analyzed).map(|(i, _)| i).collect();
+            idx.sort_by_key(|&i| if list[i].stype == "ladder" { 0 } else { 1 });
             for &i in &idx {
                 list[i].status = Status::Running;
             }
@@ -320,19 +495,16 @@ impl Backend {
             let list = self.samples.lock().unwrap();
             todo.iter().map(|&i| (i, list[i].path.clone(), list[i].file.clone(), self.analyze_params(&list[i].method, &list[i].size_std))).collect()
         };
-        let queue = Arc::new(Mutex::new(jobs));
-        let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(1, 8);
-        let alive = Arc::new(Mutex::new(workers));
-        for _ in 0..workers {
-            let (queue, samples, progress, stop, alive) = (queue.clone(), self.samples.clone(), self.progress.clone(), self.stop.clone(), alive.clone());
-            std::thread::spawn(move || {
-                loop {
-                    if stop.load(Ordering::SeqCst) {
+        let queue = Mutex::new(jobs.into_iter().rev().collect::<Vec<_>>());
+        std::thread::scope(|sc| {
+            for _ in 0..Self::concurrency() {
+                sc.spawn(|| loop {
+                    if self.stop.load(Ordering::SeqCst) {
                         break;
                     }
                     let job = queue.lock().unwrap().pop();
                     let Some((i, path, file, params)) = job else { break };
-                    progress.lock().unwrap().message = file.clone();
+                    self.progress.lock().unwrap().message = file.clone();
                     let result = params.and_then(|mut p| {
                         p.push(("filename".into(), file.clone()));
                         p.push(("slim".into(), "1".into()));
@@ -340,36 +512,29 @@ impl Backend {
                         server::analyze_request(&data, &p)
                     });
                     {
-                        let mut list = samples.lock().unwrap();
+                        let mut list = self.samples.lock().unwrap();
                         if let Some(s) = list.get_mut(i) {
+                            s.report = None;
+                            s.ladder_quality = None;
                             match result {
                                 Ok(v) => {
+                                    // samples without a name in the file keep the type guessed from the file name
                                     s.analysis = Some(Arc::new(v));
                                     s.status = Status::Analyzed;
                                     s.error.clear();
                                 }
                                 Err(e) => {
+                                    s.analysis = None;
                                     s.status = Status::Failed;
                                     s.error = e;
                                 }
                             }
                         }
                     }
-                    progress.lock().unwrap().done += 1;
-                }
-                let mut a = alive.lock().unwrap();
-                *a -= 1;
-                if *a == 0 {
-                    let mut list = samples.lock().unwrap();
-                    for s in list.iter_mut().filter(|s| s.status == Status::Running) {
-                        s.status = Status::NotAnalyzed;
-                    }
-                    let mut p = progress.lock().unwrap();
-                    p.running = false;
-                    p.message = if stop.load(Ordering::SeqCst) { "stopped".into() } else { String::new() };
-                }
-            });
-        }
+                    self.progress.lock().unwrap().done += 1;
+                });
+            }
+        });
     }
 }
 

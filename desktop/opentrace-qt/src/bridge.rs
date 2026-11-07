@@ -16,6 +16,27 @@ pub mod ffi {
         instrument: String,
         well: String,
         error: String,
+        stype: String,
+        panel: String,
+        sos: String,
+        sspk: String,
+        cgq: String,
+    }
+    /// One row of the Genotypes table (one marker of one sample).
+    struct GenoRow {
+        sample: usize,
+        file: String,
+        name: String,
+        marker: String,
+        dye: String,
+        alleles: Vec<String>,
+        sizes: Vec<f64>,
+        heights: Vec<f64>,
+        gq: String,
+    }
+    struct PanelOption {
+        key: String,
+        label: String,
     }
     /// One electropherogram channel: x in bp (sized) or data points, y in RFU.
     struct Trace {
@@ -35,6 +56,7 @@ pub mod ffi {
         total: usize,
         running: bool,
         message: String,
+        phase: String,
     }
 
     extern "Rust" {
@@ -44,7 +66,19 @@ pub mod ffi {
         fn resources_dir(self: &Backend) -> String;
         fn method_list(self: &Backend) -> Vec<String>;
         fn size_standard_list(self: &Backend) -> Vec<String>;
-        fn add_sample_files(self: &Backend, paths: &Vec<String>, run_folder: &str, method: &str, size_std: &str) -> Vec<String>;
+        fn add_sample_files(self: &Backend, paths: &Vec<String>, run_folder: &str, method: &str, size_std: &str, panel_key: &str) -> Vec<String>;
+        fn panel_options(self: &Backend) -> Vec<PanelOption>;
+        fn import_kit(self: &Backend, path: &str, kind: &str, kit_hint: &str) -> String;
+        fn kit_summary(self: &Backend) -> Vec<String>;
+        fn delete_kit(self: &Backend, name: &str);
+        fn set_samples_panel(self: &Backend, rows: &Vec<usize>, panel_key: &str);
+        fn set_samples_type(self: &Backend, rows: &Vec<usize>, stype: &str);
+        fn genotype_rows(self: &Backend) -> Vec<GenoRow>;
+        fn ask_pending(self: &Backend) -> String;
+        fn ask_answer(self: &Backend, answer: &str);
+        fn option_get(self: &Backend, key: &str) -> String;
+        fn option_set(self: &Backend, key: &str, value: &str) -> bool;
+        fn genotype_digest(self: &Backend) -> String;
         fn sample_count(self: &Backend) -> usize;
         fn sample_row(self: &Backend, i: usize) -> SampleRow;
         fn remove_samples(self: &Backend, rows: &Vec<usize>);
@@ -83,6 +117,9 @@ fn core_version() -> String {
 }
 
 impl Backend {
+    fn set_data_dir(&self, dir: &str) {
+        self.load_library(dir)
+    }
     fn load_problem(&self) -> String {
         self.load_problem.clone()
     }
@@ -120,8 +157,115 @@ impl Backend {
     fn last_import_error(&self) -> String {
         self.last_error.lock().unwrap().clone()
     }
-    fn add_sample_files(&self, paths: &Vec<String>, run_folder: &str, method: &str, size_std: &str) -> Vec<String> {
-        self.add_files(paths, run_folder, method, size_std)
+    fn add_sample_files(&self, paths: &Vec<String>, run_folder: &str, method: &str, size_std: &str, panel_key: &str) -> Vec<String> {
+        self.add_files(paths, run_folder, method, size_std, panel_key)
+    }
+    fn panel_options(&self) -> Vec<ffi::PanelOption> {
+        self.kits.lock().unwrap().choices().into_iter().map(|c| ffi::PanelOption { label: format!("{} ({})", c.panel, c.kit), key: c.key }).collect()
+    }
+    fn import_kit(&self, path: &str, kind: &str, kit_hint: &str) -> String {
+        self.import_result(self.import_kit_file(path, kind, kit_hint))
+    }
+    fn kit_summary(&self) -> Vec<String> {
+        self.kits.lock().unwrap().summary()
+    }
+    fn delete_kit(&self, name: &str) {
+        self.kits.lock().unwrap().remove_kit(name);
+        self.kit_cache.lock().unwrap().clear();
+        let _ = self.save_library();
+    }
+    fn set_samples_panel(&self, rows: &Vec<usize>, panel_key: &str) {
+        let mut list = self.samples.lock().unwrap();
+        for &i in rows {
+            if let Some(s) = list.get_mut(i) {
+                if s.panel_key != panel_key {
+                    s.panel_key = panel_key.to_string();
+                    s.report = None;
+                }
+            }
+        }
+    }
+    fn set_samples_type(&self, rows: &Vec<usize>, stype: &str) {
+        if !["sample", "ladder", "positive", "negative"].contains(&stype) {
+            return;
+        }
+        let mut list = self.samples.lock().unwrap();
+        for &i in rows {
+            if let Some(s) = list.get_mut(i) {
+                s.stype = stype.to_string();
+            }
+        }
+    }
+    fn genotype_rows(&self) -> Vec<ffi::GenoRow> {
+        let list = self.samples.lock().unwrap();
+        let mut out = Vec::new();
+        for (i, s) in list.iter().enumerate() {
+            let Some(rep) = &s.report else { continue };
+            if rep["allele_calling"].is_null() {
+                continue;
+            }
+            let gq: std::collections::HashMap<String, &serde_json::Value> =
+                rep["quality"]["marker_gq"]["markers"].as_array().into_iter().flatten().filter_map(|m| Some((m["marker"].as_str()?.to_string(), m))).collect();
+            for m in rep["allele_calling"]["markers"].as_array().into_iter().flatten() {
+                let name = m["name"].as_str().unwrap_or("");
+                let calls: Vec<&serde_json::Value> = rep["calls"].as_array().into_iter().flatten().filter(|c| c["marker"] == name && !c["label"].is_null()).collect();
+                out.push(ffi::GenoRow {
+                    sample: i,
+                    file: s.file.clone(),
+                    name: s.name.clone(),
+                    marker: name.to_string(),
+                    dye: m["channel"].as_str().unwrap_or("").to_string(),
+                    alleles: calls.iter().map(|c| crate::kits::js_num(&c["label"])).collect(),
+                    sizes: calls.iter().map(|c| c["size_bp"].as_f64().unwrap_or(0.0)).collect(),
+                    heights: calls.iter().map(|c| c["height"].as_f64().unwrap_or(0.0)).collect(),
+                    gq: if s.stype == "ladder" { "na".into() } else { gq.get(name).map(|g| crate::genotype::code(&g["category"]["code"]).to_string()).unwrap_or_else(|| "na".into()) },
+                });
+            }
+        }
+        out
+    }
+    /// file:marker=allele,... per sample (the same digest the browser tests print) for comparisons with the web UI.
+    fn genotype_digest(&self) -> String {
+        let list = self.samples.lock().unwrap();
+        list.iter()
+            .map(|s| {
+                let calls: Vec<String> = s.report.as_ref().and_then(|r| r["calls"].as_array().cloned()).unwrap_or_default().iter().filter(|c| !c["label"].is_null()).map(|c| format!("{}={}", c["marker"].as_str().unwrap_or(""), crate::kits::js_num(&c["label"]))).collect();
+                format!("{}:{}", s.file, calls.join(","))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    fn ask_pending(&self) -> String {
+        self.ask.pending().unwrap_or_default()
+    }
+    fn ask_answer(&self, answer: &str) {
+        self.ask.answer(answer)
+    }
+    fn option_get(&self, key: &str) -> String {
+        let o = self.options.lock().unwrap();
+        match key {
+            "alas" => o.alas.clone(),
+            "bin_offsets" => o.bin_offsets.clone(),
+            "pullup_excludes_calls" => o.pullup_excludes_calls.to_string(),
+            "homo_min_height" => o.homo_min_height.to_string(),
+            "het_min_height" => o.het_min_height.to_string(),
+            _ => String::new(),
+        }
+    }
+    fn option_set(&self, key: &str, value: &str) -> bool {
+        {
+            let mut o = self.options.lock().unwrap();
+            match key {
+                "alas" if ["stop", "passing", "all"].contains(&value) => o.alas = value.into(),
+                "bin_offsets" if ["green", "greenYellow"].contains(&value) => o.bin_offsets = value.into(),
+                "pullup_excludes_calls" => o.pullup_excludes_calls = value == "true",
+                "homo_min_height" => match value.parse::<f64>() { Ok(x) if x >= 0.0 => o.homo_min_height = x, _ => return false },
+                "het_min_height" => match value.parse::<f64>() { Ok(x) if x >= 0.0 => o.het_min_height = x, _ => return false },
+                _ => return false,
+            }
+        }
+        let _ = self.save_library();
+        true
     }
     fn sample_count(&self) -> usize {
         self.samples.lock().unwrap().len()
@@ -129,8 +273,10 @@ impl Backend {
     fn sample_row(&self, i: usize) -> ffi::SampleRow {
         let list = self.samples.lock().unwrap();
         let Some(s) = list.get(i) else {
-            return ffi::SampleRow { file: String::new(), name: String::new(), run_folder: String::new(), status: String::new(), sq: String::new(), method: String::new(), size_std: String::new(), instrument: String::new(), well: String::new(), error: String::new() };
+            let e = String::new;
+            return ffi::SampleRow { file: e(), name: e(), run_folder: e(), status: e(), sq: e(), method: e(), size_std: e(), instrument: e(), well: e(), error: e(), stype: e(), panel: e(), sos: e(), sspk: e(), cgq: e() };
         };
+        let pq = crate::genotype::sample_pqv(s);
         ffi::SampleRow {
             file: s.file.clone(),
             name: s.name.clone(),
@@ -142,12 +288,17 @@ impl Backend {
                 Status::Failed => "failed",
             }
             .into(),
-            sq: s.analysis.as_ref().map(|a| backend::sizing_quality(a).to_string()).unwrap_or_else(|| "na".into()),
+            sq: pq.sq.into(),
             method: s.method.clone(),
             size_std: s.size_std.clone(),
             instrument: s.instrument.clone(),
             well: s.well.clone(),
-            error: s.error.clone(),
+            error: if s.error.is_empty() { s.genotype_error.clone() } else { s.error.clone() },
+            stype: s.stype.clone(),
+            panel: s.panel_key.split('\u{1}').nth(1).unwrap_or("").to_string(),
+            sos: pq.sos.into(),
+            sspk: pq.sspk.into(),
+            cgq: pq.cgq.into(),
         }
     }
     fn remove_samples(&self, rows: &Vec<usize>) {
@@ -172,7 +323,7 @@ impl Backend {
     }
     fn analysis_progress(&self) -> ffi::ProgressInfo {
         let p = self.progress.lock().unwrap();
-        ffi::ProgressInfo { done: p.done, total: p.total, running: p.running, message: p.message.clone() }
+        ffi::ProgressInfo { done: p.done, total: p.total, running: p.running, message: p.message.clone(), phase: p.phase.clone() }
     }
     fn analysis_of(&self, i: usize) -> Option<std::sync::Arc<serde_json::Value>> {
         self.samples.lock().unwrap().get(i).and_then(|s| s.analysis.clone())
