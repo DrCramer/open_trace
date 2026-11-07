@@ -3,7 +3,7 @@ name: desktop-server
 # Builds and tests the analysis core, OpenTrace Server and OpenTrace Desktop on Linux and Windows.
 on:
   push:
-    branches: [feature/desktop-server-platform]
+    branches: [feature/desktop-server-platform, feature/desktop-configurable-industrial-ui]
   pull_request:
   workflow_dispatch:
 
@@ -31,6 +31,16 @@ jobs:
         run: cargo build --release --locked --manifest-path core/opentrace-core/Cargo.toml --bin opentrace
       - name: Tests (bit-identical to the reference on every OS; libm_port makes exp/log/pow platform-independent)
         run: cargo test --release --locked --no-fail-fast --manifest-path core/opentrace-core/Cargo.toml
+      - name: Desktop interface shell in a real browser (Playwright, Chromium; built-in example project) (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p $RUNNER_TEMP/pw && cd $RUNNER_TEMP/pw && npm init -y >/dev/null && npm install --no-audit --no-fund playwright@1.48.2 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+          cd $GITHUB_WORKSPACE
+          OPENTRACE_RESOURCES=$GITHUB_WORKSPACE/resources core/target/release/opentrace serve --port 18766 --projects-dir $RUNNER_TEMP/ui-p --security-dir $RUNNER_TEMP/ui-s > $RUNNER_TEMP/ui-serve.log 2>&1 &
+          for i in $(seq 1 50); do curl -fs http://127.0.0.1:18766/idx/shell.js >/dev/null && break; sleep 0.3; done
+          mkdir -p $RUNNER_TEMP/ui-shots
+          NODE_PATH=$RUNNER_TEMP/pw/node_modules OT_URL=http://127.0.0.1:18766 OT_SHOTS=$RUNNER_TEMP/ui-shots node desktop/opentrace-desktop/tests/e2e/ui_shell.cjs
+          kill %1 || true
       - name: libm_port against glibc on 1e8 arguments (Linux)
         if: runner.os == 'Linux'
         env:
