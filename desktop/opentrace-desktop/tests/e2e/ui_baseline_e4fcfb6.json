@@ -1,0 +1,2285 @@
+{
+ "errs": [],
+ "windows": [
+  {
+   "window": "project",
+   "menus": [
+    {
+     "label": "Файл",
+     "items": [
+      {
+       "label": "Новый проект...",
+       "sc": "Ctrl+N",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Открыть проект...",
+       "sc": "Ctrl+O",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сохранить проект",
+       "sc": "Ctrl+S",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сохранить проект как...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Закрыть проект",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Экспорт таблицы...",
+       "sc": "Ctrl+E",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт таблицы для CODIS...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт комбинированной таблицы...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт таблицы со статтером...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт панели проекта...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Параметры страницы...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Печать...",
+       "sc": "Ctrl+P",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Предварительный просмотр...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Настройки проекта...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Изменить пароль...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Выйти из системы",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Выход",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Правка",
+     "items": [
+      {
+       "label": "Отменить",
+       "sc": "Ctrl+Z",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Вернуть",
+       "sc": "Ctrl+Shift+Z",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Копировать",
+       "sc": "Ctrl+C",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Вставить",
+       "sc": "Ctrl+V",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Очистить",
+       "sc": "Delete",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Добавить образцы в проект...",
+       "sc": "Ctrl+K",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Связать образцы...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "Удалить из проекта",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Выделить всё",
+       "sc": "Ctrl+A",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Задать новый путь к файлам образцов...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Заполнить вниз",
+       "sc": "Ctrl+D",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Подогнать ширину столбцов",
+       "sc": "Ctrl+I",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Найти...",
+       "sc": "Ctrl+F",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сортировка...",
+       "sc": "Ctrl+G",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Анализ",
+     "items": [
+      {
+       "label": "Анализировать",
+       "sc": "Ctrl+R",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Анализировать выбранные образцы",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Анализировать все",
+       "sc": "Ctrl+Shift+R",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Анализировать маркеры...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      }
+     ]
+    },
+    {
+     "label": "Вид",
+     "items": [
+      {
+       "label": "Образцы",
+       "sc": "Ctrl+Shift+1",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Сводка анализа",
+       "sc": "Ctrl+Shift+2",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Генотипы",
+       "sc": "Ctrl+Shift+3",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Показать графики",
+       "sc": "Ctrl+L",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Журнал правок обозначений",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Низкое качество наверх",
+       "sc": "Ctrl+B",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Неконкордантные образцы наверх",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Информация об образце",
+       "sc": "Ctrl+F1",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Необработанные данные",
+       "sc": "Ctrl+F2",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Данные EPT",
+       "sc": "Ctrl+F3",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Полный вид",
+       "sc": "Ctrl+]",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Масштаб по оси Y",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Масштаб по максимуму Y",
+         "sc": "",
+         "disabled": true,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "Масштабировать до...",
+         "sc": "",
+         "disabled": true,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "Смещения бинов...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Приборы...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Показать навигатор",
+       "sc": "Ctrl+Shift+N",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Язык",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Русский",
+         "sc": "",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "English",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      }
+     ]
+    },
+    {
+     "label": "Инструменты",
+     "items": [
+      {
+       "label": "Менеджер OpenTrace",
+       "sc": "Ctrl+M",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Менеджер панелей",
+       "sc": "Ctrl+J",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Менеджер отчётов",
+       "sc": "Ctrl+Q",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Редактор настройки таблицы...",
+       "sc": "Ctrl+T",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Менеджер экспорта CODIS...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Анализ смесей",
+       "sc": "Ctrl+U",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Менеджер анализа смесей",
+       "sc": "Ctrl+Y",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Добавить профиль",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Пользовательский контроль",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Лабораторный эталон",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Менеджер профилей",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сравнение профилей",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Редактор метода анализа...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Редактор размерного стандарта...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Редактор соответствия размеров...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Администрирование",
+     "items": [
+      {
+       "label": "Менеджер безопасности",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Менеджер аудита",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Настройка...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Отчёт...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        "-",
+        {
+         "label": "Резервное копирование записей аудита...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Восстановить записи аудита...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Удалить записи аудита...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Показать количество записей аудита",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Администратор электронной подписи",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Дистанционное отключение...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      }
+     ]
+    },
+    {
+     "label": "Справка",
+     "items": [
+      {
+       "label": "Справка OpenTrace",
+       "sc": "F1",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Загрузить пример данных",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "О программе OpenTrace",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    }
+   ],
+   "toolbars": [
+    {
+     "id": "toolbar",
+     "items": [
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Новый проект...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbOpen",
+       "title": "Открыть проект...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbSave",
+       "title": "Сохранить проект",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Добавить образцы в проект...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbExport",
+       "title": "Экспорт таблицы...",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbPlots",
+       "title": "Показать графики",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbReport",
+       "title": "Менеджер отчётов",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbLabelEdits",
+       "title": "Журнал правок обозначений",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbSizeMatch",
+       "title": "Редактор соответствия размеров...",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbMethodEditor",
+       "title": "Редактор метода анализа...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbPanelManager",
+       "title": "Менеджер панелей",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbManager",
+       "title": "Менеджер OpenTrace",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbAnalyze",
+       "title": "Анализировать",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Низкое качество наверх",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "SPAN",
+       "id": "",
+       "title": "Настройка таблицы:",
+       "cls": "tlabel"
+      },
+      {
+       "tag": "SELECT",
+       "id": "tsCombo",
+       "title": "Настройка таблицы:",
+       "cls": "combo"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbTableSetting",
+       "title": "Редактор настройки таблицы...",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbFind",
+       "title": "Найти...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbPrint",
+       "title": "Печать...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbPrintPreview",
+       "title": "Предварительный просмотр...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Справка OpenTrace",
+       "cls": "tb"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "window": "plot",
+   "menus": [
+    {
+     "label": "Файл",
+     "items": [
+      {
+       "label": "Параметры страницы...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Печать...",
+       "sc": "Ctrl+P",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Предварительный просмотр...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Экспорт таблицы...",
+       "sc": "Ctrl+E",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт таблицы со статтером...",
+       "sc": "Ctrl+S",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Закрыть окно графиков",
+       "sc": "Esc",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Правка",
+     "items": [
+      {
+       "label": "Отменить",
+       "sc": "Ctrl+Z",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Копировать",
+       "sc": "Ctrl+C",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Вид",
+     "items": [
+      {
+       "label": "Панель инструментов",
+       "sc": "",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Информация об образце",
+       "sc": "Ctrl+F1",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Необработанные данные",
+       "sc": "Ctrl+F2",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Данные EPT",
+       "sc": "Ctrl+F3",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Язык",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Русский",
+         "sc": "",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "English",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      }
+     ]
+    },
+    {
+     "label": "Графики",
+     "items": [
+      {
+       "label": "Масштаб",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Полный вид",
+         "sc": "Ctrl+]",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Увеличить",
+         "sc": "Ctrl+=",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Уменьшить",
+         "sc": "Ctrl+-",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Масштабировать до...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        "-",
+        {
+         "label": "Масштабировать до маркера...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Масштабировать до следующего маркера",
+         "sc": "Ctrl+J",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Сохранять масштаб по оси X",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Масштаб по оси X",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Пары оснований",
+         "sc": "Ctrl+Y",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "Точки данных",
+         "sc": "Ctrl+N",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        "-",
+        {
+         "label": "Масштабировать до...",
+         "sc": "Ctrl+Shift+G",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Масштаб по оси Y",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Масштаб по максимуму Y",
+         "sc": "Ctrl+Shift+M",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Масштабировать индивидуально",
+         "sc": "Ctrl+Shift+D",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "По введённому значению (8191)...",
+         "sc": "Ctrl+Shift+Y",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "Обозначения",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Без обозначений",
+         "sc": "Ctrl+Shift+N",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Горизонтальные обозначения",
+         "sc": "Ctrl+Shift+H",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Вертикальные обозначения",
+         "sc": "Ctrl+Shift+V",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Обозначения размерного стандарта",
+       "sc": "",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Бины",
+       "sc": "Ctrl+Shift+B",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Положения пиков",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Изменения аллелей",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Контроли наверх",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Леддеры наверх",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Индикатор зашкаливающих пиков",
+       "sc": "",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Красители",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "blue",
+         "sc": "Ctrl+1",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "green",
+         "sc": "Ctrl+2",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "yellow",
+         "sc": "Ctrl+3",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "red",
+         "sc": "Ctrl+4",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "purple",
+         "sc": "Ctrl+0",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "orange",
+         "sc": "Ctrl+5",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        "-",
+        {
+         "label": "Все красители",
+         "sc": "Ctrl+6",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Графики",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Объединить красители",
+         "sc": "Ctrl+7",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Разделить красители",
+         "sc": "Ctrl+8",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "Наложить все",
+         "sc": "Ctrl+9",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Фильтр таблицы",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Показать все строки",
+         "sc": "Ctrl+F",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "Показать выбранные строки",
+         "sc": "Ctrl+G",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Скрыть выбранные строки",
+         "sc": "Ctrl+H",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Показать строки с аллелями",
+         "sc": "Ctrl+V",
+         "disabled": true,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Таблицы",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Без таблицы",
+         "sc": "Ctrl+Q",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Таблица размеров",
+         "sc": "Ctrl+A",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Таблица генотипов",
+         "sc": "Ctrl+W",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "Заголовок графика",
+       "sc": "",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Диапазон маркеров",
+       "sc": "Ctrl+R",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Индикатор маркера",
+       "sc": "Ctrl+K",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Значения ПК для пика",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Цвета графика",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Стандартные",
+         "sc": "",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "Свои",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "Легенда",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Поля маркера...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Все красители в диапазоне маркера",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Инструменты",
+     "items": [
+      {
+       "label": "Менеджер OpenTrace",
+       "sc": "Ctrl+M",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Редактор настроек графика",
+       "sc": "Ctrl+T",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Аллели",
+     "items": [
+      {
+       "label": "Режим редактирования",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Выделение пиков",
+         "sc": "Ctrl+;",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "Редактирование в один клик (щелчок по метке удаляет её)",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "Удалить предопределённые метки артефактов...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Добавить обозначение аллеля",
+       "sc": "Ctrl+L",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Добавить обозначение артефакта",
+       "sc": "Ctrl+I",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Удалить выбранные обозначения",
+       "sc": "Del",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Удалить несколько меток",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Удалить все метки",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        },
+        {
+         "label": "Удалить метки в диапазоне...",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      },
+      {
+       "label": "Переименовать обозначение аллеля",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      },
+      {
+       "label": "Переименовать метку артефакта",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      },
+      "-",
+      {
+       "label": "История",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Как править обозначения...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Справка",
+     "items": [
+      {
+       "label": "О программе OpenTrace",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    }
+   ],
+   "toolbars": [
+    {
+     "id": "toolbar1",
+     "items": [
+      {
+       "tag": "BUTTON",
+       "id": "tbPlotPrint",
+       "title": "Печать...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbPlotPreview",
+       "title": "Предварительный просмотр...",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "SPAN",
+       "id": "",
+       "title": "Настройка графика:",
+       "cls": "tlabel"
+      },
+      {
+       "tag": "SELECT",
+       "id": "psCombo",
+       "title": "Data InterpretationData Interpretation_6",
+       "cls": "combo"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbPlotSettingEditor",
+       "title": "Редактор настроек графика",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "SPAN",
+       "id": "",
+       "title": "Панели:",
+       "cls": "tlabel"
+      },
+      {
+       "tag": "SELECT",
+       "id": "",
+       "title": "12345678",
+       "cls": "combo"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "blue",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "green",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "yellow",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "red",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "purple",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "orange",
+       "cls": "tb"
+      }
+     ]
+    },
+    {
+     "id": "toolbar2",
+     "items": [
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Заголовок графика",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Диапазон маркеров",
+       "cls": "tb on"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Без обозначений",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Горизонтальные обозначения",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Вертикальные обозначения",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Бины",
+       "cls": "tb on"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Полный вид",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Объединить красители",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Разделить красители",
+       "cls": "tb on"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Наложить все",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbMultiDye",
+       "title": "Все красители в диапазоне маркера",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Без таблицы",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Таблица размеров",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Таблица генотипов",
+       "cls": "tb on"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "window": "panels",
+   "menus": [
+    {
+     "label": "Файл",
+     "items": [
+      {
+       "label": "Новый набор...",
+       "sc": "Ctrl+N",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Новая панель",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Дублировать панель",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Дублировать набор...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Новый маркер",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Импорт панелей...",
+       "sc": "Ctrl+M",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Импорт набора бинов...",
+       "sc": "Ctrl+Shift+B",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Импорт статтера маркеров...",
+       "sc": "Ctrl+Shift+M",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Экспорт панелей...",
+       "sc": "Ctrl+E",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт набора бинов...",
+       "sc": "Ctrl+Shift+E",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт всех наборов...",
+       "sc": "Ctrl+K",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Экспорт статтера маркеров...",
+       "sc": "Ctrl+Shift+X",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Печать...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Закрыть",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Правка",
+     "items": [
+      {
+       "label": "Отменить",
+       "sc": "Ctrl+Z",
+       "disabled": true,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Копировать",
+       "sc": "Ctrl+C",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Вставить",
+       "sc": "Ctrl+V",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Удалить",
+       "sc": "Delete",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Бины",
+     "items": [
+      {
+       "label": "Новый набор бинов...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Удалить набор бинов",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Добавить бин",
+       "sc": "Ctrl+B",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Изменить бин",
+       "sc": "Ctrl+H",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Удалить бин",
+       "sc": "Ctrl+D",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Добавить несколько бинов",
+       "sc": "Ctrl+G",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Авто бины",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      },
+      {
+       "label": "Добавить справочные данные...",
+       "sc": "",
+       "disabled": true,
+       "checked": false,
+       "hasRun": false
+      }
+     ]
+    },
+    {
+     "label": "Вид",
+     "items": [
+      {
+       "label": "Показать навигатор",
+       "sc": "Ctrl+Shift+N",
+       "disabled": false,
+       "checked": true,
+       "hasRun": true
+      },
+      {
+       "label": "Полный вид",
+       "sc": "Ctrl+]",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Язык",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "sub": [
+        {
+         "label": "Русский",
+         "sc": "",
+         "disabled": false,
+         "checked": true,
+         "hasRun": true
+        },
+        {
+         "label": "English",
+         "sc": "",
+         "disabled": false,
+         "checked": false,
+         "hasRun": true
+        }
+       ],
+       "hasRun": false
+      }
+     ]
+    },
+    {
+     "label": "Справка",
+     "items": [
+      {
+       "label": "О программе OpenTrace",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    }
+   ],
+   "toolbars": [
+    {
+     "id": "toolbar",
+     "items": [
+      {
+       "tag": "BUTTON",
+       "id": "tbNew",
+       "title": "Новый набор...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbClear",
+       "title": "Удалить",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbAddBin",
+       "title": "Добавить бин",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbDeleteBin",
+       "title": "Удалить бин",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbEditBin",
+       "title": "Изменить бин",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "",
+       "title": "Полный вид",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "tbImportPanels",
+       "title": "Импорт панелей...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbImportBins",
+       "title": "Импорт набора бинов...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbImportStutter",
+       "title": "Импорт статтера маркеров...",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "SPAN",
+       "id": "",
+       "title": "Набор бинов:",
+       "cls": "tlabel"
+      },
+      {
+       "tag": "SELECT",
+       "id": "binSetCombo",
+       "title": "Набор бинов:",
+       "cls": "combo"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "tbNewBinSet",
+       "title": "Новый набор бинов...",
+       "cls": "tb"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "window": "report",
+   "menus": [
+    {
+     "label": "Файл",
+     "items": [
+      {
+       "label": "Открыть...",
+       "sc": "Ctrl+O",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сохранить отчёт в проекте",
+       "sc": "Ctrl+S",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сохранить как...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Экспорт...",
+       "sc": "Ctrl+E",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Параметры страницы...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Печать...",
+       "sc": "Ctrl+P",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Предварительный просмотр...",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Закрыть",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Правка",
+     "items": [
+      {
+       "label": "Вырезать",
+       "sc": "Ctrl+X",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Копировать",
+       "sc": "Ctrl+C",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Вставить",
+       "sc": "Ctrl+V",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Очистить",
+       "sc": "Delete",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Выделить всё",
+       "sc": "Ctrl+A",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Заполнить вниз",
+       "sc": "Ctrl+D",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Таблица по умолчанию",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Повернуть таблицу",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Таблица по маркерам",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Найти...",
+       "sc": "Ctrl+F",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      {
+       "label": "Сортировка...",
+       "sc": "Ctrl+G",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Удалить строку(и)",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Вид",
+     "items": [
+      {
+       "label": "Обновить",
+       "sc": "F5",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      },
+      "-",
+      {
+       "label": "Показать графики",
+       "sc": "Ctrl+L",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    },
+    {
+     "label": "Инструменты",
+     "items": [
+      {
+       "label": "Редактор настроек отчёта",
+       "sc": "",
+       "disabled": false,
+       "checked": false,
+       "hasRun": true
+      }
+     ]
+    }
+   ],
+   "toolbars": [
+    {
+     "id": "toolbar",
+     "items": [
+      {
+       "tag": "SPAN",
+       "id": "",
+       "title": "Настройка отчёта:",
+       "cls": "tlabel"
+      },
+      {
+       "tag": "SELECT",
+       "id": "rpSetting",
+       "title": "Allele Table",
+       "cls": "combo"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "rpEditSetting",
+       "title": "Редактор настроек отчёта",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "rpPlots",
+       "title": "Показать графики",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "rpRefreshBtn",
+       "title": "Обновить",
+       "cls": "tb"
+      },
+      "-",
+      {
+       "tag": "BUTTON",
+       "id": "rpExportBtn",
+       "title": "Экспорт...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "rpPreview",
+       "title": "Предварительный просмотр...",
+       "cls": "tb"
+      },
+      {
+       "tag": "BUTTON",
+       "id": "rpPrint",
+       "title": "Печать...",
+       "cls": "tb"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
