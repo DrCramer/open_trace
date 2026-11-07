@@ -1,0 +1,25 @@
+[package]
+name = "opentrace-qt"
+version = "0.1.0"
+edition = "2021"
+description = "OpenTrace Desktop: native Qt 6 Widgets interface over the OpenTrace Rust core (no browser engine). Research use only."
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "opentrace-qt"
+path = "src/main.rs"
+
+[dependencies]
+opentrace-core = { path = "../../core/opentrace-core" }
+cxx = "1"
+cxx-qt = "0.10"
+cxx-qt-lib = { version = "0.10", features = ["qt_gui"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+roxmltree = "0.20"
+
+[build-dependencies]
+cxx-qt-build = "0.10"
+
+[profile.release]
+lto = "thin"

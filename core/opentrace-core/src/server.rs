@@ -573,24 +573,41 @@ impl App {
                     "/api/demo-pipeline" => demo::pipeline_demo_bytes(),
                     _ => raw.clone(),
                 };
-                let (filename, mut kwargs) = analyze_kwargs(&params)?;
-                let slim = first(&params, "slim") == Some("1");
-                if slim {
-                    // the event trace is dropped below anyway: do not build it
-                    kwargs.insert("pullup_event_trace".into(), json!(false));
-                }
-                let mut v = analyze(&data, &filename, &kwargs)?;
-                if slim {
-                    slim_analysis(&mut v);
-                    // the instrument that recorded the file (the full response stays as the reference implementation)
-                    if let (Ok(a), Some(o)) = (crate::abif::AbifFile::parse(&data, &filename), v.as_object_mut()) {
-                        o.insert("instrument".into(), crate::instrument::instrument_info(&a));
-                    }
-                }
-                ok(v)
+                ok(analyze_endpoint(&data, &params)?)
             }
         }
     }
+}
+
+/// `POST /api/analyze?<params>` without HTTP: query parameters -> keyword arguments -> analysis (+ `slim=1`).
+fn analyze_endpoint(data: &[u8], params: &BTreeMap<String, Vec<String>>) -> HR<Value> {
+    let (filename, mut kwargs) = analyze_kwargs(params)?;
+    let slim = first(params, "slim") == Some("1");
+    if slim {
+        // the event trace is dropped below anyway: do not build it
+        kwargs.insert("pullup_event_trace".into(), json!(false));
+    }
+    let mut v = analyze(data, &filename, &kwargs)?;
+    if slim {
+        slim_analysis(&mut v);
+        // the instrument that recorded the file (the full response stays as the reference implementation)
+        if let (Ok(a), Some(o)) = (crate::abif::AbifFile::parse(data, &filename), v.as_object_mut()) {
+            o.insert("instrument".into(), crate::instrument::instrument_info(&a));
+        }
+    }
+    Ok(v)
+}
+
+/// In-process equivalent of `POST /api/analyze?<params>` for the native desktop application: the same parameter
+/// conversion and the same result as the HTTP endpoint (the web UI and the native UI analyse identically).
+pub fn analyze_request(data: &[u8], params: &[(String, String)]) -> Result<Value, String> {
+    let mut p: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (k, v) in params {
+        p.entry(k.clone()).or_default().push(v.clone());
+    }
+    analyze_endpoint(data, &p).map_err(|e| match e {
+        HErr::Bad(m) | HErr::Denied(m) | HErr::Other(m) => m,
+    })
 }
 
 fn lerr_text(e: &LErr) -> String {

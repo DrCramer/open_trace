@@ -1,0 +1,103 @@
+name: native-qt
+
+# OpenTrace Desktop with the native Qt 6 Widgets interface (desktop/opentrace-qt): build on Linux and Windows,
+# scripted self-test (invented run files of the core: add, analyse, plot window, vector PDF), Windows folder build.
+on:
+  push:
+    branches: [feature/native-qt-desktop]
+  pull_request:
+    paths: ['desktop/opentrace-qt/**', 'core/**', '.github/workflows/native-qt.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/opentrace-qt
+      - name: Qt 6 (distribution packages)
+        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev qt6-base-dev-tools libgl-dev poppler-utils
+      - name: Build
+        env:
+          QMAKE: /usr/bin/qmake6
+        run: cargo build --release --manifest-path desktop/opentrace-qt/Cargo.toml
+      - name: Self-test (offscreen): add 6 invented run files, analyse, plot window, PDF
+        run: |
+          out=$RUNNER_TEMP/qt-selftest
+          HOME=$RUNNER_TEMP/qt-home QT_QPA_PLATFORM=offscreen OPENTRACE_RESOURCES=$PWD/resources \
+            OT_QT_AUTOTEST_FILES=synthetic:5 OT_QT_AUTOTEST_OUT=$out timeout 300 desktop/opentrace-qt/target/release/opentrace-qt
+          cat $out/result.json
+          python3 -c "import json,sys; r=json.load(open('$out/result.json')); ok=r['samples']==6 and r['analyzed']==6 and r['failed']==0 and r['pdf']; sys.exit(0 if ok else 1)"
+          pdfinfo $out/plots.pdf
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opentrace-qt-linux
+          path: |
+            desktop/opentrace-qt/target/release/opentrace-qt
+            ${{ runner.temp }}/qt-selftest/*.png
+            ${{ runner.temp }}/qt-selftest/*.pdf
+            ${{ runner.temp }}/qt-selftest/result.json
+          if-no-files-found: ignore
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/opentrace-qt
+      - name: Qt 6.8 (MSVC 2022, 64-bit)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          cache: true
+      - name: Build
+        shell: pwsh
+        run: |
+          $env:QMAKE = Join-Path $env:QT_ROOT_DIR 'bin\qmake.exe'
+          cargo build --release --manifest-path desktop/opentrace-qt/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+      - name: Application folder (exe + Qt libraries + resources)
+        shell: pwsh
+        run: |
+          $d = 'desktop/opentrace-qt/target/release/OpenTrace-Qt'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          Copy-Item desktop/opentrace-qt/target/release/opentrace-qt.exe $d
+          & (Join-Path $env:QT_ROOT_DIR 'bin\windeployqt.exe') --release --no-translations --no-system-d3d-compiler --no-opengl-sw (Join-Path $d 'opentrace-qt.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'windeployqt failed' }
+          Copy-Item -Recurse resources (Join-Path $d 'resources')
+          Get-ChildItem $d | Select-Object Name, Length
+      - name: Self-test from the application folder (Windows platform plugin)
+        shell: pwsh
+        run: |
+          $d = (Resolve-Path 'desktop/opentrace-qt/target/release/OpenTrace-Qt').Path
+          $out = Join-Path $env:RUNNER_TEMP 'qt-selftest'
+          $env:OT_QT_AUTOTEST_FILES = 'synthetic:5'
+          $env:OT_QT_AUTOTEST_OUT = $out
+          $env:PATH = "$d;" + $env:PATH
+          $p = Start-Process -FilePath (Join-Path $d 'opentrace-qt.exe') -PassThru -Wait
+          Get-Content (Join-Path $out 'result.json')
+          $r = Get-Content (Join-Path $out 'result.json') | ConvertFrom-Json
+          if ($p.ExitCode -ne 0 -or $r.analyzed -ne 6 -or $r.failed -ne 0 -or -not $r.pdf) { throw "self-test failed (exit $($p.ExitCode))" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opentrace-qt-windows
+          path: |
+            desktop/opentrace-qt/target/release/OpenTrace-Qt/
+            ${{ runner.temp }}/qt-selftest/*.png
+            ${{ runner.temp }}/qt-selftest/*.pdf
+            ${{ runner.temp }}/qt-selftest/result.json
+          if-no-files-found: ignore
