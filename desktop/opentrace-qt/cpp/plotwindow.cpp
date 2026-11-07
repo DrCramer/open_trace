@@ -29,6 +29,7 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QLayoutItem>
 #include <QTimer>
 #include <cmath>
 #include <algorithm>
@@ -46,6 +47,30 @@ static double niceStep(double span) {
 }
 
 // ------------------------------------------------------------------ drawing (screen and printer)
+static QColor gqFill(const QString &q) {
+    if (q == "pass") return QColor(0x00, 0x99, 0x00);
+    if (q == "check") return QColor(0xff, 0x99, 0x00);
+    if (q == "low") return QColor(0xcc, 0x00, 0x00);
+    return QColor(0x7f, 0x7f, 0x7f);
+}
+
+// label text colour per dye (DATA3 dark yellow, readable on white)
+static QColor labelColor(const QString &tag) { return tag == "DATA3" ? QColor(0x7a, 0x6a, 0x00) : dyeColor(tag); }
+
+// Geometry of a pane shared by the painter and the mouse handlers: plot rectangle and label rows.
+PaneGeometry paneGeometry(const QRectF &rect, const QFontMetricsF &fm, double gap, bool markers, int labelRows, double rowH) {
+    PaneGeometry g;
+    const double headH = fm.height() + gap;
+    g.head = QRectF(rect.left(), rect.top(), rect.width(), headH);
+    g.L = rect.left() + fm.horizontalAdvance("000000") + 2 * gap;
+    g.R = rect.right() - 2 * gap;
+    g.markerTop = rect.top() + headH + gap * 0.5;
+    g.markerH = markers ? fm.height() + gap * 0.6 : 0;
+    g.top = g.markerTop + g.markerH + fm.height() + gap;
+    g.bottom = rect.bottom() - gap - labelRows * rowH;
+    return g;
+}
+
 void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewState &v, double x0, double x1, bool print) {
     p.save();
     p.setClipRect(rect);
@@ -57,15 +82,42 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     const QFontMetricsF fm(small, p.device());                  // metrics of the target device (screen or printer)
     const double mm = print ? p.device()->logicalDpiY() / 25.4 : 0;   // printer units per millimetre
     const double gap = print ? 1.2 * mm : 6;
-    const double headH = fm.height() + gap;
-    // header: sample file and name (sample name is what ID-X prints as the title)
-    QRectF head(rect.left(), rect.top(), rect.width(), headH);
-    p.fillRect(head, print ? QColor(255, 255, 255) : QColor(236, 239, 244));
+    const bool showMarkers = v.markerRange && !d.markers.isEmpty() && v.bp;
+    // allele labels: boxes in up to 4 rows under the axis, each label in the first row where it does not overlap
+    QFont lf = small;
+    lf.setPointSizeF(small.pointSizeF() + (print ? 0.5 : 1.0));
+    const QFontMetricsF lfm(lf, p.device());
+    const double rowH = lfm.height() + gap * 0.9;
+    struct Placed { double x, w; int row; const LabelData *l; };
+    QVector<Placed> placed;
+    int rows = 0;
+    auto layoutLabels = [&](double L, double R, int maxRows) {
+        placed.clear();
+        rows = 0;
+        if (!v.labels) return;
+        for (const auto &l : d.labels) {
+            if (!v.dyes.contains(l.tag) || l.x < x0 || l.x > x1) continue;
+            const double x = L + (l.x - x0) / (x1 - x0) * (R - L);
+            const double w = std::max(lfm.height() * 1.2, lfm.horizontalAdvance(l.text) + gap * 1.2);
+            int row = 0;
+            while (row < maxRows - 1 && std::any_of(placed.begin(), placed.end(), [&](const Placed &q) { return q.row == row && std::abs(q.x - x) < (q.w + w) / 2 + 2; })) ++row;
+            placed.push_back({x, w, row, &l});
+            rows = std::max(rows, row + 1);
+        }
+    };
+    PaneGeometry g0 = paneGeometry(rect, fm, gap, showMarkers, 0, rowH);
+    layoutLabels(g0.L, g0.R, 4);
+    // as many label rows as fit while the trace keeps a usable height (35 mm-ish printed / 50 px on screen)
+    const double minTrace = print ? 12 * mm : 50;
+    int maxRows = std::max(0, std::min(4, int((g0.bottom - g0.top - minTrace) / rowH)));
+    if (rows > maxRows) layoutLabels(g0.L, g0.R, std::max(1, maxRows));
+    const PaneGeometry g = paneGeometry(rect, fm, gap, showMarkers, rows, rowH);
+    const double L = g.L, R = g.R, top = g.top, bottom = g.bottom;
+    // header: sample name and file (sample name is what ID-X prints as the title)
+    p.fillRect(g.head, print ? QColor(255, 255, 255) : QColor(236, 239, 244));
     p.setPen(QColor(40, 40, 40));
     QString title = d.name.isEmpty() ? d.file : d.name + QStringLiteral("   ") + d.file;
-    p.drawText(head.adjusted(gap, 0, -gap, 0), Qt::AlignVCenter | Qt::AlignLeft, title);
-    const double L = rect.left() + fm.horizontalAdvance("000000") + 2 * gap, R = rect.right() - 2 * gap;
-    const double top = rect.top() + headH + fm.height() + gap, bottom = rect.bottom() - gap;
+    p.drawText(g.head.adjusted(gap, 0, -gap, 0), Qt::AlignVCenter | Qt::AlignLeft, title);
     if (bottom - top < 10 || R - L < 20) { p.restore(); return; }
     auto X = [&](double x) { return L + (x - x0) / (x1 - x0) * (R - L); };
     // y range: maximum of the shown dyes in the visible range
@@ -76,10 +128,30 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     }
     ymax *= 1.08;
     auto Y = [&](double y) { return bottom - std::min(y, ymax * 1.2) / ymax * (bottom - top); };
-    // axes
     QPen axis(Qt::black);
     axis.setWidthF(print ? 0.2 * mm : 1.0);
     axis.setCosmetic(!print);
+    // marker headers (filled with the GQ colour) and bins of the shown dyes
+    for (const auto &m : d.markers) {
+        if (!v.dyes.contains(m.tag)) continue;
+        const double xa = X(m.lo), xb = X(m.hi);
+        if (xb < L || xa > R) continue;
+        if (showMarkers) {
+            const QRectF hr(xa, g.markerTop, xb - xa, g.markerH);
+            p.fillRect(hr, gqFill(m.gq));
+            p.setPen(axis);
+            p.drawRect(hr);
+            p.setPen(Qt::black);
+            const QString name = fm.horizontalAdvance(m.name) <= xb - xa - 4 ? m.name : QStringLiteral("...");
+            p.drawText(hr, Qt::AlignCenter, name);
+        }
+        if (v.bins && v.bp)
+            for (const auto &b : m.bins) {
+                const double ba = X(b.lo), bb = X(b.hi);
+                p.fillRect(QRectF(ba, top, std::max(print ? 0.1 * mm : 1.0, bb - ba), bottom - top), b.virt ? QColor(0xfe, 0xcb, 0xcb) : QColor(0xd8, 0xd8, 0xd8));
+            }
+    }
+    // axes
     p.setPen(axis);
     p.setBrush(Qt::NoBrush);
     p.drawRect(QRectF(L, top, R - L, bottom - top));
@@ -132,7 +204,43 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
         flush(col);
         p.drawPath(path);
     }
+    // marker indicators: red triangles at the start and end of each marker window (after bin offsets)
+    if (v.indicators && v.bp) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(255, 0, 0));
+        const double tw = print ? 1.0 * mm : 4, th = print ? 2.4 * mm : 10;
+        for (const auto &m : d.markers) {
+            if (!v.dyes.contains(m.tag)) continue;
+            const QVector<double> w = m.window.size() == 2 ? m.window : QVector<double>{m.lo, m.hi};
+            for (double xv : w) {
+                const double x = X(xv);
+                if (x < L - 1 || x > R + 1) continue;
+                p.drawPolygon(QPolygonF{QPointF(x - tw, bottom), QPointF(x, bottom - th), QPointF(x + tw, bottom)});
+            }
+        }
+        p.setBrush(Qt::NoBrush);
+    }
     p.restore();
+    // allele label boxes with a lead line to the axis
+    p.setFont(lf);
+    for (const auto &pl : placed) {
+        const double y = bottom + gap * 0.6 + pl.row * rowH, h = lfm.height() + gap * 0.3;
+        const QColor col = labelColor(pl.l->tag);
+        QPen border(pl.l->flagged ? QColor(0xe0, 0x40, 0xa0) : col);
+        border.setWidthF(print ? 0.2 * mm : 1.0);
+        border.setCosmetic(!print);
+        QPen lead(col);
+        lead.setWidthF(print ? 0.15 * mm : 1.0);
+        lead.setCosmetic(!print);
+        p.setPen(lead);
+        p.drawLine(QPointF(pl.x, bottom), QPointF(pl.x, y));
+        const QRectF box(pl.x - pl.w / 2, y, pl.w, h);
+        p.fillRect(box, Qt::white);
+        p.setPen(border);
+        p.drawRect(box);
+        p.setPen(Qt::black);
+        p.drawText(box, Qt::AlignCenter, pl.l->text);
+    }
     p.restore();
 }
 
@@ -149,7 +257,7 @@ void PaneWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     double x0, x1;
     win_->visibleRange(x0, x1);
-    paintPane(p, QRectF(rect()).adjusted(0, 0, -1, -1), win_->pane(index_), win_->view(), x0, x1, false);
+    paintPane(p, QRectF(rect()).adjusted(0, 0, -1, -1), win_->paneData(index_), win_->paneView(index_), x0, x1, false);
     if (dragFrom_ >= 0 && dragTo_ >= 0) {
         p.fillRect(QRect(QPoint(std::min(dragFrom_, dragTo_), 0), QPoint(std::max(dragFrom_, dragTo_), height())), QColor(10, 36, 106, 40));
     }
@@ -198,6 +306,7 @@ PlotWindow::PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(QStringLiteral("OpenTrace — Графики"));
     for (const char *d : DYES) view_.dyes.insert(d);
+    view_.dyes.remove("DATA105");   // size standard hidden by default (ID-X "Data Interpretation" plot setting)
     QSettings st;
     view_.panes = std::clamp(st.value("plot/panes", 2).toInt(), 1, 8);
     load();
@@ -208,9 +317,8 @@ PlotWindow::PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget
     layout_ = new QVBoxLayout(host_);
     layout_->setContentsMargins(0, 0, 0, 0);
     layout_->setSpacing(0);
-    for (int i = 0; i < panes_.size(); ++i) layout_->addWidget(new PaneWidget(this, i));
-    layout_->addStretch(1);
     scroll_->setWidget(host_);
+    rebuildPanes();
     setCentralWidget(scroll_);
     xy_ = new QLabel;
     xy_->setMinimumWidth(160);
@@ -240,6 +348,15 @@ void PlotWindow::load() {
             d.traces.push_back(std::move(td));
         }
         if (bp) {
+            for (const auto &m : backend_.plot_markers(static_cast<std::size_t>(r))) {
+                MarkerData md{q(m.name), q(m.tag), q(m.gq), m.min_bp, m.max_bp, {}, {}};
+                for (double w : m.window) md.window << w;
+                for (std::size_t k = 0; k + 2 < m.bins.size(); k += 3) md.bins << BinData{m.bins[k], m.bins[k + 1], m.bins[k + 2] > 0.5};
+                d.markers << md;
+            }
+        }
+        for (const auto &l : backend_.plot_labels(static_cast<std::size_t>(r), bp)) d.labels << LabelData{q(l.tag), q(l.text), l.x, l.height, l.flagged};
+        if (bp) {
             auto range = backend_.sized_range(static_cast<std::size_t>(r));
             d.lo = range[0] - 10; d.hi = range[1] + 10;
         } else {
@@ -248,6 +365,33 @@ void PlotWindow::load() {
         if (d.hi <= d.lo) { d.lo = 0; d.hi = 1; }
         panes_.push_back(std::move(d));
     }
+}
+
+ViewState PlotWindow::paneView(int item) const {
+    ViewState v = view_;
+    if (!items_[item].dye.isEmpty()) v.dyes = {items_[item].dye};
+    return v;
+}
+
+// Panes: per sample one pane (combined dyes) or one pane per shown dye that the sample has (separate).
+void PlotWindow::rebuildPanes() {
+    items_.clear();
+    for (int i = 0; i < panes_.size(); ++i) {
+        if (!view_.separate) { items_.push_back({i, QString()}); continue; }
+        for (const char *d : DYES) {
+            const QString tag = d;
+            if (!view_.dyes.contains(tag)) continue;
+            if (std::any_of(panes_[i].traces.begin(), panes_[i].traces.end(), [&](const TraceData &t) { return t.tag == tag; })) items_.push_back({i, tag});
+        }
+    }
+    if (!layout_) return;
+    while (QLayoutItem *it = layout_->takeAt(0)) {
+        if (it->widget()) it->widget()->deleteLater();
+        delete it;
+    }
+    for (int k = 0; k < items_.size(); ++k) layout_->addWidget(new PaneWidget(this, k));
+    layout_->addStretch(1);
+    relayout();
 }
 
 void PlotWindow::visibleRange(double &x0, double &x1) const {
@@ -310,9 +454,9 @@ void PlotWindow::buildMenus() {
         const QString tag = DYES[k];
         auto *a = view->addAction(colorIcon(dyeSwatch(tag)), QString::fromUtf8("Краситель: ") + dyeName(tag));
         a->setCheckable(true);
-        a->setChecked(true);
+        a->setChecked(view_.dyes.contains(tag));
         a->setShortcut(QKeySequence(keys[k]));
-        connect(a, &QAction::toggled, this, [this, tag](bool on) { if (on) view_.dyes.insert(tag); else view_.dyes.remove(tag); repaintPanes(); });
+        connect(a, &QAction::toggled, this, [this, tag](bool on) { if (on) view_.dyes.insert(tag); else view_.dyes.remove(tag); if (view_.separate) rebuildPanes(); else repaintPanes(); });
         tb->addAction(a);
     }
     tb->addSeparator();
@@ -320,6 +464,34 @@ void PlotWindow::buildMenus() {
     auto *aFull = plots->addAction(style()->standardIcon(QStyle::SP_BrowserReload), QString::fromUtf8("Полный вид"), this, [this] { fullView(); });
     aFull->setShortcut(QKeySequence("Ctrl+]"));
     tb->addAction(aFull);
+    plots->addSeparator();
+    auto toggle = [this, plots, tb](const char *label, const char *key, bool ViewState::*field) {
+        auto *a = plots->addAction(QString::fromUtf8(label));
+        a->setCheckable(true);
+        a->setChecked(view_.*field);
+        a->setShortcut(QKeySequence(key));
+        connect(a, &QAction::toggled, this, [this, field](bool on) { view_.*field = on; repaintPanes(); });
+        Q_UNUSED(tb);
+        return a;
+    };
+    {
+        auto *lay = plots->addMenu(QString::fromUtf8("Компоновка"));
+        auto *lg = new QActionGroup(this);
+        auto *aSep = lay->addAction(QString::fromUtf8("Раздельно (краситель на панель)"));
+        auto *aComb = lay->addAction(QString::fromUtf8("Совмещённо (все красители образца)"));
+        for (auto *a : {aSep, aComb}) { a->setCheckable(true); lg->addAction(a); }
+        aSep->setChecked(view_.separate);
+        aComb->setChecked(!view_.separate);
+        aSep->setShortcut(QKeySequence("Ctrl+8"));
+        aComb->setShortcut(QKeySequence("Ctrl+7"));
+        connect(aSep, &QAction::triggered, this, [this] { view_.separate = true; rebuildPanes(); });
+        connect(aComb, &QAction::triggered, this, [this] { view_.separate = false; rebuildPanes(); });
+    }
+    toggle("Бины", "Ctrl+Shift+B", &ViewState::bins);
+    toggle("Диапазоны маркеров", "Ctrl+Shift+R", &ViewState::markerRange);
+    toggle("Метки аллелей", "Ctrl+Shift+H", &ViewState::labels);
+    toggle("Индикаторы маркеров", "Ctrl+K", &ViewState::indicators);
+    plots->addSeparator();
     auto *axis = plots->addMenu(QString::fromUtf8("Ось X"));
     auto *grp = new QActionGroup(this);
     auto *aBp = axis->addAction(QString::fromUtf8("Пары нуклеотидов"));
@@ -328,8 +500,8 @@ void PlotWindow::buildMenus() {
     aBp->setChecked(true);
     aBp->setShortcut(QKeySequence("Ctrl+Y"));
     aDp->setShortcut(QKeySequence("Ctrl+N"));
-    connect(aBp, &QAction::triggered, this, [this] { view_.bp = true; view_.x0 = view_.x1 = 0; load(); repaintPanes(); });
-    connect(aDp, &QAction::triggered, this, [this] { view_.bp = false; view_.x0 = view_.x1 = 0; load(); repaintPanes(); });
+    connect(aBp, &QAction::triggered, this, [this] { view_.bp = true; view_.x0 = view_.x1 = 0; load(); rebuildPanes(); });
+    connect(aDp, &QAction::triggered, this, [this] { view_.bp = false; view_.x0 = view_.x1 = 0; load(); rebuildPanes(); });
     tb->addSeparator();
     tb->addWidget(new QLabel(QString::fromUtf8(" Панели: ")));
     panesBox_ = new QSpinBox;
@@ -353,15 +525,15 @@ void PlotWindow::renderPages(QPagedPaintDevice *dev, QPainter &p) {
     const QString date = QDateTime::currentDateTime().toString("dd.MM.yyyy HH:mm");   // 24-hour Russian format
     double x0, x1;
     visibleRange(x0, x1);
-    const int pages = (panes_.size() + per - 1) / per;
+    const int pages = (items_.size() + per - 1) / per;
     QFont f = QApplication::font();
     f.setPointSizeF(7);
     for (int pg = 0; pg < pages; ++pg) {
         if (pg) dev->newPage();
         for (int k = 0; k < per; ++k) {
             const int i = pg * per + k;
-            if (i >= panes_.size()) break;
-            paintPane(p, QRectF(page.left(), page.top() + k * paneH, page.width(), paneH - 2 * unit), panes_[i], view_, x0, x1, true);
+            if (i >= items_.size()) break;
+            paintPane(p, QRectF(page.left(), page.top() + k * paneH, page.width(), paneH - 2 * unit), paneData(i), paneView(i), x0, x1, true);
         }
         p.setFont(f);
         p.setPen(Qt::black);

@@ -34,6 +34,23 @@ pub mod ffi {
         heights: Vec<f64>,
         gq: String,
     }
+    struct PlotMarker {
+        name: String,
+        tag: String,
+        min_bp: f64,
+        max_bp: f64,
+        gq: String,
+        window: Vec<f64>,
+        /// per bin: low bp, high bp, 1 = virtual (after this run's bin offset)
+        bins: Vec<f64>,
+    }
+    struct PlotLabel {
+        tag: String,
+        x: f64,
+        height: f64,
+        text: String,
+        flagged: bool,
+    }
     struct PanelOption {
         key: String,
         label: String,
@@ -79,6 +96,8 @@ pub mod ffi {
         fn option_get(self: &Backend, key: &str) -> String;
         fn option_set(self: &Backend, key: &str, value: &str) -> bool;
         fn genotype_digest(self: &Backend) -> String;
+        fn plot_markers(self: &Backend, i: usize) -> Vec<PlotMarker>;
+        fn plot_labels(self: &Backend, i: usize, bp: bool) -> Vec<PlotLabel>;
         fn sample_count(self: &Backend) -> usize;
         fn sample_row(self: &Backend, i: usize) -> SampleRow;
         fn remove_samples(self: &Backend, rows: &Vec<usize>);
@@ -234,6 +253,79 @@ impl Backend {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+    /// Marker ranges, GQ and bins of the sample's kit (bins moved by the bin offsets of its run, as the plot window does).
+    fn plot_markers(&self, i: usize) -> Vec<ffi::PlotMarker> {
+        let s = match self.samples.lock().unwrap().get(i) {
+            Some(s) => s.clone(),
+            None => return Vec::new(),
+        };
+        if s.panel_key.is_empty() {
+            return Vec::new();
+        }
+        let Some(k) = self.kit_cache.lock().unwrap().get(&format!("{}\u{2}{}", s.panel_key, s.method)).cloned() else { return Vec::new() };
+        let rep = s.report.clone();
+        let calling = |name: &str| -> Option<serde_json::Value> {
+            let ms = &rep.as_ref()?["allele_calling"]["markers"];
+            match ms {
+                serde_json::Value::Array(a) => a.iter().find(|m| m["name"] == name).cloned(),
+                serde_json::Value::Object(o) => o.get(name).cloned().or_else(|| o.values().find(|m| m["name"] == name).cloned()),
+                _ => None,
+            }
+        };
+        let gq: std::collections::HashMap<String, String> = rep
+            .as_ref()
+            .and_then(|r| r["quality"]["marker_gq"]["markers"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|m| Some((m["marker"].as_str()?.to_string(), crate::genotype::code(&m["category"]["code"]).to_string())))
+            .collect();
+        let mut out = Vec::new();
+        for m in k.kit["markers"].as_array().into_iter().flatten() {
+            let name = m["name"].as_str().unwrap_or("");
+            let mc = calling(name);
+            let off = mc.as_ref().map(|c| c["offsets"]["by_bin"].clone()).unwrap_or(serde_json::Value::Null);
+            let mut bins = Vec::new();
+            for b in m["bins"].as_array().into_iter().flatten() {
+                let label = crate::kits::js_num(&b["label"]);
+                let d = off[label.as_str()]["offset_bp"].as_f64().unwrap_or(0.0);
+                let c = b["center_bp"].as_f64().unwrap_or(0.0);
+                bins.push(c - d - b["left_bp"].as_f64().unwrap_or(0.5));
+                bins.push(c - d + b["right_bp"].as_f64().unwrap_or(0.5));
+                bins.push(if b["virtual"].as_bool().unwrap_or(false) { 1.0 } else { 0.0 });
+            }
+            let window = mc.as_ref().and_then(|c| c["window_bp"].as_array().map(|w| w.iter().filter_map(|x| x.as_f64()).collect::<Vec<_>>())).unwrap_or_default();
+            out.push(ffi::PlotMarker {
+                name: name.to_string(),
+                tag: m["channel"].as_str().unwrap_or("").to_string(),
+                min_bp: m["min_bp"].as_f64().unwrap_or(0.0),
+                max_bp: m["max_bp"].as_f64().unwrap_or(0.0),
+                gq: gq.get(name).cloned().unwrap_or_else(|| "na".into()),
+                window,
+                bins,
+            });
+        }
+        out
+    }
+    /// Allele labels of the sample (call label at the call size; ladders: matched ladder alleles).
+    fn plot_labels(&self, i: usize, bp: bool) -> Vec<ffi::PlotLabel> {
+        let Some(s) = self.samples.lock().unwrap().get(i).cloned() else { return Vec::new() };
+        let Some(rep) = s.report else { return Vec::new() };
+        let c = s.analysis.as_ref().map(|a| backend::curve(a)).unwrap_or_default();
+        let _ = &c;
+        rep["calls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|x| !x["label"].is_null())
+            .map(|x| ffi::PlotLabel {
+                tag: x["channel"].as_str().unwrap_or("").to_string(),
+                x: if bp { x["size_bp"].as_f64().unwrap_or(0.0) } else { x["scan"].as_f64().unwrap_or(0.0) },
+                height: x["height"].as_f64().unwrap_or(0.0),
+                text: crate::kits::js_num(&x["label"]),
+                flagged: x["flags"].as_array().is_some_and(|f| !f.is_empty()),
+            })
+            .collect()
     }
     fn ask_pending(&self) -> String {
         self.ask.pending().unwrap_or_default()
