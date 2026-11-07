@@ -2,6 +2,7 @@
 #include "opentrace-qt/cpp/plotwindow.h"
 #include "opentrace-qt/cpp/samplemodel.h"
 #include "opentrace-qt/cpp/style.h"
+#include "opentrace-qt/cpp/simpleplot.h"
 #include "opentrace-qt/src/bridge.cxx.h"
 
 #include <QAction>
@@ -79,7 +80,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     table_->setColumnWidth(SampleModel::SampleName, 140);
     table_->setColumnWidth(SampleModel::SQ, 40);
     connect(table_, &QTableView::doubleClicked, this, [this] { showPlots(); });
-    connect(table_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { updateInfo(); });
+    connect(table_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { updateInfo(); refreshSampleViews(); });
 
     nav_ = new QTreeWidget;
     nav_->setHeaderHidden(true);
@@ -122,7 +123,35 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     genoTable_->verticalHeader()->setDefaultSectionSize(table_->fontMetrics().height() + 6);
     genoTable_->setSortingEnabled(true);
     tabs_->addTab(genoTable_, QString::fromUtf8("Генотипы"));
-    tabs_->addTab(info_, QString::fromUtf8("Информация"));
+    tabs_->addTab(info_, QString::fromUtf8("Результат анализа"));
+    // ID-X Sample Info / Raw Data / EPT Data of the selected sample, read from its file
+    infoTree_ = new QTreeWidget;
+    infoTree_->setColumnCount(2);
+    infoTree_->setHeaderLabels({QString::fromUtf8("Параметр"), QString::fromUtf8("Значение")});
+    infoTree_->setAlternatingRowColors(true);
+    tabs_->addTab(infoTree_, QString::fromUtf8("Сведения о файле"));
+    rawPage_ = new QWidget;
+    {
+        auto *v = new QVBoxLayout(rawPage_);
+        rawTitle_ = new QLabel;
+        rawLegend_ = new QWidget;
+        new QHBoxLayout(rawLegend_);
+        rawLegend_->layout()->setContentsMargins(0, 0, 0, 0);
+        auto *top = new QHBoxLayout;
+        top->addWidget(rawTitle_);
+        top->addWidget(rawLegend_, 1);
+        v->addLayout(top);
+        rawPlot_ = new SimplePlot;
+        v->addWidget(rawPlot_, 1);
+        rawReadout_ = new QLabel(QString::fromUtf8("Протяжка — увеличить участок, двойной щелчок — полный вид"));
+        rawPlot_->setReadout(rawReadout_);
+        v->addWidget(rawReadout_);
+    }
+    tabs_->addTab(rawPage_, QString::fromUtf8("Необработанные данные"));
+    eptPage_ = new QWidget;
+    eptLay_ = new QVBoxLayout(eptPage_);
+    tabs_->addTab(eptPage_, QString::fromUtf8("Данные EPT"));
+    connect(tabs_, &QTabWidget::currentChanged, this, [this] { refreshSampleViews(); });
     auto *split = new QSplitter;
     split->addWidget(nav_);
     split->addWidget(tabs_);
@@ -231,7 +260,9 @@ void MainWindow::buildMenus() {
     view->addAction(QString::fromUtf8("&Образцы"), QKeySequence("Ctrl+Shift+1"), this, [this] { tabs_->setCurrentIndex(0); });
     view->addAction(QString::fromUtf8("&Сводка анализа"), QKeySequence("Ctrl+Shift+2"), this, [this] { refreshSummary(); tabs_->setCurrentIndex(1); });
     view->addAction(QString::fromUtf8("&Генотипы"), QKeySequence("Ctrl+Shift+3"), this, [this] { tabs_->setCurrentWidget(genoTable_); });
-    view->addAction(QString::fromUtf8("&Информация об образце"), QKeySequence("Ctrl+F1"), this, [this] { tabs_->setCurrentWidget(info_); });
+    view->addAction(QString::fromUtf8("&Информация об образце"), QKeySequence("Ctrl+F1"), this, [this] { tabs_->setCurrentWidget(infoTree_); });
+    view->addAction(QString::fromUtf8("&Необработанные данные"), QKeySequence("Ctrl+F2"), this, [this] { tabs_->setCurrentWidget(rawPage_); });
+    view->addAction(QString::fromUtf8("Данные &EPT"), QKeySequence("Ctrl+F3"), this, [this] { tabs_->setCurrentWidget(eptPage_); });
     view->addAction(QString::fromUtf8("&Журнал правок обозначений..."), this, [this] { labelEditViewer(); });
     auto *aNav = view->addAction(QString::fromUtf8("&Навигатор"));
     aNav->setCheckable(true);
@@ -408,6 +439,11 @@ void MainWindow::pollProgress() {
         tabs_->setCurrentIndex(1);
         QApplication::processEvents();
         grab().save(out + "/summary.png");
+        for (auto [w, name] : {std::pair<QWidget *, const char *>{infoTree_, "/info.png"}, {rawPage_, "/raw.png"}, {eptPage_, "/ept.png"}}) {
+            tabs_->setCurrentWidget(w);
+            QApplication::processEvents();
+            grab().save(out + name);
+        }
         tabs_->setCurrentIndex(0);
         QVector<int> ok;
         int failed = 0;
@@ -1072,6 +1108,69 @@ void MainWindow::refreshSummary() {
     }
     table({QString::fromUtf8("Прибор (модель и серийный номер из файла)"), QString::fromUtf8("Образцов")}, ir);
     summaryLay_->addStretch(1);
+}
+
+
+// Sample Info / Raw Data / EPT Data of the first selected sample (only the tab that is shown is read from the file).
+void MainWindow::refreshSampleViews() {
+    QWidget *cur = tabs_->currentWidget();
+    if (cur != infoTree_ && cur != rawPage_ && cur != eptPage_) return;
+    const auto rows = selectedRows();
+    const int i = rows.isEmpty() ? -1 : rows.first();
+    const QString title = i < 0 ? QString::fromUtf8("Выделите образец в таблице «Образцы».") : model_->row(i).file + QString::fromUtf8(" — ") + model_->row(i).name;
+    if (cur == infoTree_) {
+        infoTree_->clear();
+        if (i < 0) return;
+        QHash<QString, QTreeWidgetItem *> secs;
+        for (const auto &line : backend_->sample_info_rows(static_cast<std::size_t>(i))) {
+            const QStringList c = q(line).split('\t');
+            if (c.size() < 3) continue;
+            auto *&sec = secs[c[0]];
+            if (!sec) { sec = new QTreeWidgetItem(infoTree_, {c[0].isEmpty() ? QString::fromUtf8("Ошибка") : c[0]}); QFont f = sec->font(0); f.setBold(true); sec->setFont(0, f); }
+            new QTreeWidgetItem(sec, {c[1], c[2]});
+        }
+        infoTree_->expandAll();
+        infoTree_->resizeColumnToContents(0);
+    } else if (cur == rawPage_) {
+        rawTitle_->setText(title);
+        while (QLayoutItem *it = rawLegend_->layout()->takeAt(0)) { if (it->widget()) it->widget()->deleteLater(); delete it; }
+        QVector<SimplePlot::Series> ser;
+        if (i >= 0)
+            for (const auto &t : backend_->sample_raw(static_cast<std::size_t>(i))) {
+                SimplePlot::Series sv{q(t.tag) + " " + q(t.dye), dyeColor(q(t.tag)), {}, true};
+                if (q(t.tag) == "DATA3") sv.color = QColor(0x22, 0x22, 0x22);
+                sv.ys.reserve(static_cast<int>(t.ys.size()));
+                for (double y : t.ys) sv.ys << y;
+                ser << sv;
+            }
+        for (int k = 0; k < ser.size(); ++k) {
+            auto *cb = new QCheckBox(ser[k].name);
+            cb->setChecked(true);
+            cb->setStyleSheet(QString("color:%1").arg(ser[k].color.name()));
+            connect(cb, &QCheckBox::toggled, this, [this, k](bool on) { rawPlot_->setVisible(k, on); });
+            rawLegend_->layout()->addWidget(cb);
+        }
+        rawPlot_->setSeries(ser, QString::fromUtf8("точки данных"));
+    } else {
+        while (QLayoutItem *it = eptLay_->takeAt(0)) { if (it->widget()) it->widget()->deleteLater(); delete it; }
+        auto *t0 = new QLabel(title);
+        eptLay_->addWidget(t0);
+        if (i < 0) { eptLay_->addStretch(1); return; }
+        static const QHash<QString, QColor> col{{"voltage", QColor(0xd3, 0x20, 0x20)}, {"current", QColor(0x1a, 0x9b, 0x2e)}, {"power", QColor(0x1f, 0x4f, 0xd6)}, {"temperature", QColor(0xe6, 0x7e, 0x22)}};
+        const auto ept = backend_->sample_ept(static_cast<std::size_t>(i));
+        if (ept.empty()) eptLay_->addWidget(new QLabel(QString::fromUtf8("В файле нет данных EPT.")));
+        for (const auto &t : ept) {
+            double mn = 0, mx = 0;
+            SimplePlot::Series sv{q(t.dye), col.value(q(t.tag), Qt::black), {}, true};
+            for (double y : t.ys) { sv.ys << y; mn = std::min(mn, y); mx = std::max(mx, y); }
+            auto *lab = new QLabel(QString::fromUtf8("%1 · мин %2 · макс %3").arg(sv.name).arg(mn).arg(mx));
+            lab->setStyleSheet(QString("color:%1;font-weight:bold").arg(sv.color.name()));
+            eptLay_->addWidget(lab);
+            auto *pl = new SimplePlot;
+            pl->setSeries({sv}, QString::fromUtf8("точки EPT"));
+            eptLay_->addWidget(pl, 1);
+        }
+    }
 }
 
 } // namespace ot

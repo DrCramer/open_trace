@@ -149,6 +149,11 @@ pub mod ffi {
         fn sample_peaks(self: &Backend, i: usize, bp: bool) -> Vec<PeakMark>;
         fn sized_range(self: &Backend, i: usize) -> Vec<f64>;
         fn sample_info_text(self: &Backend, i: usize) -> String;
+        /// Sample Info (ID-X View > Sample Info): "section\tlabel\tvalue" rows read from the file
+        fn sample_info_rows(self: &Backend, i: usize) -> Vec<String>;
+        /// Raw Data: raw channels of the file (xs = data points); EPT: voltage, current, power, temperature
+        fn sample_raw(self: &Backend, i: usize) -> Vec<Trace>;
+        fn sample_ept(self: &Backend, i: usize) -> Vec<Trace>;
         fn core_version() -> String;
         fn set_data_dir(self: &Backend, dir: &str);
         fn import_method(self: &Backend, path: &str) -> String;
@@ -677,6 +682,66 @@ impl Backend {
             return Vec::new();
         }
         vec![c[0].1, c[c.len() - 1].1]
+    }
+    fn sample_info_data(&self, i: usize) -> Result<serde_json::Value, String> {
+        let (path, file) = {
+            let list = self.samples.lock().unwrap();
+            let s = list.get(i).ok_or("no sample")?;
+            (s.path.clone(), s.file.clone())
+        };
+        let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        opentrace_core::sample_info::sample_info(&data, &file)
+    }
+    fn sample_info_rows(&self, i: usize) -> Vec<String> {
+        static LABELS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        let labels = LABELS.get_or_init(|| serde_json::from_str(include_str!("sample_info_labels.json")).unwrap_or_default());
+        let lab = |k: &str| labels[k].as_str().map(String::from).unwrap_or_else(|| k.trim_start_matches("si_").trim_start_matches("siSec_").to_string());
+        match self.sample_info_data(i) {
+            Err(e) => vec![format!("\t\t{e}")],
+            Ok(v) => {
+                let mut out = Vec::new();
+                for sec in v["sections"].as_array().into_iter().flatten() {
+                    let title = lab(&format!("siSec_{}", sec["id"].as_str().unwrap_or("")));
+                    for it in sec["items"].as_array().into_iter().flatten() {
+                        let val = match &it["value"] {
+                            serde_json::Value::Null => "—".to_string(),
+                            serde_json::Value::String(s) if s.is_empty() => "—".to_string(),
+                            other => crate::kits::js_num(other),
+                        };
+                        out.push(format!("{}\t{}\t{}", title, lab(&format!("si_{}", it["key"].as_str().unwrap_or(""))), val.replace('\t', " ")));
+                    }
+                }
+                out
+            }
+        }
+    }
+    fn sample_raw(&self, i: usize) -> Vec<ffi::Trace> {
+        let Ok(v) = self.sample_info_data(i) else { return Vec::new() };
+        v["raw"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|ch| {
+                let ys: Vec<f64> = ch["values"].as_array().map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect()).unwrap_or_default();
+                ffi::Trace { tag: ch["tag"].as_str().unwrap_or("").into(), dye: ch["dye"].as_str().unwrap_or("").into(), xs: (0..ys.len()).map(|k| k as f64).collect(), ys }
+            })
+            .collect()
+    }
+    fn sample_ept(&self, i: usize) -> Vec<ffi::Trace> {
+        static LABELS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+        let labels = LABELS.get_or_init(|| serde_json::from_str(include_str!("sample_info_labels.json")).unwrap_or_default());
+        let Ok(v) = self.sample_info_data(i) else { return Vec::new() };
+        let mut out = Vec::new();
+        for (k, e) in v["ept"].as_object().into_iter().flatten() {
+            let ys: Vec<f64> = e["values"].as_array().map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect()).unwrap_or_default();
+            out.push(ffi::Trace {
+                tag: k.clone(),
+                dye: format!("{} ({})", labels[format!("siEpt_{k}")].as_str().unwrap_or(k), e["tag"].as_str().unwrap_or("")),
+                xs: (0..ys.len()).map(|k| k as f64).collect(),
+                ys,
+            });
+        }
+        out
     }
     fn sample_info_text(&self, i: usize) -> String {
         let list = self.samples.lock().unwrap();

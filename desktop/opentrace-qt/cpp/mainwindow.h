@@ -21,6 +21,7 @@ namespace ot {
 struct Backend;
 class SampleModel;
 class RowFilterProxy;
+class SimplePlot;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -39,6 +40,14 @@ private:
     QVBoxLayout *summaryLay_ = nullptr;
     QComboBox *summaryRun_ = nullptr;
     void refreshSummary();
+    QWidget *rawPage_ = nullptr, *eptPage_ = nullptr;
+    class QTreeWidget *infoTree_ = nullptr;
+    class SimplePlot *rawPlot_ = nullptr;
+    QLabel *rawTitle_ = nullptr, *rawReadout_ = nullptr;
+    QWidget *rawLegend_ = nullptr;
+    QVBoxLayout *eptLay_ = nullptr;
+    int shownSample_ = -1;
+    void refreshSampleViews();
     void filterRows(const QSet<int> &rows, const QString &label);
     QTableView *table_ = nullptr;
     QTreeWidget *nav_ = nullptr;
