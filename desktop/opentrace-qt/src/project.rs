@@ -32,7 +32,7 @@ impl Inner {
                     "instrument": s.instrument, "well": s.well, "type": s.stype, "panel_key": s.panel_key,
                     "analysis": s.analysis.as_deref(), "report": s.report.as_deref(), "ladder_quality": s.ladder_quality,
                     "ladder_used": s.ladder_used, "reference_bins": s.reference_bins, "alas_skipped": s.alas_skipped,
-                    "genotype_error": s.genotype_error,
+                    "genotype_error": s.genotype_error, "edits": s.edits,
                 })
             })
             .collect();
@@ -89,6 +89,7 @@ impl Inner {
                 reference_bins: v["reference_bins"].as_bool().unwrap_or(false),
                 alas_skipped: v["alas_skipped"].as_bool().unwrap_or(false),
                 genotype_error: s_(v, "genotype_error"),
+                edits: v["edits"].as_array().cloned().unwrap_or_default(),
             });
         }
         let n = list.len();

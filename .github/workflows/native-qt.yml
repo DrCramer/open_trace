@@ -36,7 +36,7 @@ jobs:
           HOME=$RUNNER_TEMP/qt-home QT_QPA_PLATFORM=offscreen OPENTRACE_RESOURCES=$PWD/resources \
             OT_QT_AUTOTEST_FILES=synthetic:5 OT_QT_AUTOTEST_OUT=$out timeout 300 desktop/opentrace-qt/target/release/opentrace-qt
           cat $out/result.json
-          python3 -c "import json,sys; r=json.load(open('$out/result.json')); ok=r['samples']==6 and r['analyzed']==6 and r['failed']==0 and r['pdf'] and r['genotype_rows']>0 and r['reopen_identical']; sys.exit(0 if ok else 1)"
+          python3 -c "import json,sys; r=json.load(open('$out/result.json')); ok=r['samples']==6 and r['analyzed']==6 and r['failed']==0 and r['pdf'] and r['genotype_rows']>0 and r['reopen_identical'] and r['edit_ok']; sys.exit(0 if ok else 1)"
           python3 desktop/opentrace-qt/tests/check_synthetic.py $out
           pdfinfo $out/plots.pdf
       - name: Unit tests
@@ -96,7 +96,7 @@ jobs:
           $p = Start-Process -FilePath (Join-Path $d 'opentrace-qt.exe') -PassThru -Wait
           Get-Content (Join-Path $out 'result.json')
           $r = Get-Content (Join-Path $out 'result.json') | ConvertFrom-Json
-          if ($p.ExitCode -ne 0 -or $r.analyzed -ne 6 -or $r.failed -ne 0 -or -not $r.pdf -or $r.genotype_rows -le 0 -or -not $r.reopen_identical) { throw "self-test failed (exit $($p.ExitCode))" }
+          if ($p.ExitCode -ne 0 -or $r.analyzed -ne 6 -or $r.failed -ne 0 -or -not $r.pdf -or $r.genotype_rows -le 0 -or -not $r.reopen_identical -or -not $r.edit_ok) { throw "self-test failed (exit $($p.ExitCode))" }
           python desktop/opentrace-qt/tests/check_synthetic.py $out
           if ($LASTEXITCODE -ne 0) { throw 'genotypes differ from the invented files' }
       - uses: actions/upload-artifact@v4

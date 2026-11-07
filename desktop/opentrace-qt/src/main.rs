@@ -1,6 +1,7 @@
 //! OpenTrace Desktop, native Qt 6 Widgets interface. Research software, not validated for diagnostic or forensic use.
 mod backend;
 mod bridge;
+mod edits;
 mod genotype;
 mod kits;
 mod project;

@@ -50,6 +50,26 @@ pub mod ffi {
         height: f64,
         text: String,
         flagged: bool,
+        /// call or artifact id, marker, "call" | "art"
+        id: String,
+        marker: String,
+        kind: String,
+        edited: bool,
+    }
+    struct EditRow {
+        sample: usize,
+        index: usize,
+        file: String,
+        name: String,
+        marker: String,
+        size: String,
+        old: String,
+        new_label: String,
+        action: String,
+        reason: String,
+        user: String,
+        at: String,
+        undone: bool,
     }
     struct PanelOption {
         key: String,
@@ -67,6 +87,8 @@ pub mod ffi {
         x: f64,
         height: f64,
         offscale: bool,
+        scan: f64,
+        size_bp: f64,
     }
     struct ProgressInfo {
         done: usize,
@@ -99,6 +121,12 @@ pub mod ffi {
         fn plot_markers(self: &Backend, i: usize) -> Vec<PlotMarker>;
         /// "" on success, else the error text
         fn save_project_file(self: &Backend, path: &str) -> String;
+        fn apply_edit_json(self: &Backend, i: usize, spec: &str, reason: &str) -> String;
+        fn undo_last_edit(self: &Backend, rows: &Vec<usize>) -> String;
+        fn edit_list(self: &Backend) -> Vec<EditRow>;
+        fn undo_edit_at(self: &Backend, i: usize, k: usize) -> bool;
+        fn active_edit_count(self: &Backend, rows: &Vec<usize>) -> usize;
+        fn marker_at(self: &Backend, i: usize, tag: &str, bp: f64) -> String;
         fn open_project_file(self: &Backend, path: &str) -> String;
         fn plot_labels(self: &Backend, i: usize, bp: bool) -> Vec<PlotLabel>;
         fn sample_count(self: &Backend) -> usize;
@@ -226,11 +254,12 @@ impl Backend {
             if rep["allele_calling"].is_null() {
                 continue;
             }
+            let eff = crate::edits::effective(s);
             let gq: std::collections::HashMap<String, &serde_json::Value> =
                 rep["quality"]["marker_gq"]["markers"].as_array().into_iter().flatten().filter_map(|m| Some((m["marker"].as_str()?.to_string(), m))).collect();
             for m in rep["allele_calling"]["markers"].as_array().into_iter().flatten() {
                 let name = m["name"].as_str().unwrap_or("");
-                let calls: Vec<&serde_json::Value> = rep["calls"].as_array().into_iter().flatten().filter(|c| c["marker"] == name && !c["label"].is_null()).collect();
+                let calls: Vec<&serde_json::Value> = eff.calls.iter().filter(|c| c["marker"] == name && !c["label"].is_null()).collect();
                 out.push(ffi::GenoRow {
                     sample: i,
                     file: s.file.clone(),
@@ -240,7 +269,7 @@ impl Backend {
                     alleles: calls.iter().map(|c| crate::kits::js_num(&c["label"])).collect(),
                     sizes: calls.iter().map(|c| c["size_bp"].as_f64().unwrap_or(0.0)).collect(),
                     heights: calls.iter().map(|c| c["height"].as_f64().unwrap_or(0.0)).collect(),
-                    gq: if s.stype == "ladder" { "na".into() } else { gq.get(name).map(|g| crate::genotype::code(&g["category"]["code"]).to_string()).unwrap_or_else(|| "na".into()) },
+                    gq: if s.stype == "ladder" { "na".into() } else if eff.gq_override.contains(name) { "override".into() } else { gq.get(name).map(|g| crate::genotype::code(&g["category"]["code"]).to_string()).unwrap_or_else(|| "na".into()) },
                 });
             }
         }
@@ -256,6 +285,59 @@ impl Backend {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+    fn apply_edit_json(&self, i: usize, spec: &str, reason: &str) -> String {
+        let spec: serde_json::Value = match serde_json::from_str(spec) {
+            Ok(v) => v,
+            Err(e) => return e.to_string(),
+        };
+        let user = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default();
+        self.apply_edit(i, &spec, reason, &user).err().unwrap_or_default()
+    }
+    fn undo_last_edit(&self, rows: &Vec<usize>) -> String {
+        self.undo_last(rows).unwrap_or_default()
+    }
+    fn edit_list(&self) -> Vec<ffi::EditRow> {
+        let t = |v: &serde_json::Value| match v {
+            serde_json::Value::Null => String::new(),
+            other => crate::kits::js_num(other),
+        };
+        self.all_edits()
+            .into_iter()
+            .map(|(i, k, e, file, name)| ffi::EditRow {
+                sample: i,
+                index: k,
+                file,
+                name,
+                marker: t(&e["marker"]),
+                size: e["size_bp"].as_f64().map(|x| format!("{x:.2}")).unwrap_or_default(),
+                old: t(&e["old"]),
+                new_label: t(&e["new"]),
+                action: t(&e["action"]),
+                reason: t(&e["reason"]),
+                user: t(&e["user"]),
+                at: t(&e["at"]).replace('T', " ").chars().take(19).collect(),
+                undone: e["undone"].as_bool().unwrap_or(false),
+            })
+            .collect()
+    }
+    fn undo_edit_at(&self, i: usize, k: usize) -> bool {
+        self.undo_edit(i, k)
+    }
+    fn active_edit_count(&self, rows: &Vec<usize>) -> usize {
+        let list = self.samples.lock().unwrap();
+        rows.iter().filter_map(|&i| list.get(i)).map(|s| crate::edits::active(s).count()).sum()
+    }
+    /// Marker of the sample's kit whose range (after bin offsets) contains bp on that dye, "" when none.
+    fn marker_at(&self, i: usize, tag: &str, bp: f64) -> String {
+        self.plot_markers(i)
+            .into_iter()
+            .find(|m| m.tag == tag && {
+                let (lo, hi) = if m.window.len() == 2 { (m.window[0], m.window[1]) } else { (m.min_bp, m.max_bp) };
+                bp >= lo && bp <= hi
+            })
+            .map(|m| m.name)
+            .unwrap_or_default()
     }
     fn save_project_file(&self, path: &str) -> String {
         self.save_project(path).err().unwrap_or_default()
@@ -317,25 +399,50 @@ impl Backend {
         }
         out
     }
-    /// Allele labels of the sample (call label at the call size; ladders: matched ladder alleles).
+    /// Allele and artifact labels after the label edits (call label at the call size; ladders: matched ladder alleles).
     fn plot_labels(&self, i: usize, bp: bool) -> Vec<ffi::PlotLabel> {
         let Some(s) = self.samples.lock().unwrap().get(i).cloned() else { return Vec::new() };
-        let Some(rep) = s.report else { return Vec::new() };
+        let eff = crate::edits::effective(&s);
         let c = s.analysis.as_ref().map(|a| backend::curve(a)).unwrap_or_default();
-        let _ = &c;
-        rep["calls"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let x_of = |x: &serde_json::Value| -> f64 {
+            if bp {
+                x["size_bp"].as_f64().unwrap_or(0.0)
+            } else {
+                x["scan"].as_f64().unwrap_or_else(|| {
+                    // added peaks carry their size; data points from the calibration
+                    let b = x["size_bp"].as_f64().unwrap_or(0.0);
+                    c.windows(2).find(|w| b >= w[0].1 && b <= w[1].1).map(|w| w[0].0 + (b - w[0].1) * (w[1].0 - w[0].0) / (w[1].1 - w[0].1)).unwrap_or(0.0)
+                })
+            }
+        };
+        let mut out: Vec<ffi::PlotLabel> = eff
+            .calls
+            .iter()
             .filter(|x| !x["label"].is_null())
             .map(|x| ffi::PlotLabel {
                 tag: x["channel"].as_str().unwrap_or("").to_string(),
-                x: if bp { x["size_bp"].as_f64().unwrap_or(0.0) } else { x["scan"].as_f64().unwrap_or(0.0) },
+                x: x_of(x),
                 height: x["height"].as_f64().unwrap_or(0.0),
                 text: crate::kits::js_num(&x["label"]),
                 flagged: x["flags"].as_array().is_some_and(|f| !f.is_empty()),
+                id: crate::kits::js_num(&x["id"]),
+                marker: x["marker"].as_str().unwrap_or("").to_string(),
+                kind: "call".into(),
+                edited: x["user_edited"].as_bool().unwrap_or(false),
             })
-            .collect()
+            .collect();
+        out.extend(eff.artifacts.iter().map(|a| ffi::PlotLabel {
+            tag: a["channel"].as_str().unwrap_or("").to_string(),
+            x: x_of(a),
+            height: a["height"].as_f64().unwrap_or(0.0),
+            text: crate::kits::js_num(&a["label"]),
+            flagged: true,
+            id: crate::kits::js_num(&a["id"]),
+            marker: a["marker"].as_str().unwrap_or("").to_string(),
+            kind: "art".into(),
+            edited: true,
+        }));
+        out
     }
     fn ask_pending(&self) -> String {
         self.ask.pending().unwrap_or_default()
@@ -453,7 +560,14 @@ impl Backend {
             for p in ch["peaks"].as_array().into_iter().flatten() {
                 let scan = p["scan"].as_f64().unwrap_or(0.0);
                 let x = if bp { p["size_bp"].as_f64().unwrap_or_else(|| backend::scan_to_bp(&c, scan)) } else { scan };
-                out.push(ffi::PeakMark { tag: ch["tag"].as_str().unwrap_or("").into(), x, height: p["height"].as_f64().unwrap_or(0.0), offscale: p["offscaled"].as_bool().unwrap_or(false) });
+                out.push(ffi::PeakMark {
+                    tag: ch["tag"].as_str().unwrap_or("").into(),
+                    x,
+                    height: p["height"].as_f64().unwrap_or(0.0),
+                    offscale: p["offscaled"].as_bool().unwrap_or(false),
+                    scan,
+                    size_bp: p["size_bp"].as_f64().unwrap_or_else(|| backend::scan_to_bp(&c, scan)),
+                });
             }
         }
         out

@@ -203,6 +203,7 @@ void MainWindow::buildMenus() {
     auto *view = menuBar()->addMenu(QString::fromUtf8("&Вид"));
     view->addAction(QString::fromUtf8("&Образцы"), QKeySequence("Ctrl+Shift+1"), this, [this] { tabs_->setCurrentIndex(0); });
     view->addAction(QString::fromUtf8("&Информация об образце"), QKeySequence("Ctrl+F1"), this, [this] { tabs_->setCurrentIndex(1); });
+    view->addAction(QString::fromUtf8("&Журнал правок обозначений..."), this, [this] { labelEditViewer(); });
     auto *aNav = view->addAction(QString::fromUtf8("&Навигатор"));
     aNav->setCheckable(true);
     aNav->setChecked(true);
@@ -322,6 +323,12 @@ void MainWindow::removeSelected() {
 
 void MainWindow::analyze(bool all) {
     if (backend_->sample_count() == 0 || backend_->analysis_progress().running) return;
+    if (all && !autotest_) {   // re-analysis replaces the results: label edits of the samples are dropped (kept in the journal as undone)
+        rust::Vec<std::size_t> v;
+        for (std::size_t i = 0; i < backend_->sample_count(); ++i) v.push_back(i);
+        const std::size_t n = backend_->active_edit_count(v);
+        if (n && QMessageBox::question(this, "OpenTrace", QString::fromUtf8("Повторный анализ отменит правки меток: %1. Продолжить?").arg(n)) != QMessageBox::Yes) return;
+    }
     backend_->start_analysis(all);
     analyzeAct_->setEnabled(false);
     analyzeAllAct_->setEnabled(false);
@@ -391,6 +398,25 @@ void MainWindow::pollProgress() {
             pdf = w->savePdf(out + "/plots.pdf");
             w->close();
         }
+        // label edit round trip: delete one allele label of the first genotyped sample, then undo it
+        bool editOk = false;
+        {
+            auto count = [this] { std::size_t n = 0; for (const auto &g : backend_->genotype_rows()) n += g.alleles.size(); return n; };
+            const std::size_t before = count();
+            for (std::size_t i = 0; i < backend_->sample_count() && !editOk; ++i) {
+                for (const auto &l : backend_->plot_labels(i, true)) {
+                    if (q(l.kind) != "call" || q(backend_->sample_row(i).stype) == "ladder") continue;
+                    const QByteArray spec = QString("{\"action\":\"delete\",\"marker\":\"%1\",\"callId\":\"%2\"}").arg(q(l.marker), q(l.id)).toUtf8();
+                    const bool applied = backend_->apply_edit_json(i, rust::Str(spec.constData(), spec.size()), "self-test").empty();
+                    const bool fewer = count() == before - 1;
+                    rust::Vec<std::size_t> v;
+                    v.push_back(i);
+                    const bool undone = !backend_->undo_last_edit(v).empty() && count() == before;
+                    editOk = applied && fewer && undone;
+                    break;
+                }
+            }
+        }
         const QString digest = q(backend_->genotype_digest());
         {
             QFile d(out + "/digest.txt");
@@ -402,8 +428,8 @@ void MainWindow::pollProgress() {
         model_->refresh();
         QFile f(out + "/result.json");
         if (f.open(QIODevice::WriteOnly)) {
-            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"rows\":[%6]}\n")
-                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").toUtf8());
+            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"edit_ok\":%8,\"rows\":[%6]}\n")
+                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").arg(editOk ? "true" : "false").toUtf8());
         }
         QApplication::exit(ok.isEmpty() ? 1 : 0);
     });
@@ -451,6 +477,7 @@ void MainWindow::showPlots() {
     for (int i : rows) if (model_->row(i).status == "analyzed") ok << i;
     if (ok.isEmpty()) { QMessageBox::information(this, "OpenTrace", QString::fromUtf8("Выделенные образцы ещё не проанализированы.")); return; }
     auto *w = new PlotWindow(*backend_, ok, nullptr);
+    w->onEdited = [this] { model_->refreshValues(); refreshGenotypes(); markDirty(); };
     w->show();
 }
 
@@ -809,6 +836,80 @@ void MainWindow::openProject() {
     updateInfo();
     updateTitle();
     status_->setText(QString::fromUtf8("Открыт проект: %1 (образцов: %2)").arg(path).arg(backend_->sample_count()));
+}
+
+
+// Label Edit Viewer: every label edit of the project (newest first), undo of one edit, export.
+void MainWindow::labelEditViewer() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString::fromUtf8("Журнал правок обозначений"));
+    dlg.resize(1100, 460);
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *tbl = new QTableWidget(0, 11);
+    tbl->setHorizontalHeaderLabels({QString::fromUtf8("Файл образца"), QString::fromUtf8("Имя образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Размер"),
+                                    QString::fromUtf8("Было"), QString::fromUtf8("Стало"), QString::fromUtf8("Действие"), QString::fromUtf8("Причина изменения"),
+                                    QString::fromUtf8("Пользователь"), QString::fromUtf8("Дата"), QString::fromUtf8("Отменено")});
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setSelectionMode(QAbstractItemView::SingleSelection);
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    static const QHash<QString, QString> act{{"rename", "переименование"}, {"delete", "удаление"}, {"add", "добавление аллели"}, {"move", "перенос"},
+                                              {"to_artifact", "в артефакт"}, {"add_artifact", "добавление артефакта"}, {"rename_artifact", "переименование артефакта"},
+                                              {"delete_artifact", "удаление артефакта"}, {"artifact_to_allele", "артефакт в аллель"}, {"override_gq", "GQ вручную"},
+                                              {"override_cgq", "CGQ вручную"}, {"pli", "PLI"}};
+    QVector<QPair<std::size_t, std::size_t>> keys;
+    auto fill = [&] {
+        tbl->setRowCount(0);
+        keys.clear();
+        for (const auto &e : backend_->edit_list()) {
+            const int r0 = tbl->rowCount();
+            tbl->insertRow(r0);
+            const QStringList v{q(e.file), q(e.name), q(e.marker), q(e.size), q(e.old), q(e.new_label), act.value(q(e.action), q(e.action)), q(e.reason), q(e.user), q(e.at),
+                                e.undone ? QString::fromUtf8("да") : QString()};
+            for (int c = 0; c < v.size(); ++c) {
+                auto *it = new QTableWidgetItem(v[c]);
+                if (e.undone) it->setForeground(QColor(140, 140, 140));
+                tbl->setItem(r0, c, it);
+            }
+            keys.push_back({e.sample, e.index});
+        }
+        tbl->resizeColumnsToContents();
+    };
+    fill();
+    lay->addWidget(tbl, 1);
+    auto *row = new QHBoxLayout;
+    auto *undo = new QPushButton(QString::fromUtf8("Отменить правку"));
+    connect(undo, &QPushButton::clicked, &dlg, [&] {
+        const int r0 = tbl->currentRow();
+        if (r0 < 0) return;
+        if (backend_->undo_edit_at(keys[r0].first, keys[r0].second)) { fill(); refreshGenotypes(); markDirty(); }
+    });
+    auto *exp = new QPushButton(QString::fromUtf8("Экспорт..."));
+    connect(exp, &QPushButton::clicked, &dlg, [&] {
+        const QString path = QFileDialog::getSaveFileName(&dlg, QString::fromUtf8("Экспорт журнала правок"), "label_edits.txt", QString::fromUtf8("Текст с табуляцией (*.txt)"));
+        if (path.isEmpty()) return;
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+        QTextStream out(&f);
+        out.setEncoding(QStringConverter::Utf8);
+        QStringList head;
+        for (int c = 0; c < tbl->columnCount(); ++c) head << tbl->horizontalHeaderItem(c)->text();
+        out << head.join('\t') << "\n";
+        for (int i = 0; i < tbl->rowCount(); ++i) {
+            QStringList r1;
+            for (int c = 0; c < tbl->columnCount(); ++c) r1 << tbl->item(i, c)->text();
+            out << r1.join('\t') << "\n";
+        }
+    });
+    row->addWidget(undo);
+    row->addWidget(exp);
+    row->addStretch(1);
+    auto *close = new QPushButton(QString::fromUtf8("Закрыть"));
+    connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
+    row->addWidget(close);
+    lay->addLayout(row);
+    if (tbl->rowCount() == 0) lay->insertWidget(0, new QLabel(QString::fromUtf8("Правок меток в проекте нет.")));
+    dlg.exec();
 }
 
 } // namespace ot

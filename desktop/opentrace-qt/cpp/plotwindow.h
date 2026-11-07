@@ -9,6 +9,7 @@
 #include <QSet>
 #include <QStringList>
 #include <memory>
+#include <functional>
 
 class QScrollArea;
 class QVBoxLayout;
@@ -23,12 +24,15 @@ struct Backend;
 struct TraceData { QString tag; QVector<QPointF> pts; };
 struct BinData { double lo, hi; bool virt; };
 struct MarkerData { QString name, tag, gq; double lo, hi; QVector<double> window; QVector<BinData> bins; };
-struct LabelData { QString tag, text; double x, height; bool flagged; };
+struct LabelData { QString tag, text; double x, height; bool flagged; QString id, marker, kind; bool edited; };
+struct PeakData { QString tag; double x, height, scan, size; };
 struct PaneData {
     QString file, name, sq;
     QVector<TraceData> traces;   // x in bp (or data points)
     QVector<MarkerData> markers; // kit markers (bp only)
     QVector<LabelData> labels;   // allele labels
+    QVector<PeakData> peaks;     // detected peaks (adding labels)
+    int sample = -1;             // row of the sample in the project
     double lo = 0, hi = 0;        // full x range of the sample
 };
 
@@ -45,7 +49,15 @@ struct PaneGeometry { QRectF head; double L = 0, R = 0, markerTop = 0, markerH =
 PaneGeometry paneGeometry(const QRectF &rect, const QFontMetricsF &fm, double gap, bool markers, int labelRows, double rowH);
 
 // Draws one pane (header, axes, traces) into rect; the same code paints the screen and the printer (vector).
-void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewState &v, double x0, double x1, bool print);
+// Where things were drawn (mouse hit tests of the screen panes).
+struct PaneHits {
+    QVector<QPair<QRectF, int>> labels;   // label box -> index in PaneData::labels
+    double L = 0, R = 0, top = 0, bottom = 0, ymax = 1;
+};
+// selection drawn by the pane: label index (-1 none), peak index (-1 none)
+struct PaneSelection { int label = -1; int peak = -1; };
+void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewState &v, double x0, double x1, bool print,
+               PaneHits *hits = nullptr, const PaneSelection *sel = nullptr);
 
 class PlotWindow;
 class PaneWidget : public QWidget {
@@ -56,6 +68,7 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *) override;
+    void contextMenuEvent(QContextMenuEvent *) override;
     void mouseMoveEvent(QMouseEvent *) override;
     void mouseReleaseEvent(QMouseEvent *) override;
     void mouseDoubleClickEvent(QMouseEvent *) override;
@@ -64,6 +77,8 @@ private:
     PlotWindow *win_;
     int index_;
     int dragFrom_ = -1, dragTo_ = -1;
+    PaneHits hits_;
+    bool hitTest(const QPointF &pt, int &label, int &peak) const;
     double xAt(double px) const;
 };
 
@@ -71,6 +86,12 @@ class PlotWindow : public QMainWindow {
     Q_OBJECT
 public:
     PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget *parent = nullptr);
+    // the project window refreshes its tables after a label edit made here
+    std::function<void()> onEdited;
+    PaneSelection selection(int item) const { return selItem_ == item ? sel_ : PaneSelection{}; }
+    void select(int item, int label, int peak);
+    void editMenu(int item, const QPoint &globalPos);
+    void editSelected(const QString &action);
     // a pane on screen / paper: one sample, all its shown dyes or one dye
     struct PaneItem { int data; QString dye; };
     const PaneData &paneData(int item) const { return panes_[items_[item].data]; }
@@ -98,6 +119,12 @@ private:
     QLabel *xy_ = nullptr;
     QSpinBox *panesBox_ = nullptr;
     void load();
+    int selItem_ = -1;
+    PaneSelection sel_;
+    bool editLabel(int item, int label, const QString &action);
+    bool addAtPeak(int item, int peak, bool artifact);
+    void afterEdit();
+    QString askReason(const QString &what);
     void buildMenus();
     void relayout();
     void repaintPanes();

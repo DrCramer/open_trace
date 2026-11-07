@@ -29,6 +29,12 @@
 #include <QToolBar>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QContextMenuEvent>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QMenu>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLayoutItem>
 #include <QTimer>
 #include <cmath>
@@ -71,7 +77,7 @@ PaneGeometry paneGeometry(const QRectF &rect, const QFontMetricsF &fm, double ga
     return g;
 }
 
-void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewState &v, double x0, double x1, bool print) {
+void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewState &v, double x0, double x1, bool print, PaneHits *hits, const PaneSelection *sel) {
     p.save();
     p.setClipRect(rect);
     p.fillRect(rect, Qt::white);
@@ -88,20 +94,21 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     lf.setPointSizeF(small.pointSizeF() + (print ? 0.5 : 1.0));
     const QFontMetricsF lfm(lf, p.device());
     const double rowH = lfm.height() + gap * 0.9;
-    struct Placed { double x, w; int row; const LabelData *l; };
+    struct Placed { double x, w; int row; const LabelData *l; int index; };
     QVector<Placed> placed;
     int rows = 0;
     auto layoutLabels = [&](double L, double R, int maxRows) {
         placed.clear();
         rows = 0;
         if (!v.labels) return;
-        for (const auto &l : d.labels) {
+        for (int li = 0; li < d.labels.size(); ++li) {
+            const LabelData &l = d.labels[li];
             if (!v.dyes.contains(l.tag) || l.x < x0 || l.x > x1) continue;
             const double x = L + (l.x - x0) / (x1 - x0) * (R - L);
             const double w = std::max(lfm.height() * 1.2, lfm.horizontalAdvance(l.text) + gap * 1.2);
             int row = 0;
             while (row < maxRows - 1 && std::any_of(placed.begin(), placed.end(), [&](const Placed &q) { return q.row == row && std::abs(q.x - x) < (q.w + w) / 2 + 2; })) ++row;
-            placed.push_back({x, w, row, &l});
+            placed.push_back({x, w, row, &l, li});
             rows = std::max(rows, row + 1);
         }
     };
@@ -128,6 +135,7 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     }
     ymax *= 1.08;
     auto Y = [&](double y) { return bottom - std::min(y, ymax * 1.2) / ymax * (bottom - top); };
+    if (hits) { hits->labels.clear(); hits->L = L; hits->R = R; hits->top = top; hits->bottom = bottom; hits->ymax = ymax; }
     QPen axis(Qt::black);
     axis.setWidthF(print ? 0.2 * mm : 1.0);
     axis.setCosmetic(!print);
@@ -220,6 +228,13 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
         }
         p.setBrush(Qt::NoBrush);
     }
+    if (sel && sel->peak >= 0 && sel->peak < d.peaks.size()) {   // selected peak: filled dot at its top
+        const PeakData &pk = d.peaks[sel->peak];
+        p.setPen(QPen(Qt::black, 1));
+        p.setBrush(dyeSwatch(pk.tag));
+        p.drawEllipse(QPointF(X(pk.x), Y(pk.height)), 4.5, 4.5);
+        p.setBrush(Qt::NoBrush);
+    }
     p.restore();
     // allele label boxes with a lead line to the axis
     p.setFont(lf);
@@ -235,11 +250,14 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
         p.setPen(lead);
         p.drawLine(QPointF(pl.x, bottom), QPointF(pl.x, y));
         const QRectF box(pl.x - pl.w / 2, y, pl.w, h);
-        p.fillRect(box, Qt::white);
+        const bool selected = sel && sel->label == pl.index;
+        p.fillRect(box, selected ? QColor(255, 247, 150) : Qt::white);
+        if (selected) border.setWidthF(print ? 0.4 * mm : 2.0);
         p.setPen(border);
         p.drawRect(box);
-        p.setPen(Qt::black);
+        p.setPen(pl.l->kind == "art" ? QColor(0xb0, 0x00, 0x6a) : pl.l->edited ? QColor(0xb0, 0x00, 0x60) : QColor(Qt::black));
         p.drawText(box, Qt::AlignCenter, pl.l->text);
+        if (hits) hits->labels.push_back({box, pl.index});
     }
     p.restore();
 }
@@ -257,7 +275,8 @@ void PaneWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     double x0, x1;
     win_->visibleRange(x0, x1);
-    paintPane(p, QRectF(rect()).adjusted(0, 0, -1, -1), win_->paneData(index_), win_->paneView(index_), x0, x1, false);
+    const PaneSelection sel = win_->selection(index_);
+    paintPane(p, QRectF(rect()).adjusted(0, 0, -1, -1), win_->paneData(index_), win_->paneView(index_), x0, x1, false, &hits_, &sel);
     if (dragFrom_ >= 0 && dragTo_ >= 0) {
         p.fillRect(QRect(QPoint(std::min(dragFrom_, dragTo_), 0), QPoint(std::max(dragFrom_, dragTo_), height())), QColor(10, 36, 106, 40));
     }
@@ -275,8 +294,40 @@ double PaneWidget::xAt(double px) const {
     return x0 + (px - L) / (R - L) * (x1 - x0);
 }
 
+// label box under the point, else the detected peak nearest in x (within 6 px, below its top) on a shown dye
+bool PaneWidget::hitTest(const QPointF &pt, int &label, int &peak) const {
+    label = peak = -1;
+    for (const auto &h : hits_.labels) if (h.first.contains(pt)) { label = h.second; return true; }
+    if (pt.y() < hits_.top || pt.y() > hits_.bottom) return false;
+    double x0, x1;
+    win_->visibleRange(x0, x1);
+    const PaneData &d = win_->paneData(index_);
+    const ViewState v = win_->paneView(index_);
+    double best = 7;
+    for (int k = 0; k < d.peaks.size(); ++k) {
+        const PeakData &pk = d.peaks[k];
+        if (!v.dyes.contains(pk.tag) || pk.x < x0 || pk.x > x1) continue;
+        const double px = hits_.L + (pk.x - x0) / (x1 - x0) * (hits_.R - hits_.L);
+        const double top = hits_.bottom - std::min(pk.height, hits_.ymax * 1.2) / hits_.ymax * (hits_.bottom - hits_.top);
+        if (std::abs(px - pt.x()) < best && pt.y() >= top - 8) { best = std::abs(px - pt.x()); peak = k; }
+    }
+    return peak >= 0;
+}
+
 void PaneWidget::mousePressEvent(QMouseEvent *e) {
-    if (e->button() == Qt::LeftButton) { dragFrom_ = dragTo_ = int(e->position().x()); update(); }
+    if (e->button() != Qt::LeftButton) return;
+    int label, peak;
+    if (hitTest(e->position(), label, peak)) { win_->select(index_, label, peak); return; }
+    win_->select(-1, -1, -1);
+    dragFrom_ = dragTo_ = int(e->position().x());
+    update();
+}
+
+void PaneWidget::contextMenuEvent(QContextMenuEvent *e) {
+    int label, peak;
+    if (!hitTest(e->pos(), label, peak)) return;
+    win_->select(index_, label, peak);
+    win_->editMenu(index_, e->globalPos());
 }
 void PaneWidget::mouseMoveEvent(QMouseEvent *e) {
     win_->showCursor(xAt(e->position().x()), 0);
@@ -355,7 +406,10 @@ void PlotWindow::load() {
                 d.markers << md;
             }
         }
-        for (const auto &l : backend_.plot_labels(static_cast<std::size_t>(r), bp)) d.labels << LabelData{q(l.tag), q(l.text), l.x, l.height, l.flagged};
+        for (const auto &l : backend_.plot_labels(static_cast<std::size_t>(r), bp))
+            d.labels << LabelData{q(l.tag), q(l.text), l.x, l.height, l.flagged, q(l.id), q(l.marker), q(l.kind), l.edited};
+        for (const auto &pk : backend_.sample_peaks(static_cast<std::size_t>(r), bp)) d.peaks << PeakData{q(pk.tag), pk.x, pk.height, pk.scan, pk.size_bp};
+        d.sample = r;
         if (bp) {
             auto range = backend_.sized_range(static_cast<std::size_t>(r));
             d.lo = range[0] - 10; d.hi = range[1] + 10;
@@ -440,6 +494,20 @@ void PlotWindow::buildMenus() {
     auto *aPdf = file->addAction(style()->standardIcon(QStyle::SP_DialogSaveButton), QString::fromUtf8("Сохранить в PDF..."), this, [this] { exportPdf(); });
     file->addSeparator();
     file->addAction(QString::fromUtf8("&Закрыть"), QKeySequence::Close, this, &QWidget::close);
+
+    auto *edit = menuBar()->addMenu(QString::fromUtf8("&Правка"));
+    edit->addAction(QString::fromUtf8("&Отменить последнюю правку"), QKeySequence::Undo, this, [this] {
+        rust::Vec<std::size_t> v;
+        for (int r : rows_) v.push_back(static_cast<std::size_t>(r));
+        const QString what = q(backend_.undo_last_edit(v));
+        if (what.isEmpty()) { statusBar()->showMessage(QString::fromUtf8("Нет правок для отмены"), 4000); return; }
+        statusBar()->showMessage(QString::fromUtf8("Отменено: ") + what, 6000);
+        afterEdit();
+    });
+    edit->addSeparator();
+    edit->addAction(QString::fromUtf8("&Удалить выделенную метку"), QKeySequence::Delete, this, [this] { editSelected("delete"); });
+    edit->addAction(QString::fromUtf8("&Переименовать метку..."), QKeySequence("F2"), this, [this] { editSelected("rename"); });
+    edit->addAction(QString::fromUtf8("Добавить &аллель на выделенный пик..."), QKeySequence("Insert"), this, [this] { editSelected("add"); });
 
     auto *view = menuBar()->addMenu(QString::fromUtf8("&Вид"));
     auto *tb = addToolBar(QString::fromUtf8("Графики"));
@@ -580,6 +648,120 @@ bool PlotWindow::savePdf(const QString &path) {
     renderPages(&w, p);
     p.end();
     return true;
+}
+
+
+// ------------------------------------------------------------------ label editing
+void PlotWindow::select(int item, int label, int peak) {
+    selItem_ = item;
+    sel_ = PaneSelection{label, label >= 0 ? -1 : peak};
+    repaintPanes();
+    if (item >= 0) {
+        const PaneData &d = paneData(item);
+        if (label >= 0) {
+            const LabelData &l = d.labels[label];
+            xy_->setText(QString::fromUtf8("%1 · %2 · %3").arg(l.marker, l.text, QString::number(l.x, 'f', 2)));
+        } else if (peak >= 0) {
+            const PeakData &pk = d.peaks[peak];
+            xy_->setText(QString::fromUtf8("Пик: %1 п.н., %2 RFU").arg(pk.size, 0, 'f', 2).arg(std::lround(pk.height)));
+        }
+    }
+}
+
+QString PlotWindow::askReason(const QString &what) {
+    bool ok = false;
+    const QString r = QInputDialog::getText(this, QString::fromUtf8("Причина изменения"), what + QString::fromUtf8("\nПричина изменения (сохраняется в журнале правок):"), QLineEdit::Normal, QString(), &ok);
+    if (!ok) return QString();
+    return r.isEmpty() ? QString(" ") : r;   // a blank reason is allowed (one space keeps "cancelled" apart)
+}
+
+static QString jsonText(const QJsonObject &o) { return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)); }
+
+bool PlotWindow::editLabel(int item, int label, const QString &action) {
+    const PaneData &d = paneData(item);
+    if (label < 0 || label >= d.labels.size()) return false;
+    const LabelData &l = d.labels[label];
+    const bool art = l.kind == "art";
+    QJsonObject spec;
+    spec["marker"] = l.marker;
+    if (art) spec["artifactId"] = l.id; else spec["callId"] = l.id;
+    QString what;
+    if (action == "delete") {
+        spec["action"] = art ? "delete_artifact" : "delete";
+        what = QString::fromUtf8("Удалить метку «%1» (%2)").arg(l.text, l.marker);
+    } else {
+        bool ok = false;
+        const QString title = action == "rename" ? QString::fromUtf8("Переименовать") : action == "to_artifact" ? QString::fromUtf8("Заменить на артефакт") : QString::fromUtf8("Сделать аллелью");
+        const QString v = QInputDialog::getText(this, title, QString::fromUtf8("Новая метка (%1):").arg(l.marker), QLineEdit::Normal, action == "to_artifact" ? QString("SPK") : l.text, &ok).trimmed();
+        if (!ok || v.isEmpty()) return false;
+        if (v.size() > 40) { QMessageBox::warning(this, "OpenTrace", QString::fromUtf8("Метка длиннее 40 символов.")); return false; }
+        spec["new"] = v;
+        spec["action"] = action == "rename" ? (art ? "rename_artifact" : "rename") : action == "to_artifact" ? "to_artifact" : "artifact_to_allele";
+        what = QString::fromUtf8("%1: «%2» → «%3» (%4)").arg(title, l.text, v, l.marker);
+    }
+    const QString reason = askReason(what);
+    if (reason.isEmpty()) return false;
+    const QByteArray sp = jsonText(spec).toUtf8(), rs = reason.trimmed().toUtf8();
+    const auto err = backend_.apply_edit_json(static_cast<std::size_t>(d.sample), rust::Str(sp.constData(), sp.size()), rust::Str(rs.constData(), rs.size()));
+    if (!err.empty()) { QMessageBox::warning(this, "OpenTrace", q(err)); return false; }
+    afterEdit();
+    return true;
+}
+
+bool PlotWindow::addAtPeak(int item, int peak, bool artifact) {
+    const PaneData &d = paneData(item);
+    if (peak < 0 || peak >= d.peaks.size()) return false;
+    const PeakData &pk = d.peaks[peak];
+    const QByteArray tag = pk.tag.toUtf8();
+    const QString marker = q(backend_.marker_at(static_cast<std::size_t>(d.sample), rust::Str(tag.constData(), tag.size()), pk.size));
+    if (marker.isEmpty() && !artifact) { QMessageBox::information(this, "OpenTrace", QString::fromUtf8("Пик вне диапазонов маркеров.")); return false; }
+    bool ok = false;
+    const QString v = QInputDialog::getText(this, artifact ? QString::fromUtf8("Добавить артефакт") : QString::fromUtf8("Добавить аллель"),
+                                            QString::fromUtf8("Метка для пика %1 п.н. (%2):").arg(pk.size, 0, 'f', 2).arg(marker.isEmpty() ? pk.tag : marker),
+                                            QLineEdit::Normal, artifact ? QString("SPK") : QString(), &ok).trimmed();
+    if (!ok || v.isEmpty() || v.size() > 40) return false;
+    QJsonObject peakObj{{"channel", pk.tag}, {"size_bp", pk.size}, {"height", pk.height}, {"scan", pk.scan}};
+    QJsonObject spec{{"action", artifact ? "add_artifact" : "add"}, {"marker", marker}, {"peak", peakObj}, {"new", v}};
+    const QString reason = askReason(QString::fromUtf8("%1 «%2» (%3, %4 п.н.)").arg(artifact ? QString::fromUtf8("Добавить артефакт") : QString::fromUtf8("Добавить аллель"), v, marker).arg(pk.size, 0, 'f', 2));
+    if (reason.isEmpty()) return false;
+    const QByteArray sp = jsonText(spec).toUtf8(), rs = reason.trimmed().toUtf8();
+    const auto err = backend_.apply_edit_json(static_cast<std::size_t>(d.sample), rust::Str(sp.constData(), sp.size()), rust::Str(rs.constData(), rs.size()));
+    if (!err.empty()) { QMessageBox::warning(this, "OpenTrace", q(err)); return false; }
+    afterEdit();
+    return true;
+}
+
+void PlotWindow::afterEdit() {
+    load();
+    sel_ = PaneSelection{};
+    selItem_ = -1;
+    repaintPanes();
+    if (onEdited) onEdited();
+}
+
+void PlotWindow::editSelected(const QString &action) {
+    if (selItem_ < 0) return;
+    if (sel_.label >= 0) editLabel(selItem_, sel_.label, action);
+    else if (sel_.peak >= 0 && (action == "add" || action == "add_artifact")) addAtPeak(selItem_, sel_.peak, action == "add_artifact");
+}
+
+void PlotWindow::editMenu(int item, const QPoint &globalPos) {
+    QMenu m(this);
+    const PaneData &d = paneData(item);
+    if (sel_.label >= 0) {
+        const LabelData &l = d.labels[sel_.label];
+        const bool art = l.kind == "art";
+        m.addSection(QString::fromUtf8("%1 · %2").arg(l.marker, l.text));
+        m.addAction(QString::fromUtf8("Переименовать..."), this, [this] { editSelected("rename"); })->setShortcut(QKeySequence("F2"));
+        if (art) m.addAction(QString::fromUtf8("Сделать аллелью..."), this, [this] { editSelected("artifact_to_allele"); });
+        else m.addAction(QString::fromUtf8("Заменить на артефакт..."), this, [this] { editSelected("to_artifact"); });
+        m.addAction(QString::fromUtf8("Удалить метку"), this, [this] { editSelected("delete"); })->setShortcut(QKeySequence::Delete);
+    } else if (sel_.peak >= 0) {
+        m.addSection(QString::fromUtf8("Пик %1 п.н.").arg(d.peaks[sel_.peak].size, 0, 'f', 2));
+        m.addAction(QString::fromUtf8("Добавить аллель..."), this, [this] { editSelected("add"); });
+        m.addAction(QString::fromUtf8("Добавить артефакт..."), this, [this] { editSelected("add_artifact"); });
+    }
+    m.exec(globalPos);
 }
 
 } // namespace ot

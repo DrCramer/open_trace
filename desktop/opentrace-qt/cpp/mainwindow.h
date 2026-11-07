@@ -63,6 +63,7 @@ private:
     bool confirmDiscard();
     bool saveProject(bool as);
     void openProject();
+    void labelEditViewer();
     bool asking_ = false;
     QVector<int> selectedRows() const;
     void autotest();                // OT_QT_AUTOTEST_*: scripted run for CI and screenshots

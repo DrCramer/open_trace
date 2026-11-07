@@ -58,6 +58,8 @@ pub struct Sample {
     pub reference_bins: bool,
     pub alas_skipped: bool,
     pub genotype_error: String,
+    /// label edits (web project format), applied on top of `report` by `edits::effective`
+    pub edits: Vec<Value>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -487,6 +489,10 @@ impl Inner {
             idx.sort_by_key(|&i| if list[i].stype == "ladder" { 0 } else { 1 });
             for &i in &idx {
                 list[i].status = Status::Running;
+                for e in list[i].edits.iter_mut().filter(|e| !e["undone"].as_bool().unwrap_or(false)) {
+                    e["undone"] = json!(true);
+                    e["undoneBy"] = json!("reanalysis");
+                }
             }
             idx
         };
