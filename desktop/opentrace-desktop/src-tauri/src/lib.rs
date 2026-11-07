@@ -13,6 +13,7 @@ mod pool;
 pub mod remote;
 mod selftest;
 mod state;
+mod uilayout;
 pub mod sync;
 mod windows;
 pub mod workspace;

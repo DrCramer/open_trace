@@ -215,6 +215,8 @@
     var cell = document.createElement('div');
     cell.className = 'cell';
     cell.id = 'otSync';
+    // interface shell: a status element that the interface settings can never hide (sync errors must stay visible)
+    cell.dataset.cmd = 'otSync'; cell.dataset.critical = '1'; cell.dataset.label = 'Синхронизация FSA';
     cell.style.cssText = 'white-space:nowrap;cursor:pointer;min-width:190px';
     cell.title = 'Синхронизация исходных FSA с сервером (анализ выполняется локально и не ждёт сети)';
     cell.addEventListener('click', function () {
@@ -242,14 +244,20 @@
     var ws = document.createElement('div');
     ws.className = 'cell';
     ws.id = 'otWs';
+    ws.dataset.cmd = 'otWs'; ws.dataset.critical = '1'; ws.dataset.label = 'Проект: источник и блокировка';
     ws.style.cssText = 'white-space:nowrap;min-width:150px;cursor:pointer';
     ws.addEventListener('click', function () {
       window.open('/desktop/provenance.html', 'opentrace-provenance', 'width=980,height=640');
     });
     bar.insertBefore(ws, cell);
-    var banner = null;
+    var banner = null, lastWs = null;
     function wsTick() {
       origFetch('/desktop/api/workspace/status').then(function (r) { return r.json(); }).then(function (w) {
+        // the application bar of the new shell (shell.js) shows the editing / read-only state and the lab profile
+        var key = JSON.stringify([w.source, w.project, w.editing, w.readonly, w.server, w.lab_profile]);
+        window.__otWsStatus = w;
+        window.__otLabProfile = w.lab_profile || null;
+        if (key !== lastWs) { lastWs = key; try { window.dispatchEvent(new CustomEvent('opentrace-ws', { detail: w })); } catch (e) {} }
         if (w.source !== 'server') { ws.textContent = 'Проекты: локально'; ws.title = 'Проекты хранятся на этом компьютере'; }
         else if (!w.project) { ws.textContent = 'Проекты: сервер'; ws.title = w.server || ''; }
         else if (w.editing) { ws.textContent = 'Сервер: редактирование ✎'; ws.title = 'Проект «' + w.project + '», ревизия ' + w.revision + '. Блокировка продлевается автоматически.'; }
@@ -273,7 +281,9 @@
           banner = document.createElement('div');
           banner.id = 'otReadOnly';
           banner.style.cssText = 'background:#fff3cd;border-bottom:1px solid #e0b000;padding:3px 8px;font-size:12px';
-          document.body.insertBefore(banner, document.body.firstChild.nextSibling);
+          var after = document.getElementById('wsBar') || document.getElementById('shAppbar');
+          if (after && after.parentNode === document.body) document.body.insertBefore(banner, after.nextSibling);
+          else document.body.insertBefore(banner, document.body.firstChild.nextSibling);
         }
         if (banner) {
           if (ro) banner.textContent = 'Проект «' + w.project + '» открыт только для чтения: ' + ro + '. Сохранение на сервер недоступно.';

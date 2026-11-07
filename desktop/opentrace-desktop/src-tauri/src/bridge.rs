@@ -372,6 +372,18 @@ fn desktop(app: &AppHandle, st: &DesktopState, label: &str, rest: &str, req: &Re
             json_response(200, &json!({"blocked_ms": ms}))
         }
         ("api/drafts", false) => json_response(200, &json!({"drafts": st.drafts.list()})),
+        // Interface layout of this user on this computer (shell.js); a view preference only, never analysis settings.
+        ("api/ui-layout", false) => {
+            let p = crate::uilayout::path_for(&st.cfg_path);
+            json_response(200, &json!({"layout": crate::uilayout::load(&p), "schema_version": crate::uilayout::SCHEMA_VERSION}))
+        }
+        ("api/ui-layout", true) => {
+            let p = crate::uilayout::path_for(&st.cfg_path);
+            match crate::uilayout::save(&p, &body_json(req)) {
+                Ok(()) => json_response(200, &json!({"ok": true})),
+                Err(e) => json_response(400, &json!({"error": e})),
+            }
+        }
         // Exports (tables, panels, bins, reports …): native "Save As" instead of a silent file in Downloads (shim).
         ("api/save-as", true) => {
             let name = query_param(req, "name").unwrap_or_else(|| "export".into());
