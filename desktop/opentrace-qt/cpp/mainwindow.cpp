@@ -139,6 +139,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
         if (QMessageBox::question(this, "OpenTrace", QString::fromUtf8("Идёт анализ. Остановить и закрыть?")) != QMessageBox::Yes) { e->ignore(); return; }
         backend_->stop_analysis();
     }
+    if (!autotest_ && !confirmDiscard()) { e->ignore(); return; }
     QSettings().setValue("main/geometry", saveGeometry());
     e->accept();
 }
@@ -147,7 +148,10 @@ void MainWindow::buildMenus() {
     QStyle *s = style();
     auto *file = menuBar()->addMenu(QString::fromUtf8("&Файл"));
     auto *aNew = file->addAction(s->standardIcon(QStyle::SP_FileIcon), QString::fromUtf8("&Новый проект"), this, [this] {
-        if (backend_->analysis_progress().running) return;
+        if (backend_->analysis_progress().running || !confirmDiscard()) return;
+        projectPath_.clear();
+        dirty_ = false;
+        updateTitle();
         std::vector<std::size_t> all;
         rust::Vec<std::size_t> rows;
         for (std::size_t i = 0; i < backend_->sample_count(); ++i) rows.push_back(i);
@@ -157,6 +161,12 @@ void MainWindow::buildMenus() {
         updateInfo();
     });
     aNew->setShortcut(QKeySequence::New);
+    auto *aOpen = file->addAction(s->standardIcon(QStyle::SP_DirOpenIcon), QString::fromUtf8("&Открыть проект..."), this, [this] { openProject(); });
+    aOpen->setShortcut(QKeySequence::Open);
+    auto *aSave = file->addAction(s->standardIcon(QStyle::SP_DialogSaveButton), QString::fromUtf8("&Сохранить проект"), this, [this] { saveProject(false); });
+    aSave->setShortcut(QKeySequence::Save);
+    file->addAction(QString::fromUtf8("Сохранить проект &как..."), QKeySequence("Ctrl+Shift+S"), this, [this] { saveProject(true); });
+    file->addSeparator();
     auto *aAdd = file->addAction(s->standardIcon(QStyle::SP_DialogOpenButton), QString::fromUtf8("&Добавить образцы в проект..."), this, [this] { addSamples(); });
     aAdd->setShortcut(QKeySequence("Ctrl+K"));
     file->addAction(QString::fromUtf8("Параметры &проекта..."), this, [this] { projectOptions(); });
@@ -216,6 +226,9 @@ void MainWindow::buildMenus() {
     tb->setObjectName("mainToolbar");
     tb->setIconSize(QSize(18, 18));
     tb->addAction(aNew);
+    tb->addAction(aOpen);
+    tb->addAction(aSave);
+    tb->addSeparator();
     tb->addAction(aAdd);
     tb->addAction(aExport);
     tb->addSeparator();
@@ -269,6 +282,7 @@ void MainWindow::addSamples() {
     QApplication::restoreOverrideCursor();
     model_->refresh();
     refreshNavigator();
+    markDirty();
     status_->setText(QString::fromUtf8("Образцов в проекте: %1").arg(backend_->sample_count()));
     if (!errors.empty()) {
         QStringList l;
@@ -344,6 +358,7 @@ void MainWindow::pollProgress() {
                               : QString::fromUtf8("Анализ завершён"));
     updateInfo();
     refreshGenotypes();
+    markDirty();
     if (autotest_) QTimer::singleShot(300, this, [this] {
         const QString out = qEnvironmentVariable("OT_QT_AUTOTEST_OUT", ".");
         QDir().mkpath(out);
@@ -376,14 +391,19 @@ void MainWindow::pollProgress() {
             pdf = w->savePdf(out + "/plots.pdf");
             w->close();
         }
+        const QString digest = q(backend_->genotype_digest());
         {
             QFile d(out + "/digest.txt");
-            if (d.open(QIODevice::WriteOnly)) d.write(q(backend_->genotype_digest()).toUtf8());
+            if (d.open(QIODevice::WriteOnly)) d.write(digest.toUtf8());
         }
+        // project file round trip: save, reopen, same genotypes
+        bool reopen = q(backend_->save_project_file(r(out + "/project.otproj"))).isEmpty() && q(backend_->open_project_file(r(out + "/project.otproj"))).isEmpty() &&
+                      q(backend_->genotype_digest()) == digest;
+        model_->refresh();
         QFile f(out + "/result.json");
         if (f.open(QIODevice::WriteOnly)) {
-            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"rows\":[%6]}\n")
-                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).toUtf8());
+            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"rows\":[%6]}\n")
+                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").toUtf8());
         }
         QApplication::exit(ok.isEmpty() ? 1 : 0);
     });
@@ -709,6 +729,67 @@ void MainWindow::refreshGenotypes() {
     }
     genoTable_->setSortingEnabled(true);
     genoTable_->resizeColumnsToContents();
+}
+
+
+void MainWindow::updateTitle() {
+    const QString name = projectPath_.isEmpty() ? QString::fromUtf8("без имени") : QFileInfo(projectPath_).completeBaseName();
+    setWindowTitle(QString::fromUtf8("OpenTrace Desktop — ") + name + (dirty_ ? " *" : ""));
+}
+
+void MainWindow::markDirty() {
+    dirty_ = true;
+    updateTitle();
+}
+
+// true when the current project may be replaced (saved, discarded, or nothing to lose)
+bool MainWindow::confirmDiscard() {
+    if (!dirty_ || backend_->sample_count() == 0) return true;
+    const auto b = QMessageBox::question(this, "OpenTrace", QString::fromUtf8("Сохранить изменения проекта?"), QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+    if (b == QMessageBox::Cancel) return false;
+    if (b == QMessageBox::Save) return saveProject(false);
+    return true;
+}
+
+bool MainWindow::saveProject(bool as) {
+    if (backend_->analysis_progress().running) { QMessageBox::information(this, "OpenTrace", QString::fromUtf8("Дождитесь окончания анализа.")); return false; }
+    QString path = projectPath_;
+    if (as || path.isEmpty()) {
+        QSettings st;
+        path = QFileDialog::getSaveFileName(this, QString::fromUtf8("Сохранить проект"), st.value("main/projectDir").toString() + "/project.otproj", QString::fromUtf8("Проект OpenTrace (*.otproj)"));
+        if (path.isEmpty()) return false;
+        if (!path.endsWith(".otproj", Qt::CaseInsensitive)) path += ".otproj";
+        st.setValue("main/projectDir", QFileInfo(path).absolutePath());
+    }
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const QString err = q(backend_->save_project_file(r(path)));
+    QApplication::restoreOverrideCursor();
+    if (!err.isEmpty()) { QMessageBox::warning(this, "OpenTrace", QString::fromUtf8("Проект не сохранён:\n") + err); return false; }
+    projectPath_ = path;
+    dirty_ = false;
+    updateTitle();
+    status_->setText(QString::fromUtf8("Сохранено: ") + path);
+    return true;
+}
+
+void MainWindow::openProject() {
+    if (backend_->analysis_progress().running || !confirmDiscard()) return;
+    QSettings st;
+    const QString path = QFileDialog::getOpenFileName(this, QString::fromUtf8("Открыть проект"), st.value("main/projectDir").toString(), QString::fromUtf8("Проект OpenTrace (*.otproj)"));
+    if (path.isEmpty()) return;
+    st.setValue("main/projectDir", QFileInfo(path).absolutePath());
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const QString err = q(backend_->open_project_file(r(path)));
+    QApplication::restoreOverrideCursor();
+    if (!err.isEmpty()) { QMessageBox::warning(this, "OpenTrace", QString::fromUtf8("Проект не открыт:\n") + err); return; }
+    projectPath_ = path;
+    dirty_ = false;
+    model_->refresh();
+    refreshNavigator();
+    refreshGenotypes();
+    updateInfo();
+    updateTitle();
+    status_->setText(QString::fromUtf8("Открыт проект: %1 (образцов: %2)").arg(path).arg(backend_->sample_count()));
 }
 
 } // namespace ot

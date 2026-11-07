@@ -3,6 +3,7 @@ mod backend;
 mod bridge;
 mod genotype;
 mod kits;
+mod project;
 
 // Qt support libraries of cxx-qt are linked (their C++ initialisers run before the application starts).
 extern crate cxx_qt;

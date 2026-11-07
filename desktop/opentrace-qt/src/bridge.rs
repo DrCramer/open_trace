@@ -97,6 +97,9 @@ pub mod ffi {
         fn option_set(self: &Backend, key: &str, value: &str) -> bool;
         fn genotype_digest(self: &Backend) -> String;
         fn plot_markers(self: &Backend, i: usize) -> Vec<PlotMarker>;
+        /// "" on success, else the error text
+        fn save_project_file(self: &Backend, path: &str) -> String;
+        fn open_project_file(self: &Backend, path: &str) -> String;
         fn plot_labels(self: &Backend, i: usize, bp: bool) -> Vec<PlotLabel>;
         fn sample_count(self: &Backend) -> usize;
         fn sample_row(self: &Backend, i: usize) -> SampleRow;
@@ -254,6 +257,12 @@ impl Backend {
             .collect::<Vec<_>>()
             .join("\n")
     }
+    fn save_project_file(&self, path: &str) -> String {
+        self.save_project(path).err().unwrap_or_default()
+    }
+    fn open_project_file(&self, path: &str) -> String {
+        self.open_project(path).err().unwrap_or_default()
+    }
     /// Marker ranges, GQ and bins of the sample's kit (bins moved by the bin offsets of its run, as the plot window does).
     fn plot_markers(&self, i: usize) -> Vec<ffi::PlotMarker> {
         let s = match self.samples.lock().unwrap().get(i) {
@@ -263,7 +272,8 @@ impl Backend {
         if s.panel_key.is_empty() {
             return Vec::new();
         }
-        let Some(k) = self.kit_cache.lock().unwrap().get(&format!("{}\u{2}{}", s.panel_key, s.method)).cloned() else { return Vec::new() };
+        // kit of the sample's panel and method (built from the Panel Manager store when the project was just opened)
+        let Ok(k) = self.kit_for(&s.panel_key, &s.method) else { return Vec::new() };
         let rep = s.report.clone();
         let calling = |name: &str| -> Option<serde_json::Value> {
             let ms = &rep.as_ref()?["allele_calling"]["markers"];

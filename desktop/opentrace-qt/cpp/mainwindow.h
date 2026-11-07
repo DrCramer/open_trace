@@ -56,6 +56,13 @@ private:
     QString alasDialog(const QString &summaryJson);
     void refreshGenotypes();
     QTableWidget *genoTable_ = nullptr;
+    QString projectPath_;
+    bool dirty_ = false;
+    void updateTitle();
+    void markDirty();
+    bool confirmDiscard();
+    bool saveProject(bool as);
+    void openProject();
     bool asking_ = false;
     QVector<int> selectedRows() const;
     void autotest();                // OT_QT_AUTOTEST_*: scripted run for CI and screenshots

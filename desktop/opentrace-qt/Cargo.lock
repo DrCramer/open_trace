@@ -637,6 +637,7 @@ dependencies = [
  "cxx-qt",
  "cxx-qt-build",
  "cxx-qt-lib",
+ "flate2",
  "opentrace-core",
  "roxmltree",
  "serde_json",
