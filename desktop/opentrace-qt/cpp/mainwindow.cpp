@@ -456,7 +456,7 @@ void MainWindow::showPlots() {
 
 void MainWindow::exportTable() {
     QSettings st;
-    const QString path = QFileDialog::getSaveFileName(this, QString::fromUtf8("Экспорт таблицы"), st.value("main/exportDir").toString() + "/samples.txt",
+    const QString path = QFileDialog::getSaveFileName(this, QString::fromUtf8("Экспорт таблицы"), st.value("main/exportDir").toString() + (tabs_->currentWidget() == genoTable_ ? "/genotypes.txt" : "/samples.txt"),
                                                       QString::fromUtf8("Текст с табуляцией (*.txt);;CSV (*.csv)"));
     if (path.isEmpty()) return;
     st.setValue("main/exportDir", QFileInfo(path).absolutePath());
@@ -465,6 +465,25 @@ void MainWindow::exportTable() {
     const QChar sep = path.endsWith(".csv", Qt::CaseInsensitive) ? ',' : '\t';
     QTextStream out(&f);
     out.setEncoding(QStringConverter::Utf8);
+    auto cell = [sep](QString v) {
+        if (sep == ',' && (v.contains(',') || v.contains('"'))) v = '"' + QString(v).replace("\"", "\"\"") + '"';
+        return v;
+    };
+    if (tabs_->currentWidget() == genoTable_) {   // Genotypes tab: the table as shown (GQ as text)
+        QStringList head;
+        for (int c = 0; c < genoTable_->columnCount(); ++c) head << cell(genoTable_->horizontalHeaderItem(c)->text());
+        out << head.join(sep) << "\n";
+        for (int i = 0; i < genoTable_->rowCount(); ++i) {
+            QStringList row;
+            for (int c = 0; c < genoTable_->columnCount(); ++c) {
+                const auto *it = genoTable_->item(i, c);
+                row << cell(it ? (it->text().isEmpty() ? it->toolTip() : it->text()) : QString());
+            }
+            out << row.join(sep) << "\n";
+        }
+        status_->setText(QString::fromUtf8("Сохранено: ") + path);
+        return;
+    }
     QStringList head;
     for (int c = 0; c < model_->columnCount(); ++c) head << model_->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
     out << head.join(sep) << "\n";
