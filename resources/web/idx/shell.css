@@ -1,0 +1,231 @@
+/* OpenTrace industrial desktop chrome (v10.4) and themes. Active only with <html data-chrome="industrial">; the classic
+   ID-X like look (idx.css) stays as the "classic" window style. Colours are semantic tokens per theme; the plot surface
+   (light / dark) is a separate layer (data-plot-surface) used by the plot window and the electropherogram canvases.
+   Printing (plot print, reports, print preview) never takes the screen theme. */
+
+/* ---------- tokens ---------- */
+html[data-chrome=industrial]{
+  --c-bg:#f3f5f8;--c-panel:#ffffff;--c-panel2:#f8f9fb;--c-head:#eef1f5;--c-line:#d9dfe7;--c-line2:#c6ced9;--c-text:#182535;--c-muted:#5f6b7a;
+  --c-accent:#235fb7;--c-accent-soft:#e7effb;--c-hover:#edf2f8;--c-sel:#2f66c4;--c-sel-text:#ffffff;--c-input:#ffffff;--c-input-line:#b9c3cf;
+  --c-menu:#ffffff;--c-ok:#18794e;--c-warn:#9a5b0b;--c-bad:#b42b3a;--c-ok-bg:#e5f5ec;--c-warn-bg:#fff3df;--c-bad-bg:#fdeaec;--c-shadow:0 8px 28px rgba(16,40,72,.18);
+  --c-focus:#2f66c4;--c-banner:#fff3cd;--c-banner-line:#e0b000;--c-link:#1d5bbf;
+  --h-menu:28px;--h-tabs:30px;--h-tool:32px;--h-row:23px;--h-btn:26px;--fs:12px;--fs-small:11px;
+  font-family:"Segoe UI",system-ui,"Noto Sans","Liberation Sans",Arial,sans-serif;font-size:var(--fs);
+  /* classic variables used by idx.css follow the theme */
+  --face:var(--c-bg);--face-dark:var(--c-head);--shadow:var(--c-line);--dark:var(--c-line2);--light:var(--c-panel);--sel:var(--c-sel);--sel-text:var(--c-sel-text);
+  --grid:var(--c-line);--header:var(--c-head);--text:var(--c-text);--muted:var(--c-muted);--link:var(--c-link);--menu-hover:var(--c-sel);--pane:var(--c-panel);
+  color:var(--c-text);
+}
+html[data-chrome=industrial][data-density=standard]{--h-menu:30px;--h-tabs:33px;--h-tool:36px;--h-row:27px;--h-btn:30px;--fs:13px;--fs-small:12px}
+html[data-chrome=industrial][data-theme=graphite]{
+  --c-bg:#2a2e34;--c-panel:#32373e;--c-panel2:#383e46;--c-head:#2f343b;--c-line:#454c56;--c-line2:#58606b;--c-text:#e7eaee;--c-muted:#a9b1bc;
+  --c-accent:#6ea8ff;--c-accent-soft:#2d4466;--c-hover:#3d434c;--c-sel:#3a6cc9;--c-input:#25292e;--c-input-line:#59616c;--c-menu:#30353c;
+  --c-ok:#56c48a;--c-warn:#f0b35a;--c-bad:#ff7d8a;--c-ok-bg:#1f3a2c;--c-warn-bg:#40331c;--c-bad-bg:#432328;--c-shadow:0 10px 32px rgba(0,0,0,.45);
+  --c-focus:#8bb8ff;--c-banner:#4a3d14;--c-banner-line:#b8902a;--c-link:#8db8ff}
+html[data-chrome=industrial][data-theme=dark]{
+  --c-bg:#15181c;--c-panel:#1c2025;--c-panel2:#22272d;--c-head:#1f2329;--c-line:#323840;--c-line2:#454c56;--c-text:#e3e7ec;--c-muted:#99a3af;
+  --c-accent:#6aa5ff;--c-accent-soft:#1f3354;--c-hover:#2a3038;--c-sel:#2f5db5;--c-input:#12151a;--c-input-line:#46505b;--c-menu:#1f2329;
+  --c-ok:#4fbd83;--c-warn:#e8a64a;--c-bad:#ff7482;--c-ok-bg:#16301f;--c-warn-bg:#352812;--c-bad-bg:#3a1b20;--c-shadow:0 10px 32px rgba(0,0,0,.6);
+  --c-focus:#8bb8ff;--c-banner:#3e3310;--c-banner-line:#a8841f;--c-link:#8db8ff}
+html[data-chrome=industrial][data-theme=contrast]{
+  --c-bg:#ffffff;--c-panel:#ffffff;--c-panel2:#ffffff;--c-head:#e8e8e8;--c-line:#000000;--c-line2:#000000;--c-text:#000000;--c-muted:#1a1a1a;
+  --c-accent:#0033a0;--c-accent-soft:#d6e2ff;--c-hover:#d6e2ff;--c-sel:#0033a0;--c-input:#ffffff;--c-input-line:#000000;--c-menu:#ffffff;
+  --c-ok:#00562b;--c-warn:#6b3a00;--c-bad:#9b0012;--c-focus:#000000;--c-link:#0033a0}
+html[data-chrome=industrial][data-theme=contrast] :focus-visible{outline:3px solid var(--c-focus)!important;outline-offset:1px}
+/* plot surface (independent of the shell theme) */
+html{--plot-bg:#ffffff;--plot-fg:#000000;--plot-line:#7f9db9}
+html[data-plot-surface=dark]{--plot-bg:#14171b;--plot-fg:#e6e9ed;--plot-line:#3a414a}
+
+/* ---------- base ---------- */
+html[data-chrome=industrial],html[data-chrome=industrial] body{background:var(--c-bg)}
+html[data-chrome=industrial] :focus-visible{outline:2px solid var(--c-focus);outline-offset:-2px}
+html[data-chrome=industrial] body{font-variant-numeric:tabular-nums}
+
+/* ---------- application bar: menus left, right group pinned to the right edge (one row) ---------- */
+.sh-appbar{display:contents}   /* classic look: the menu bar stays as it was */
+html[data-chrome=industrial] .sh-appbar{display:flex;align-items:stretch;height:var(--h-menu);flex:none;background:var(--c-panel);border-bottom:1px solid var(--c-line);position:relative;z-index:30;min-width:0}
+html[data-chrome=industrial] .sh-appbar>.menubar{flex:1 1 auto;min-width:0;height:auto;border:0;background:transparent;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;align-items:stretch}
+html[data-chrome=industrial] .sh-appbar>.menubar::-webkit-scrollbar{display:none}
+html[data-chrome=industrial] .menubar>.mtop{display:flex;align-items:center;padding:0 9px;line-height:normal;border-radius:0;color:var(--c-text);flex:none}
+html[data-chrome=industrial] .menubar>.mtop:hover,html[data-chrome=industrial] .menubar>.mtop.open{background:var(--c-hover);color:var(--c-text)}
+html[data-chrome=industrial] .menubar>.mtop.open{box-shadow:inset 0 -2px 0 var(--c-accent)}
+.sh-right{display:none}
+html[data-chrome=industrial] .sh-right{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto;padding:0 6px 0 10px;border-left:1px solid var(--c-line);background:var(--c-panel)}
+.sh-status{white-space:nowrap;font-weight:600;padding:2px 8px;border-radius:10px;border:1px solid transparent;font-size:var(--fs-small)}
+.sh-status.sh-edit{color:var(--c-ok);background:var(--c-ok-bg);border-color:color-mix(in srgb,var(--c-ok) 35%,transparent)}
+.sh-status.sh-read{color:var(--c-warn);background:var(--c-warn-bg);border-color:color-mix(in srgb,var(--c-warn) 45%,transparent)}
+.sh-status.sh-local{color:var(--c-muted);background:var(--c-panel2);border-color:var(--c-line)}
+.sh-btn{height:calc(var(--h-menu) - 6px);display:inline-flex;align-items:center;gap:5px;padding:0 8px;border:1px solid var(--c-line);border-radius:4px;background:var(--c-panel2);color:var(--c-text);font:inherit;cursor:default;white-space:nowrap}
+.sh-btn:hover{background:var(--c-hover);border-color:var(--c-line2)}
+.sh-btn kbd{font:inherit;font-size:10px;color:var(--c-muted);border:1px solid var(--c-line);border-radius:3px;padding:0 3px}
+.sh-ico-btn{width:calc(var(--h-menu) - 6px);justify-content:center;padding:0;font-size:14px}
+.sh-chip{white-space:nowrap;font-size:var(--fs-small);color:var(--c-muted);padding:0 4px}.sh-chip.dim{opacity:.7}
+.sh-lab{display:inline-flex;align-items:center;gap:4px;color:var(--c-muted);font-size:var(--fs-small)}
+.sh-select{height:calc(var(--h-menu) - 6px);border:1px solid var(--c-line);border-radius:4px;background:var(--c-input);color:var(--c-text);font:inherit;padding:0 4px}
+.sh-user{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:1100px){html[data-chrome=industrial] .sh-cmds{font-size:0;gap:0}html[data-chrome=industrial] .sh-cmds .sh-ico{font-size:14px}html[data-chrome=industrial] .sh-cmds kbd{display:none}html[data-chrome=industrial] .sh-lab>span{display:none}}
+@media (max-width:860px){html[data-chrome=industrial] .sh-chip,html[data-chrome=industrial] .sh-user{display:none}}
+
+/* ---------- menus ---------- */
+html[data-chrome=industrial] .menu{background:var(--c-menu);border:1px solid var(--c-line2);border-radius:4px;box-shadow:var(--c-shadow);padding:4px 0;color:var(--c-text)}
+html[data-chrome=industrial] .mi{padding:4px 22px 4px 26px;line-height:16px}
+html[data-chrome=industrial] .mi:hover:not(.dis),html[data-chrome=industrial] .mi.hl:not(.dis){background:var(--c-sel);color:var(--c-sel-text)}
+html[data-chrome=industrial] .mi.dis{color:var(--c-muted);opacity:.6}
+html[data-chrome=industrial] .mi .sc{color:var(--c-muted)}
+html[data-chrome=industrial] .mi:hover .sc{color:inherit}
+html[data-chrome=industrial] .msep{background:var(--c-line);margin:4px 0}
+
+/* ---------- workspace tabs (second row) ---------- */
+.wsbar{display:none}
+html[data-chrome=industrial] .wsbar{display:flex;align-items:stretch;height:var(--h-tabs);flex:none;background:var(--c-panel2);border-bottom:1px solid var(--c-line);min-width:0}
+html[data-chrome=industrial] .wstabs{display:flex;align-items:stretch;min-width:0;overflow-x:auto;scrollbar-width:none}
+html[data-chrome=industrial] .wstab{display:flex;align-items:center;padding:0 16px;cursor:default;color:var(--c-muted);font-weight:600;border-bottom:2px solid transparent;white-space:nowrap}
+html[data-chrome=industrial] .wstab:hover{color:var(--c-text);background:var(--c-hover)}
+html[data-chrome=industrial] .wstab.on{color:var(--c-accent);border-bottom-color:var(--c-accent);background:var(--c-panel)}
+html[data-chrome=industrial] .wscrumb{margin-left:auto;align-self:center;padding:0 12px;color:var(--c-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* ---------- toolbars ---------- */
+html[data-chrome=industrial] .toolbar{min-height:var(--h-tool);padding:2px 6px;gap:2px;border-top:0;border-bottom:1px solid var(--c-line);background:var(--c-panel)}
+html[data-chrome=industrial] .tb{width:var(--h-btn);height:var(--h-btn);border-radius:4px;color:var(--c-text)}
+html[data-chrome=industrial] .tb:hover:not(:disabled){border-color:var(--c-line2);background:var(--c-hover)}
+html[data-chrome=industrial] .tb:active:not(:disabled),html[data-chrome=industrial] .tb.on{border-color:var(--c-accent);background:var(--c-accent-soft)}
+/* the toolbar icons are drawn for a light background: on the dark shells their lightness is inverted, hue kept
+   (dye colour swatches of the plot window are data colours and stay as they are) */
+html[data-chrome=industrial]:is([data-theme=graphite],[data-theme=dark]) :is(.tb:not([data-cmd^="dye."]),.eb) svg{filter:invert(1) hue-rotate(180deg) saturate(1.3)}
+html[data-chrome=industrial] .tsep{height:18px;background:var(--c-line);border-right:0;margin:0 5px}
+html[data-chrome=industrial] .tlabel{color:var(--c-muted)}
+html[data-chrome=industrial][data-labels=on] .tb[data-label]{width:auto;min-width:var(--h-btn);padding:0 6px;gap:4px}
+html[data-chrome=industrial][data-labels=on] .tb[data-label]::after{content:attr(data-label);font-size:var(--fs-small);white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+html[data-chrome=industrial] select.combo{height:calc(var(--h-btn) - 2px);border:1px solid var(--c-input-line);border-radius:4px;background:var(--c-input);color:var(--c-text)}
+[hidden]{display:none!important}
+.tgrp{display:inline-flex;align-items:center;gap:4px}
+
+/* ---------- work area ---------- */
+html[data-chrome=industrial] .workarea{padding:0;gap:0;min-height:0}
+html[data-chrome=industrial] .navigator{border:0;border-right:1px solid var(--c-line);background:var(--c-panel);width:210px}
+html[data-chrome=industrial] .tnode{padding:2px 4px;border-radius:3px}
+html[data-chrome=industrial] .tnode.sel{background:var(--c-sel);color:var(--c-sel-text)}
+html[data-chrome=industrial] .twisty{background:var(--c-panel);border-color:var(--c-line2);color:var(--c-text)}
+html[data-chrome=industrial] .content{min-height:0}
+html[data-chrome=industrial] .tabs{padding:4px 6px 0;top:0;background:var(--c-bg);gap:2px}
+html[data-chrome=industrial] .tab{border:1px solid transparent;border-bottom:0;background:none;border-radius:4px 4px 0 0;padding:4px 10px;color:var(--c-muted)}
+html[data-chrome=industrial] .tab:hover{color:var(--c-text);background:var(--c-hover)}
+html[data-chrome=industrial] .tab.on{background:var(--c-panel);border-color:var(--c-line);border-top:2px solid var(--c-accent);padding-top:3px;color:var(--c-text)}
+html[data-chrome=industrial] .tabpage{border:0;border-top:1px solid var(--c-line);background:var(--c-panel)}
+html[data-chrome=industrial] .grid{background:var(--c-panel);border:0;margin:0}
+html[data-chrome=industrial] .filterbar{background:var(--c-warn-bg);border-bottom-color:var(--c-line);color:var(--c-text)}
+
+/* tables */
+html[data-chrome=industrial] table.g th{background:var(--c-head);border-right:1px solid var(--c-line);border-bottom:1px solid var(--c-line2);color:var(--c-text);font-weight:600;padding:3px 6px}
+html[data-chrome=industrial] table.g td{border-right:1px solid var(--c-line);border-bottom:1px solid var(--c-line);height:var(--h-row);padding:1px 6px}
+html[data-chrome=industrial] table.g td.rh{background:var(--c-head);color:var(--c-muted)}
+html[data-chrome=industrial] table.g tr:hover td{background:var(--c-hover)}
+html[data-chrome=industrial] table.g tr.sel td{background:var(--c-sel);color:var(--c-sel-text)}
+html[data-chrome=industrial] table.g tr.sel td.rh{background:color-mix(in srgb,var(--c-sel) 80%,#000)}
+html[data-chrome=industrial] table.g td input,html[data-chrome=industrial] table.g td select{color:inherit}
+html[data-chrome=industrial] table.g tr.sel td option,html[data-chrome=industrial] select option{background:var(--c-input);color:var(--c-text)}
+html[data-chrome=industrial] .g th.colsel,html[data-chrome=industrial] .g td.colsel{background:var(--c-accent-soft)}
+html[data-chrome=industrial] .q-na{color:var(--c-muted)}
+
+/* summary, hub pages */
+html[data-chrome=industrial] .summary{padding:10px 14px}
+html[data-chrome=industrial] .summary th,html[data-chrome=industrial] .summary td{border:1px solid var(--c-line);padding:3px 10px}
+html[data-chrome=industrial] .summary th{background:var(--c-head);font-weight:600}
+html[data-chrome=industrial] .summary h2{font-size:15px}
+.hubpage{overflow:auto}
+.hub{padding:10px 14px;max-width:760px}
+.hub h2{font-size:14px;margin:0 0 8px}
+.hubt{border-collapse:collapse}.hubt td{padding:2px 6px 2px 0}.hubt td.sc{color:var(--muted,#666);font-size:11px}
+.hubbtn{min-width:320px;text-align:left;height:var(--h-btn,24px);padding:0 10px;border:1px solid var(--c-line,#a7a6aa);border-radius:4px;background:var(--c-panel2,#fff);color:inherit;font:inherit;cursor:default}
+.hubbtn:hover:not(:disabled){background:var(--c-hover,#eaf1fb);border-color:var(--c-accent,#6f93c4)}
+.hubbtn:disabled{opacity:.5}
+
+/* status bar: no gap below, compact cells */
+html[data-chrome=industrial] .statusbar{height:24px;padding:0 4px;gap:0;border-top:1px solid var(--c-line);background:var(--c-panel2);color:var(--c-muted);font-size:var(--fs-small)}
+html[data-chrome=industrial] .statusbar .cell{border:0;border-right:1px solid var(--c-line);height:auto;padding:0 8px;line-height:22px}
+html[data-chrome=industrial] .statusbar .progress{width:180px}
+html[data-chrome=industrial] .progress .bar{background:var(--c-accent);opacity:.35}
+html[data-chrome=industrial] .statusbar .btn{height:20px;min-width:60px;margin-left:4px}
+
+/* buttons, inputs */
+html[data-chrome=industrial] .btn{height:var(--h-btn);border:1px solid var(--c-line2);border-radius:4px;background:var(--c-panel2);color:var(--c-text);padding:0 12px}
+html[data-chrome=industrial] .btn:hover:not(:disabled){box-shadow:none;background:var(--c-hover);border-color:var(--c-accent)}
+html[data-chrome=industrial] .btn:disabled{color:var(--c-muted);border-color:var(--c-line);opacity:.7}
+html[data-chrome=industrial] :is(input[type=text],input[type=number],input[type=password],input[type=search],input:not([type]),select,textarea):not(.sh-palin){background:var(--c-input);color:var(--c-text);border:1px solid var(--c-input-line);border-radius:3px}
+html[data-chrome=industrial] table.g td :is(input,select){border:0;background:transparent}
+html[data-chrome=industrial] fieldset,html[data-chrome=industrial] .fieldset{border-color:var(--c-line)}
+html[data-chrome=industrial] legend,html[data-chrome=industrial] .fieldset>.legend{color:var(--c-accent)}
+html[data-chrome=industrial] .note{color:var(--c-muted)}
+html[data-chrome=industrial] a{color:var(--c-link)}
+
+/* dialogs: flat desktop caption, theme colours */
+html[data-chrome=industrial] .backdrop{background:rgba(10,16,24,.18)}
+html[data-chrome=industrial] .dlg{background:var(--c-panel);border:1px solid var(--c-line2);border-radius:6px;box-shadow:var(--c-shadow);color:var(--c-text)}
+html[data-chrome=industrial] .dlg .title{background:var(--c-panel2);color:var(--c-text);border-bottom:1px solid var(--c-line);border-radius:6px 6px 0 0;font-size:12px;padding:6px 10px}
+html[data-chrome=industrial] .dlg .title .x{border:1px solid transparent;background:none;color:var(--c-muted);font-size:15px;line-height:17px}
+html[data-chrome=industrial] .dlg .title .x:hover{background:var(--c-bad);color:#fff}
+html[data-chrome=industrial] .dlg .foot{border-top:1px solid var(--c-line);padding:8px 12px}
+html[data-chrome=industrial] .dtabs .tab.on{border-top-color:var(--c-accent)}
+html[data-chrome=industrial] .dpage{background:var(--c-panel);border-color:var(--c-line)}
+html[data-chrome=industrial] :is(.filelist,.qvd,.sectree,.ahinst,.rsgrid,.rsprev,.magrid,.mgrgrid,.pcgrid,.pfgrid,.bowrap,.pmcontent,.pmplot,.mdphost,.inwrap,.rscond,.pmgrid){background:var(--c-panel);border-color:var(--c-line);color:var(--c-text)}
+html[data-chrome=industrial] :is(.qvd th,.amgrid th,.alasdlg th,.bodlg th,.mxres th,.ptable-screen th){background:var(--c-head)}
+html[data-chrome=industrial] :is(.qvd th,.qvd td,.amgrid th,.amgrid td,.alasdlg th,.alasdlg td,.bodlg td,.bodlg th){border-color:var(--c-line)}
+html[data-chrome=industrial] .bodlg td.rn{background:var(--c-head);color:var(--c-muted)}
+html[data-chrome=industrial] table.g.sitable td.k{background:var(--c-head);color:var(--c-muted)}
+html[data-chrome=industrial] .sibox h3,html[data-chrome=industrial] .lgbrand,html[data-chrome=industrial] .fieldset>.legend{color:var(--c-accent)}
+html[data-chrome=industrial] .sicanvas{border-color:var(--c-line)}
+
+/* plot window: the electropherogram surface follows data-plot-surface */
+html[data-chrome=industrial] .plotarea{background:var(--plot-bg);border:0;margin:0;border-top:1px solid var(--c-line)}
+html[data-chrome=industrial] .pane{border-bottom:1px solid var(--c-line)}
+html[data-chrome=industrial] .pane .phead{background:var(--c-panel2);border-bottom:1px solid var(--c-line);color:var(--c-text);height:22px}
+html[data-chrome=industrial] .pane .phead .c,html[data-chrome=industrial] .colhead .c{border-right:1px solid var(--c-line)}
+html[data-chrome=industrial] .colhead{background:var(--c-head);border-bottom:1px solid var(--c-line2);margin:0;height:22px;color:var(--c-muted);font-weight:600}
+html[data-chrome=industrial] .lower{margin:0;gap:0;border-top:1px solid var(--c-line2)}
+html[data-chrome=industrial] .qvd{border:0;border-left:1px solid var(--c-line)}
+html[data-chrome=industrial] .editbar{background:var(--c-panel2);border-bottom:1px solid var(--c-line);padding:3px 6px}
+html[data-chrome=industrial] .editbar .eb{background:var(--c-panel);border-color:var(--c-line2);color:var(--c-text);height:var(--h-btn);border-radius:4px}
+html[data-chrome=industrial] .editbar .eb:hover:not(:disabled){background:var(--c-hover);border-color:var(--c-accent)}
+html[data-chrome=industrial] .editbar .eb.on{background:var(--c-bad);border-color:var(--c-bad);color:#fff}
+html[data-chrome=industrial] .editbar .ebhint{color:var(--c-muted)}
+html[data-chrome=industrial] .editbar .ebsep{background:var(--c-line)}
+
+/* desktop read-only banners stay visible in every theme */
+html[data-chrome=industrial] #otReadOnly,html[data-chrome=industrial] #otWebReadOnly{background:var(--c-banner)!important;border-bottom:1px solid var(--c-banner-line)!important;color:var(--c-text)}
+
+/* ---------- command palette ---------- */
+.sh-palback{position:fixed;inset:0;z-index:300;background:rgba(10,16,24,.22);display:flex;justify-content:center;align-items:flex-start;padding-top:9vh}
+.sh-palette{width:min(680px,94vw);background:var(--c-panel,#fff);color:var(--c-text,#000);border:1px solid var(--c-line2,#888);border-radius:8px;box-shadow:var(--c-shadow,0 8px 28px rgba(0,0,0,.3));display:flex;flex-direction:column;max-height:70vh;overflow:hidden}
+.sh-palin{border:0!important;border-bottom:1px solid var(--c-line,#ccc)!important;padding:10px 12px;font:inherit;font-size:14px;outline:none;background:var(--c-panel,#fff);color:inherit;border-radius:8px 8px 0 0}
+.sh-pallist{overflow:auto}
+.sh-palrow{display:grid;grid-template-columns:minmax(160px,1fr) 1.4fr auto;gap:10px;padding:5px 12px;cursor:default;align-items:center}
+.sh-palrow.sel{background:var(--c-sel,#316ac5);color:var(--c-sel-text,#fff)}
+.sh-palrow.dis{opacity:.5}
+.sh-palpath,.sh-palsc{color:var(--c-muted,#666);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sh-palrow.sel .sh-palpath,.sh-palrow.sel .sh-palsc{color:inherit}
+.sh-palnone{padding:14px;color:var(--c-muted,#666)}
+.sh-toast{position:fixed;right:16px;bottom:34px;z-index:400;background:var(--c-text,#222);color:var(--c-panel,#fff);padding:6px 12px;border-radius:5px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+
+/* ---------- customize interface editor ---------- */
+.sh-editor{width:min(1080px,94vw);display:flex;flex-direction:column;gap:6px}
+.sh-edgen{display:flex;flex-wrap:wrap;gap:6px 14px}.sh-edgen label{display:inline-flex;gap:6px;align-items:center}
+.sh-edtools{display:flex;gap:8px;align-items:center}.sh-edsearch{flex:1;height:24px;padding:0 6px}
+.sh-edmain{display:flex;gap:8px;height:min(440px,52vh)}
+.sh-edtree{width:250px;flex:none;overflow:auto;border:1px solid var(--c-line,#a7a6aa);background:var(--c-panel,#fff);padding:2px 0}
+.sh-edgroup{font-weight:700;padding:5px 8px 2px;color:var(--c-muted,#444)}.sh-edgroup.dim{font-weight:400;font-style:italic}
+.sh-ednode{padding:2px 8px 2px 18px;cursor:default;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sh-ednode:hover{background:var(--c-hover,#eef)}.sh-ednode.sel{background:var(--c-sel,#316ac5);color:var(--c-sel-text,#fff)}
+.sh-edright{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.sh-edtable{flex:1;overflow:auto;border:1px solid var(--c-line,#a7a6aa);background:var(--c-panel,#fff)}
+.sh-edgrid{border-collapse:collapse;width:100%}.sh-edgrid th{position:sticky;top:0;background:var(--c-head,#eee);text-align:left;font-weight:600;padding:3px 6px;border-bottom:1px solid var(--c-line2,#999)}
+.sh-edgrid td{padding:2px 6px;border-bottom:1px solid var(--c-line,#ddd);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.sh-edgrid td.c{text-align:center}.sh-edgrid td.dim{color:var(--c-muted,#666)}
+.sh-mini{width:20px;height:18px;padding:0;border:1px solid var(--c-line2,#999);border-radius:3px;background:var(--c-panel2,#fff);color:inherit;font-size:9px;cursor:default}
+.sh-edinfo{min-height:52px;border:1px solid var(--c-line,#ccc);padding:4px 8px;background:var(--c-panel2,#fafafa);user-select:text;font-size:11px}
+.sh-edunk{display:flex;gap:8px;align-items:center;color:var(--c-warn,#8a5a00)}.sh-edunk:empty{display:none}
+
+/* ---------- printing: never the screen theme ---------- */
+@media print{
+ html[data-chrome=industrial],html[data-chrome=industrial] body{background:#fff!important;color:#000!important}
+ .sh-appbar,.wsbar,.sh-palback,.sh-toast{display:none!important}
+}

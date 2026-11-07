@@ -893,5 +893,7 @@ rsCalc:'Вычисления',rsAnalysis:'Анализ',rsFunction:'Функци
 let lang='ru';
 try{const v=localStorage.getItem('opentrace.lang');if(v==='en'||v==='ru')lang=v}catch(e){}
 window.T=key=>(S[lang]&&S[lang][key])||S.en[key]||key;
-window.I18N={get lang(){return lang},set(l){lang=l;try{localStorage.setItem('opentrace.lang',l)}catch(e){}}};
+window.I18N={get lang(){return lang},set(l){lang=l;try{localStorage.setItem('opentrace.lang',l)}catch(e){}},
+ // strings of modules loaded later (shell.js); existing keys are not replaced
+ add(l,dict){S[l]=S[l]||{};for(const k in dict)if(!(k in S[l]))S[l][k]=dict[k]},has(k){return k in S.en||k in S.ru}};
 })();

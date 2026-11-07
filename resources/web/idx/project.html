@@ -1,13 +1,15 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-window="main">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OpenTrace</title>
 <link rel="stylesheet" href="/idx/idx.css">
+<link rel="stylesheet" href="/idx/shell.css">
 <script>window.OT_TOKEN='__SESSION_TOKEN__';</script>
 <script src="/idx/i18n.js"></script>
 <script src="/idx/ui.js"></script>
+<script src="/idx/shell.js"></script>
 <script src="/idx/security.js"></script>
 <script src="/idx/kits.js"></script>
 <script src="/idx/methods.js"></script>
@@ -23,8 +25,9 @@
 <script src="/idx/sampleviews.js"></script>
 </head>
 <body>
-<div class="menubar" id="menubar"></div>
-<div class="toolbar" id="toolbar"></div>
+<div class="menubar" id="menubar" data-window="main"></div>
+<div class="wsbar" id="wsBar"><div class="wstabs" id="wsTabs" role="tablist" data-area="main.tabs" data-area-title="shTabsArea" data-area-kind="tabs"></div><div class="wscrumb" id="wsCrumb"></div></div>
+<div class="toolbar" id="toolbar" data-area="main.toolbar" data-area-title="shToolbarArea"></div>
 <div class="workarea">
   <nav class="navigator" id="navigator" aria-label="Navigator"></nav>
   <div class="content">
@@ -36,12 +39,15 @@
     <section class="tabpage sipage" id="page-info" hidden></section>
     <section class="tabpage sipage" id="page-raw" hidden></section>
     <section class="tabpage sipage" id="page-ept" hidden></section>
+    <section class="tabpage hubpage" id="page-hub-plots" hidden></section>
+    <section class="tabpage hubpage" id="page-hub-standards" hidden></section>
+    <section class="tabpage hubpage" id="page-hub-journal" hidden></section>
   </div>
 </div>
-<div class="statusbar">
-  <div class="cell grow" id="statusText"></div>
-  <div class="cell progress" id="progress"><div class="bar" id="progressBar" style="width:0"></div><span id="progressText">0%</span></div>
-  <button class="btn" id="stopBtn" disabled></button>
+<div class="statusbar" data-area="main.status" data-area-title="shStatusArea" data-area-kind="status">
+  <div class="cell grow" id="statusText" data-cmd="statusText" data-critical="1" data-kind="element" data-label-key="shStatusText"></div>
+  <div class="cell progress" id="progress" data-cmd="progress" data-kind="element" data-label-key="shProgress"><div class="bar" id="progressBar" style="width:0"></div><span id="progressText">0%</span></div>
+  <button class="btn" id="stopBtn" disabled data-cmd="stop" data-critical="1" data-label-key="stop"></button>
 </div>
 <script src="/idx/project.js"></script>
 </body>

@@ -90,9 +90,11 @@ function buildMenu(items){
 }
 window.buildMenu=buildMenu;
 window.buildMenubar=(bar,spec)=>{
+ // the shell applies the user's visibility/order of menus and items and registers the commands (shell.js)
+ if(window.Shell)spec=Shell.prepareMenu(bar.dataset.window||Shell.win,spec);
  bar.replaceChildren();document.querySelectorAll('body>.menu').forEach(m=>m.remove());
  for(const top of spec){
-  const t=document.createElement('div');t.className='mtop';t.textContent=top.label;t.setAttribute('role','menubar');
+  const t=document.createElement('div');t.className='mtop';t.textContent=top.label;t.setAttribute('role','menubar');if(top.id)t.dataset.cmd=top.id;
   const menu=buildMenu(top.items);document.body.append(menu);
   const open=()=>{closeMenus();const r=t.getBoundingClientRect();menu.style.left=r.left+'px';menu.style.top=r.bottom+'px';menu.classList.add('show');t.classList.add('open');openTop=t};
   t.addEventListener('mousedown',e=>{e.stopPropagation();openTop===t?closeMenus():open()});
@@ -104,7 +106,7 @@ document.addEventListener('mousedown',e=>{if(!e.target.closest('.menu'))closeMen
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(document.querySelector('.menu.show'))e.preventDefault();closeMenus()}});
 
 // Toolbar button
-window.tbutton=(name,title,run,opts={})=>{const b=document.createElement('button');b.className='tb';b.type='button';b.title=title;
+window.tbutton=(name,title,run,opts={})=>{const b=document.createElement('button');b.className='tb';b.type='button';b.title=title;b.dataset.cmd=opts.cmd||opts.id||name;
  b.innerHTML=icon(name);if(run)b.addEventListener('click',run);if(opts.disabled)b.disabled=true;if(opts.id)b.id=opts.id;return b};
 window.tsep=()=>{const s=document.createElement('span');s.className='tsep';return s};
 

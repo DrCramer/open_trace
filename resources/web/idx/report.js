@@ -125,19 +125,19 @@ function printPreview(){const w=window.open('/idx/print.html','opentrace-print-r
 function printNow(){window.open('/idx/print.html#print','opentrace-print-report','width=1000,height=760')}
 function buildChrome(){
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('rpOpen'),sc:'Ctrl+O',run:openReport},{label:T('rpSave'),sc:'Ctrl+S',run:()=>saveReport()},{label:T('saveAs'),run:()=>saveReport(true)},'-',{label:T('rpExport'),sc:'Ctrl+E',run:exportDialog},'-',
-   {label:T('pageSetup'),run:()=>{try{window.opener.OT.pageSetupDialog();window.opener.focus()}catch(e){message(String(e.message||e))}}},{label:T('print'),sc:'Ctrl+P',run:printNow},{label:T('printPreview'),run:printPreview},'-',{label:T('closeWin'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('cut'),sc:'Ctrl+X',run:()=>clearCells(true)},{label:T('copy'),sc:'Ctrl+C',run:copy},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},{label:T('clear'),sc:'Delete',run:()=>clearCells(false)},'-',
-   {label:T('selectAll'),sc:'Ctrl+A',run:()=>{st.sel=new Set((st.data?.rows||[]).map((_,i)=>i));render()}},'-',{label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{label:T('rpDefaultTable'),run:defaultTable},{label:T('rpFlip'),checked:st.flip,run:()=>{st.flip=!st.flip;if(st.flip)st.byMarker=false;render()}},
-   {label:T('rpByMarker'),checked:st.byMarker,run:()=>{st.byMarker=!st.byMarker;if(st.byMarker)st.flip=false;render()}},'-',
-   {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog},'-',{label:T('deleteRows'),run:deleteRows}]},
-  {label:T('view'),items:[{label:T('rpRefresh'),sc:'F5',run:()=>refresh(false)},'-',{label:T('displayPlots'),sc:'Ctrl+L',run:plots}]},
-  {label:T('tools'),items:[{label:T('reportSettingsEditor'),run:editSetting}]}]);
+  {id:'file',label:T('file'),items:[{id:'rpOpen',label:T('rpOpen'),sc:'Ctrl+O',run:openReport},{id:'rpSave',label:T('rpSave'),sc:'Ctrl+S',run:()=>saveReport()},{id:'saveAs',label:T('saveAs'),run:()=>saveReport(true)},'-',{id:'rpExport',label:T('rpExport'),sc:'Ctrl+E',run:exportDialog},'-',
+   {id:'pageSetup',label:T('pageSetup'),run:()=>{try{window.opener.OT.pageSetupDialog();window.opener.focus()}catch(e){message(String(e.message||e))}}},{id:'print',label:T('print'),sc:'Ctrl+P',run:printNow},{id:'printPreview',label:T('printPreview'),run:printPreview},'-',{id:'closeWin',label:T('closeWin'),run:()=>window.close()}]},
+  {id:'edit',label:T('edit'),items:[{id:'cut',label:T('cut'),sc:'Ctrl+X',run:()=>clearCells(true)},{id:'copy',label:T('copy'),sc:'Ctrl+C',run:copy},{id:'paste',label:T('paste'),sc:'Ctrl+V',run:pasteCells},{id:'clear',label:T('clear'),sc:'Delete',run:()=>clearCells(false)},'-',
+   {id:'selectAll',label:T('selectAll'),sc:'Ctrl+A',run:()=>{st.sel=new Set((st.data?.rows||[]).map((_,i)=>i));render()}},'-',{id:'fillDown',label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{id:'rpDefaultTable',label:T('rpDefaultTable'),run:defaultTable},{id:'rpFlip',label:T('rpFlip'),checked:st.flip,run:()=>{st.flip=!st.flip;if(st.flip)st.byMarker=false;render()}},
+   {id:'rpByMarker',label:T('rpByMarker'),checked:st.byMarker,run:()=>{st.byMarker=!st.byMarker;if(st.byMarker)st.flip=false;render()}},'-',
+   {id:'find',label:T('find'),sc:'Ctrl+F',run:findDialog},{id:'sort',label:T('sort'),sc:'Ctrl+G',run:sortDialog},'-',{id:'deleteRows',label:T('deleteRows'),run:deleteRows}]},
+  {id:'view',label:T('view'),items:[{id:'rpRefresh',label:T('rpRefresh'),sc:'F5',run:()=>refresh(false)},'-',{id:'displayPlots',label:T('displayPlots'),sc:'Ctrl+L',run:plots}]},
+  {id:'tools',label:T('tools'),items:[{id:'reportSettingsEditor',label:T('reportSettingsEditor'),run:editSetting}]}]);
  const tb=$('toolbar');tb.replaceChildren();
  const sel=el('select',{class:'combo',id:'rpSetting'});for(const n of ReportSettings.names())sel.append(new Option(n,n));
  if(st.setting&&!ReportSettings.get(st.setting.name))sel.append(new Option(st.setting.name,st.setting.name));
  sel.value=currentSetting()?.name||'';sel.addEventListener('change',()=>{st.setting=ReportSettings.get(sel.value);st.dirty=true;refresh(true)});
- tb.append(el('span',{class:'tlabel',text:T('reportSetting')}),sel,tbutton('reportSettingsEditor',T('reportSettingsEditor'),editSetting,{id:'rpEditSetting'}),tsep(),
+ tb.append(el('span',{class:'tgrp','data-cmd':'reportSetting','data-label':T('reportSetting')},el('span',{class:'tlabel',text:T('reportSetting')}),sel),tbutton('reportSettingsEditor',T('reportSettingsEditor'),editSetting,{id:'rpEditSetting'}),tsep(),
   tbutton('displayPlots',T('displayPlots'),plots,{id:'rpPlots'}),tbutton('rpRefresh',T('rpRefresh'),()=>refresh(false),{id:'rpRefreshBtn'}),tsep(),
   tbutton('exportTable',T('rpExport'),exportDialog,{id:'rpExportBtn'}),tbutton('printPreview',T('printPreview'),printPreview,{id:'rpPreview'}),tbutton('print',T('print'),printNow,{id:'rpPrint'}))}
 document.addEventListener('keydown',e=>{
@@ -149,4 +149,6 @@ document.addEventListener('keydown',e=>{
 window.addEventListener('storage',e=>{if(e.key===ReportSettings.KEY){if(st.setting)st.setting=ReportSettings.get(st.setting.name)||st.setting;refresh(true)}});
 window.addEventListener('beforeunload',e=>{if(st.dirty){e.preventDefault();e.returnValue=''}});
 refresh(false);
+// interface shell: visibility / order of menus and buttons changed (here or in another window)
+if(window.Shell)Shell.onChange(()=>{buildChrome();render()});
 })();

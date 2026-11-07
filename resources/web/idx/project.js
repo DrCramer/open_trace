@@ -145,10 +145,42 @@ function markerRows(s){
 
 // ---------- tabs ----------
 const TABS=[['samples','samples'],['summary','analysisSummary'],['genotypes','genotypes'],['info','tabInfo'],['raw','tabRaw'],['ept','tabEpt']];
-function renderTabs(){const t=$('tabs');t.replaceChildren();
- for(const [id,key] of TABS){const b=el('div',{class:'tab'+(state.tab===id?' on':''),role:'tab',text:T(key)});b.addEventListener('mousedown',()=>showTab(id));t.append(b)}
- for(const [id] of TABS)$('page-'+id).hidden=state.tab!==id}
-function showTab(id){const was=state.tab;state.tab=id;renderTabs();render();if((was==='genotypes')!==(id==='genotypes')&&(id==='samples'||id==='genotypes'))refreshPlots()}
+// Workspace tabs of the industrial chrome (Projects / Plots / Genotypes / Standards / Journal). Projects and Genotypes are
+// the project pages of the window; Plots, Standards and Journal list the real commands of these areas (plot windows,
+// managers and editors, laboratory standards and provenance of the desktop app, label edits and audit).
+const WS=[['projects','shWsProjects'],['plots','shWsPlots'],['genotypes','shWsGenotypes'],['standards','shWsStandards'],['journal','shWsJournal']];
+const industrial=()=>document.documentElement.dataset.chrome==='industrial';
+function wsOf(){return state.hub||(state.tab==='genotypes'?'genotypes':'projects')}
+function showWs(id){if(id==='projects'){state.hub=null;if(state.tab==='genotypes')state.tab=state.prevTab||'samples'}
+ else if(id==='genotypes'){state.hub=null;if(state.tab!=='genotypes')state.prevTab=state.tab;state.tab='genotypes'}
+ else state.hub=id;
+ renderTabs();render();buildChrome()}
+function renderWsTabs(){const bar=$('wsTabs');if(!bar)return;const ws=wsOf();bar.replaceChildren();
+ for(const [id,key] of WS){const b=el('div',{class:'wstab'+(ws===id?' on':''),role:'tab','data-cmd':id,'data-label':T(key),text:T(key)});b.addEventListener('mousedown',()=>showWs(id));bar.append(b)}
+ const crumb=$('wsCrumb');if(crumb)crumb.textContent=state.project.name?`${T('shWsProjects')} / ${state.project.name}${state.project.dirty?' *':''}`:''}
+function renderTabs(){const t=$('tabs');t.replaceChildren();const ind=industrial();const hub=ind?state.hub:null;
+ for(const [id,key] of TABS){if(ind&&id==='genotypes')continue;const b=el('div',{class:'tab'+(state.tab===id?' on':''),role:'tab',text:T(key)});b.addEventListener('mousedown',()=>{state.hub=null;showTab(id)});t.append(b)}
+ t.hidden=!!hub||(ind&&state.tab==='genotypes');
+ for(const [id] of TABS)$('page-'+id).hidden=!!hub||state.tab!==id;
+ for(const h of ['plots','standards','journal']){const p=$('page-hub-'+h);if(p){p.hidden=hub!==h;if(hub===h)renderHub(h,p)}}
+ renderWsTabs()}
+// Hub pages: compact lists of the existing commands of an area (each row calls the same handler as its menu item).
+function renderHub(id,page){const sel=state.project.samples.filter(s=>state.selected.has(s.id)).length;const D=!!window.OT_DESKTOP;
+ const rows={
+  plots:[[T('displayPlots'),'Ctrl+L',displayPlots,!sel,T('selectSamplesFirst')],[T('labelEditViewer'),'',labelEditViewer],[T('binOffsets'),'',binOffsetsDialog,!state.filter?.run],
+   [T('instruments'),'',instrumentsDialog,!state.project.samples.length],[T('mgrPlots')+' — '+T('manager'),'',()=>Methods.openManager('plots')]],
+  standards:[...(D?[[T('dsStandards'),'',()=>window.open('/desktop/standards.html','opentrace-standards','width=1180,height=760')],[T('dsConnection'),'',()=>window.open('/desktop/connection.html','opentrace-connection','width=760,height=640')]]:[]),
+   [T('manager'),'Ctrl+M',()=>Methods.openManager()],[T('analysisMethodEditor'),'',()=>editMethod(firstSelected()?.method)],[T('panelManager'),'Ctrl+J',openPanelManager],
+   [T('sizeStandardEditor'),'',editSizeStandard],[T('sizeMatchEditor'),'',openSizeMatch],[T('mgrMatrices'),'',()=>Methods.openManager('matrices')],
+   [T('tableSettingEditor'),'Ctrl+T',editTableSetting],[T('reportManager'),'Ctrl+Q',openReportManager],[T('mgrPlots'),'',()=>Methods.openManager('plots')]],
+  journal:[[T('labelEditViewer'),'',labelEditViewer],...(D?[[T('dsProvenance'),'',()=>window.open('/desktop/provenance.html','opentrace-provenance','width=980,height=640')]]:[]),
+   [T('auditReport'),'',()=>Sec.auditHistory(),!Sec.can('AuditGUI/Audit History Viewer/May run application')],[T('auditSetting'),'',()=>Sec.auditSettings(),!Sec.can('AuditGUI/Map Configuration Tool/May run application')],
+   [T('esig'),'',()=>Sec.esigAdmin(),!Sec.can('ESig/ESig Administration Tool/May run application')],[T('instruments'),'',instrumentsDialog,!state.project.samples.length]]}[id]||[];
+ const t=el('table',{class:'hubt'});
+ for(const [label,sc,run,dis,why] of rows){const b=el('button',{type:'button',class:'hubbtn',text:label});if(dis){b.disabled=true;if(why)b.title=why}b.addEventListener('click',()=>run());
+  t.append(el('tr',{},el('td',{},b),el('td',{class:'sc',text:sc||''})))}
+ page.replaceChildren(el('div',{class:'hub'},el('h2',{text:T({plots:'shWsPlots',standards:'shWsStandards',journal:'shWsJournal'}[id])}),t))}
+function showTab(id){const was=state.tab;state.tab=id;state.hub=null;renderTabs();render();if((was==='genotypes')!==(id==='genotypes')&&(id==='samples'||id==='genotypes'))refreshPlots()}
 
 // ---------- navigator ----------
 function currentKit(){const sel=state.project.samples.find(s=>state.selected.has(s.id)&&sampleKit(s));
@@ -570,7 +602,7 @@ function renderFilterBar(){const bar=$('filterBar');if(!bar)return;const f=state
 // ---------- render ----------
 function renderTitle(){document.title=`${T('app')}${Sec.user&&Sec.state.require_login?' ['+Sec.user.name+']':''} - ${state.project.name?(state.project.dirty?'*':'')+state.project.name:T('untitled')}`}
 function render(){
- renderTitle();
+ renderTitle();if(window.Shell)Shell.refreshRight();renderWsTabs();
  {const ts=TableSettings.active();const fz=(ts[state.tab==='genotypes'?'genotypes':'samples']||{}).fontSize;document.documentElement.style.setProperty('--tbl-font',fz?fz+'px':'')}
  renderNavigator();
  if(state.tab==='samples')renderSamples();else if(state.tab==='summary')renderSummary();else if(state.tab==='genotypes')renderGenotypes();else SampleViews.render(state.tab);
@@ -1425,43 +1457,51 @@ function buildChrome(){
  const lang=I18N.lang;
  buildMenubar($('menubar'),[
   // Menu layout and order follow ProjectMgr of ID-X 1.6 (menu construction at the end of ProjectMgr.java). Items marked "extra" exist only in OpenTrace.
-  {label:T('file'),items:[{label:T('newProject'),sc:'Ctrl+N',run:newProject},{label:T('openProject'),sc:'Ctrl+O',run:openProject},
-   {label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{label:T('saveProjectAs'),run:saveProjectAs},{label:T('closeProject'),run:closeProject}/*extra*/,'-',
-   {label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{label:T('exportCodis'),run:()=>Profiles.exportCodis()},{label:T('exportCombined'),run:exportCombined},
-   {label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)}/*extra*/,{label:T('exportProjectPanel'),run:exportProjectPanel}/*extra: created but not placed in a menu in ID-X*/,'-',
-   {label:T('pageSetup'),run:pageSetupDialog},{label:T('print'),sc:'Ctrl+P',run:printNow},{label:T('printPreview'),run:printPreview},'-',
-   {label:T('projectOptions'),run:projectOptions},'-',
-   {label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password}/*extra*/,{label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{label:T('exit'),run:()=>window.close()}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!histU.length,run:undoProject}/*extra*/,{label:T('redo'),sc:'Ctrl+Shift+Z',disabled:!histR.length,run:redoProject}/*extra*/,'-',
-   {label:T('copy'),sc:'Ctrl+C',run:copyRows},{label:T('paste'),sc:'Ctrl+V',run:pasteCells},{label:T('clear'),sc:'Delete',run:clearCells}/*extra*/,'-',
-   {label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{label:T('associateSamples'),disabled:true},'-',
-   {label:T('deleteFromProject'),run:deleteFromProject},{label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{label:T('defineSamplePath'),run:defineSamplePath}/*extra*/,'-',
-   {label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{label:T('fitToContent'),sc:'Ctrl+I',run:fitToContent},'-',
-   {label:T('find'),sc:'Ctrl+F',run:findDialog},{label:T('sort'),sc:'Ctrl+G',run:sortDialog}]},
-  {label:T('analysis'),items:[{label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{label:T('analyzeSelected'),run:()=>analyze('selected')},{label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},
-   {label:T('analyzeMarkers'),disabled:true}]},
-  {label:T('view'),items:[{label:T('samples'),sc:'Ctrl+Shift+1',checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{label:T('analysisSummary'),sc:'Ctrl+Shift+2',checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
-   {label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',
-   {label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},{label:T('labelEditViewer'),run:labelEditViewer},'-',
-   {label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{label:T('nonConcordantTop'),checked:!!state.nonConcTop,run:toggleNonConcordantTop},'-',
-   {label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',
-   {label:T('fullView'),sc:'Ctrl+]',disabled:!['raw','ept'].includes(state.tab),run:()=>SampleViews.fullView()},
-   {label:T('yAxis'),sub:[{label:T('scaleMaxY'),checked:!SampleViews.yRange().custom,disabled:state.tab!=='raw',run:()=>SampleViews.yScaleMax()},{label:T('scaleTo'),checked:SampleViews.yRange().custom,disabled:state.tab!=='raw',run:yScaleToDialog}]},'-',
-   {label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},{label:T('instruments'),run:instrumentsDialog,disabled:!state.project.samples.length},'-',
-   {label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},'-',
-   {label:T('language'),sub:[{label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{label:'English',checked:lang==='en',run:()=>setLang('en')}]}/*extra*/]},
-  {label:T('tools'),items:[{label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},'-',
-   {label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{label:T('codisManager'),run:()=>Profiles.codisManager()},{label:T('mixture'),sc:'Ctrl+U',run:()=>Mixture.open()},{label:T('mixtureManager'),sc:'Ctrl+Y',run:()=>Mixture.manager()},'-',
-   {label:T('addProfile'),sub:[{label:T('pfCustom'),run:()=>addProfile('Custom Control')},{label:T('pfLab'),run:()=>addProfile('Lab Reference')}]},{label:T('profileManager'),run:()=>Profiles.profileManager()},{label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
-   {label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{label:T('sizeStandardEditor'),run:editSizeStandard},{label:T('sizeMatchEditor'),run:openSizeMatch}]},
-  {label:T('admin'),items:[{label:T('securityManager'),run:()=>Sec.securityManager(),disabled:!Sec.can('AdminToolAcc/General/May run application')},
-   {label:T('auditManager'),sub:[{label:T('auditSetting'),run:()=>Sec.auditSettings(),disabled:!Sec.can('AuditGUI/Map Configuration Tool/May run application')},
-    {label:T('auditReport'),run:()=>Sec.auditHistory(),disabled:!Sec.can('AuditGUI/Audit History Viewer/May run application')},'-',
-    {label:T('scBackupMenu'),run:()=>Sec.auditBackup(),disabled:!Sec.can('AuditGUI/Audit Management/Backup Audit Records')},
-    {label:T('scRestoreMenu'),run:()=>Sec.auditRestore(),disabled:!Sec.can('AuditGUI/Audit Management/Restore Audit Records')},{label:T('scDeleteMenu'),run:()=>Sec.auditDelete(),disabled:!Sec.can('AuditGUI/Audit Management/Delete Audit Records')},
-    {label:T('scShowCount'),run:()=>Sec.auditCount()}]},
-   {label:T('esig'),run:()=>Sec.esigAdmin(),disabled:!Sec.can('ESig/ESig Administration Tool/May run application')},'-',{label:T('scRemoteShutdown'),disabled:true}]},
-  {label:T('help'),items:[{label:T('helpTopics'),sc:'F1',run:showHelp},{label:T('loadExample'),run:loadExample}/*extra*/,'-',{label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
+  {id:'file',label:T('file'),items:[{id:'newProject',label:T('newProject'),sc:'Ctrl+N',run:newProject},{id:'openProject',label:T('openProject'),sc:'Ctrl+O',run:openProject},
+   {id:'saveProject',label:T('saveProject'),sc:'Ctrl+S',run:saveProject},{id:'saveProjectAs',label:T('saveProjectAs'),run:saveProjectAs},{id:'closeProject',label:T('closeProject'),run:closeProject}/*extra*/,'-',
+   {id:'exportTable',label:T('exportTable'),sc:'Ctrl+E',run:exportTable},{id:'exportCodis',label:T('exportCodis'),run:()=>Profiles.exportCodis()},{id:'exportCombined',label:T('exportCombined'),run:exportCombined},
+   {id:'exportWithStutter',label:T('exportWithStutter')+'...',disabled:state.tab!=='genotypes',run:()=>exportWithStutter(null)}/*extra*/,{id:'exportProjectPanel',label:T('exportProjectPanel'),run:exportProjectPanel}/*extra: created but not placed in a menu in ID-X*/,'-',
+   {id:'pageSetup',label:T('pageSetup'),run:pageSetupDialog},{id:'print',label:T('print'),sc:'Ctrl+P',run:printNow},{id:'printPreview',label:T('printPreview'),run:printPreview},'-',
+   {id:'projectOptions',label:T('projectOptions'),run:projectOptions},'-',
+   {id:'scChangePassword',label:T('scChangePassword')+'...',run:()=>Sec.changePassword(),disabled:!Sec.user?.has_password}/*extra*/,{id:'logOut',label:T('logOut'),run:()=>Sec.logout(),disabled:!Sec.state.require_login},{id:'exit',label:T('exit'),run:()=>window.close()}]},
+  {id:'edit',label:T('edit'),items:[{id:'undo',label:T('undo'),sc:'Ctrl+Z',disabled:!histU.length,run:undoProject}/*extra*/,{id:'redo',label:T('redo'),sc:'Ctrl+Shift+Z',disabled:!histR.length,run:redoProject}/*extra*/,'-',
+   {id:'copy',label:T('copy'),sc:'Ctrl+C',run:copyRows},{id:'paste',label:T('paste'),sc:'Ctrl+V',run:pasteCells},{id:'clear',label:T('clear'),sc:'Delete',run:clearCells}/*extra*/,'-',
+   {id:'addSamples',label:T('addSamples'),sc:'Ctrl+K',run:addSamples},{id:'associateSamples',label:T('associateSamples'),disabled:true},'-',
+   {id:'deleteFromProject',label:T('deleteFromProject'),run:deleteFromProject},{id:'selectAll',label:T('selectAll'),sc:'Ctrl+A',run:selectAll},{id:'defineSamplePath',label:T('defineSamplePath'),run:defineSamplePath}/*extra*/,'-',
+   {id:'fillDown',label:T('fillDown'),sc:'Ctrl+D',run:fillDown},{id:'fitToContent',label:T('fitToContent'),sc:'Ctrl+I',run:fitToContent},'-',
+   {id:'find',label:T('find'),sc:'Ctrl+F',run:findDialog},{id:'sort',label:T('sort'),sc:'Ctrl+G',run:sortDialog}]},
+  {id:'analysis',label:T('analysis'),items:[{id:'analyze',label:T('analyze'),sc:'Ctrl+R',run:()=>analyze('pending')},{id:'analyzeSelected',label:T('analyzeSelected'),run:()=>analyze('selected')},{id:'analyzeAll',label:T('analyzeAll'),sc:'Ctrl+Shift+R',run:()=>analyze('all')},
+   {id:'analyzeMarkers',label:T('analyzeMarkers'),disabled:true}]},
+  {id:'view',label:T('view'),items:[{id:'samples',label:T('samples'),sc:'Ctrl+Shift+1',checked:state.tab==='samples',run:()=>{buildAfter(()=>showTab('samples'))}},{id:'analysisSummary',label:T('analysisSummary'),sc:'Ctrl+Shift+2',checked:state.tab==='summary',run:()=>buildAfter(()=>showTab('summary'))},
+   {id:'genotypes',label:T('genotypes'),sc:'Ctrl+Shift+3',checked:state.tab==='genotypes',run:()=>buildAfter(()=>showTab('genotypes'))},'-',
+   {id:'displayPlots',label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},{id:'labelEditViewer',label:T('labelEditViewer'),run:labelEditViewer},'-',
+   {id:'lowQualityTop',label:T('lowQualityTop'),sc:'Ctrl+B',checked:state.lowQualityTop,run:toggleLowQualityTop},{id:'nonConcordantTop',label:T('nonConcordantTop'),checked:!!state.nonConcTop,run:toggleNonConcordantTop},'-',
+   {id:'sampleInfo',label:T('sampleInfo'),sc:'Ctrl+F1',checked:state.tab==='info',run:()=>buildAfter(()=>showTab('info'))},{id:'rawData',label:T('rawData'),sc:'Ctrl+F2',checked:state.tab==='raw',run:()=>buildAfter(()=>showTab('raw'))},{id:'eptData',label:T('eptData'),sc:'Ctrl+F3',checked:state.tab==='ept',run:()=>buildAfter(()=>showTab('ept'))},'-',
+   {id:'fullView',label:T('fullView'),sc:'Ctrl+]',disabled:!['raw','ept'].includes(state.tab),run:()=>SampleViews.fullView()},
+   {id:'yAxis',label:T('yAxis'),sub:[{id:'scaleMaxY',label:T('scaleMaxY'),checked:!SampleViews.yRange().custom,disabled:state.tab!=='raw',run:()=>SampleViews.yScaleMax()},{id:'scaleTo',label:T('scaleTo'),checked:SampleViews.yRange().custom,disabled:state.tab!=='raw',run:yScaleToDialog}]},'-',
+   {id:'binOffsets',label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},{id:'instruments',label:T('instruments'),run:instrumentsDialog,disabled:!state.project.samples.length},'-',
+   {id:'showNavigator',label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:state.showNavigator,run:toggleNavigator},'-',
+   {id:'language',label:T('language'),sub:[{id:'lang.ru',label:'Русский',checked:lang==='ru',run:()=>setLang('ru')},{id:'lang.en',label:'English',checked:lang==='en',run:()=>setLang('en')}]}/*extra*/]},
+  // Plots: the plot commands of the project window in one place (the plot window has its own full Plots menu)
+  ...(industrial()?[{id:'plotsMenu',label:T('shPlotsMenu'),items:[{id:'displayPlots',label:T('displayPlots'),sc:'Ctrl+L',run:displayPlots},{id:'labelEditViewer',label:T('labelEditViewer'),run:labelEditViewer},'-',
+   {id:'binOffsets',label:T('binOffsets'),run:binOffsetsDialog,disabled:!state.filter?.run},{id:'instruments',label:T('instruments'),run:instrumentsDialog,disabled:!state.project.samples.length},'-',
+   {id:'plotSettings',label:T('mgrPlots')+'...',run:()=>Methods.openManager('plots')}]}]:[]),
+  {id:'tools',label:T('tools'),items:[{id:'manager',label:T('manager'),sc:'Ctrl+M',run:()=>Methods.openManager()},{id:'panelManager',label:T('panelManager'),sc:'Ctrl+J',run:openPanelManager},{id:'reportManager',label:T('reportManager'),sc:'Ctrl+Q',run:openReportManager},'-',
+   {id:'tableSettingEditor',label:T('tableSettingEditor'),sc:'Ctrl+T',run:editTableSetting},{id:'codisManager',label:T('codisManager'),run:()=>Profiles.codisManager()},{id:'mixture',label:T('mixture'),sc:'Ctrl+U',run:()=>Mixture.open()},{id:'mixtureManager',label:T('mixtureManager'),sc:'Ctrl+Y',run:()=>Mixture.manager()},'-',
+   {id:'addProfile',label:T('addProfile'),sub:[{id:'pfCustom',label:T('pfCustom'),run:()=>addProfile('Custom Control')},{id:'pfLab',label:T('pfLab'),run:()=>addProfile('Lab Reference')}]},{id:'profileManager',label:T('profileManager'),run:()=>Profiles.profileManager()},{id:'profileComparison',label:T('profileComparison'),run:()=>Profiles.profileComparison()},'-',
+   {id:'analysisMethodEditor',label:T('analysisMethodEditor'),run:()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method)},{id:'sizeStandardEditor',label:T('sizeStandardEditor'),run:editSizeStandard},{id:'sizeMatchEditor',label:T('sizeMatchEditor'),run:openSizeMatch}]},
+  {id:'admin',label:T('admin'),items:[{id:'securityManager',label:T('securityManager'),run:()=>Sec.securityManager(),disabled:!Sec.can('AdminToolAcc/General/May run application')},
+   {id:'auditManager',label:T('auditManager'),sub:[{id:'auditSetting',label:T('auditSetting'),run:()=>Sec.auditSettings(),disabled:!Sec.can('AuditGUI/Map Configuration Tool/May run application')},
+    {id:'auditReport',label:T('auditReport'),run:()=>Sec.auditHistory(),disabled:!Sec.can('AuditGUI/Audit History Viewer/May run application')},'-',
+    {id:'scBackupMenu',label:T('scBackupMenu'),run:()=>Sec.auditBackup(),disabled:!Sec.can('AuditGUI/Audit Management/Backup Audit Records')},
+    {id:'scRestoreMenu',label:T('scRestoreMenu'),run:()=>Sec.auditRestore(),disabled:!Sec.can('AuditGUI/Audit Management/Restore Audit Records')},{id:'scDeleteMenu',label:T('scDeleteMenu'),run:()=>Sec.auditDelete(),disabled:!Sec.can('AuditGUI/Audit Management/Delete Audit Records')},
+    {id:'scShowCount',label:T('scShowCount'),run:()=>Sec.auditCount()}]},
+   {id:'esig',label:T('esig'),run:()=>Sec.esigAdmin(),disabled:!Sec.can('ESig/ESig Administration Tool/May run application')},'-',{id:'scRemoteShutdown',label:T('scRemoteShutdown'),disabled:true}]},
+  // Server (desktop app): organization server connection, laboratory standards, analysis provenance (desktop pages)
+  ...(window.OT_DESKTOP?[{id:'server',label:T('shServer'),items:[{id:'connection',label:T('dsConnection'),run:()=>window.open('/desktop/connection.html','opentrace-connection','width=760,height=640')},
+   {id:'standards',label:T('dsStandards'),run:()=>window.open('/desktop/standards.html','opentrace-standards','width=1180,height=760')},
+   {id:'provenance',label:T('dsProvenance'),run:()=>window.open('/desktop/provenance.html','opentrace-provenance','width=980,height=640')}]}]:[]),
+  {id:'help',label:T('help'),items:[{id:'helpTopics',label:T('helpTopics'),sc:'F1',run:showHelp},{id:'loadExample',label:T('loadExample'),run:loadExample}/*extra*/,'-',{id:'about',label:T('about'),run:()=>message(T('aboutText'),T('about'))}]},
  ]);
  const tb=$('toolbar');tb.replaceChildren(
   tbutton('newProject',T('newProject'),newProject),tbutton('openProject',T('openProject'),openProject,{id:'tbOpen'}),tbutton('saveProject',T('saveProject'),saveProject,{id:'tbSave'}),tsep(),
@@ -1469,8 +1509,8 @@ function buildChrome(){
   tbutton('displayPlots',T('displayPlots'),displayPlots,{id:'tbPlots'}),tbutton('reportManager',T('reportManager'),openReportManager,{id:'tbReport'}),tbutton('labelEditViewer',T('labelEditViewer'),labelEditViewer,{id:'tbLabelEdits'}),
   tbutton('sizeMatchEditor',T('sizeMatchEditor'),openSizeMatch,{id:'tbSizeMatch'}),tsep(),tbutton('analysisMethodEditor',T('analysisMethodEditor'),()=>editMethod(state.project.samples.find(s=>state.selected.has(s.id))?.method),{id:'tbMethodEditor'}),tbutton('panelManager',T('panelManager'),openPanelManager,{id:'tbPanelManager'}),
   tbutton('manager',T('manager'),()=>Methods.openManager(),{id:'tbManager'}),tsep(),tbutton('analyze',T('analyze'),()=>analyze('pending'),{id:'tbAnalyze'}),tbutton('lowQualityTop',T('lowQualityTop'),()=>{state.lowQualityTop=!state.lowQualityTop;render()}),
-  tsep(),el('span',{class:'tlabel',text:T('tableSetting')}));
- tb.append(tableSettingCombo(),tbutton('tableSettingEditor',T('tableSettingEditor'),editTableSetting,{id:'tbTableSetting'}),tsep(),tbutton('find',T('find'),findDialog,{id:'tbFind'}),tbutton('print',T('print'),printNow,{id:'tbPrint'}),
+  tsep(),el('span',{class:'tgrp','data-cmd':'tableSetting','data-label':T('tableSetting')},el('span',{class:'tlabel',text:T('tableSetting')}),tableSettingCombo()));
+ tb.append(tbutton('tableSettingEditor',T('tableSettingEditor'),editTableSetting,{id:'tbTableSetting'}),tsep(),tbutton('find',T('find'),findDialog,{id:'tbFind'}),tbutton('print',T('print'),printNow,{id:'tbPrint'}),
   tbutton('printPreview',T('printPreview'),printPreview,{id:'tbPrintPreview'}),tbutton('help',T('helpTopics'),showHelp));
  $('stopBtn').textContent=T('stop');
  renderTabs()}
@@ -1478,6 +1518,19 @@ function projectOptions(){ProjectOptions.open({methodSelect,panelSelect,sizeStdN
 function buildAfter(fn){fn();buildChrome();render()}
 
 $('stopBtn').addEventListener('click',()=>{state.stop=true});
+// Right group of the application bar: editing / read-only state (never hidden by the interface settings)
+if(window.Shell){
+ Shell.setStatusProvider(()=>{const w=window.__otWsStatus,dirty=state.project.dirty?' · '+T('shStatusDirty'):'';
+  if(w&&w.source==='server'){if(!w.project)return {kind:'local',text:T('shStatusNoProject'),title:w.server||''};
+   return w.editing?{kind:'edit',text:T('shStatusEdit')+(state.project.dirty?' *':''),title:(w.project||'')+dirty}:{kind:'read',text:T('shStatusRead'),title:w.readonly||''}}
+  if(WebLease.name)return WebLease.readonly?{kind:'read',text:T('shStatusRead'),title:WebLease.readonly}:{kind:'edit',text:T('shStatusEdit')+(state.project.dirty?' *':''),title:WebLease.name+dirty};
+  return state.project.name?{kind:'local',text:T('shStatusLocal')+(state.project.dirty?' *':''),title:state.project.name+dirty}:{kind:'local',text:T('shStatusNoProject')}});
+ Shell.onChange(()=>{renderTabs();buildChrome();render()});
+ window.addEventListener('opentrace-ws',()=>Shell.refreshRight());
+ window.addEventListener('opentrace-ui-preset',e=>{const h=(e.detail.hints||{}).main||{};
+  if(h.navigator!=null)state.showNavigator=!!h.navigator;if(h.lowQualityTop!=null)state.lowQualityTop=!!h.lowQualityTop;if(h.tab){state.hub=null;state.tab=h.tab}
+  renderTabs();buildChrome();render()});
+}
 function toggleNavigator(){state.showNavigator=!state.showNavigator;buildChrome();render()}
 // Non-concordant Samples to Top: samples that share a profile ID with samples of another concordance group (ID-X flags them after Profile Concordance).
 async function toggleNonConcordantTop(){if(state.nonConcTop){state.nonConcTop=false;buildChrome();render();return}

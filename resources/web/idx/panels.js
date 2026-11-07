@@ -460,23 +460,23 @@ function closeWin(){if(ui.dirty)confirmBox(T('confirmClose'),()=>{ui.dirty=false
 function buildChrome(){
  document.documentElement.lang=I18N.lang;document.title=T('panelMgrTitle')+' — OpenTrace';
  buildMenubar($('menubar'),[
-  {label:T('file'),items:[{label:T('newKit'),sc:'Ctrl+N',run:newKit},{label:T('newPanel'),run:newPanel},{label:T('duplicatePanel'),run:duplicatePanel},{label:T('duplicateKit'),run:duplicateKit},{label:T('newMarker'),run:newMarker},'-',{label:T('importPanels'),sc:'Ctrl+M',run:importPanels},{label:T('importBinSet'),sc:'Ctrl+Shift+B',run:importBins},{label:T('importStutter'),sc:'Ctrl+Shift+M',run:importStutter},'-',
-   {label:T('exportPanels'),sc:'Ctrl+E',run:exportPanels},{label:T('exportBinSet'),sc:'Ctrl+Shift+E',run:exportBinSet},{label:T('exportAllKits'),sc:'Ctrl+K',run:exportAll},{label:T('exportStutter'),sc:'Ctrl+Shift+X',run:exportStutter},'-',
-   {label:T('print'),run:()=>window.print()},'-',{label:T('closeWin'),run:closeWin}]},
-  {label:T('edit'),items:[{label:T('undo'),sc:'Ctrl+Z',disabled:!undoStack.length,run:undo},'-',{label:T('copy'),sc:'Ctrl+C',run:copySel},{label:T('paste'),sc:'Ctrl+V',run:pasteSel},'-',{label:T('deleteItem'),sc:'Delete',run:deleteNode}]},
-  {label:T('binsMenu'),items:[{label:T('newBinSet'),run:newBinSet},{label:T('deleteBinSet'),run:deleteBinSet},'-',{label:T('addBin'),sc:'Ctrl+B',run:()=>binDialog(null)},
-   {label:T('editBin'),sc:'Ctrl+H',run:editBin},{label:T('deleteBin'),sc:'Ctrl+D',run:deleteBin},{label:T('addMultipleBins'),sc:'Ctrl+G',run:addMultipleBins},'-',{label:T('autoBin'),disabled:true},{label:T('addReferenceData'),disabled:true}]},
-  {label:T('view'),items:[{label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:!ui.hideNav,run:()=>{ui.hideNav=!ui.hideNav;buildChrome();render()}},{label:T('fullView'),sc:'Ctrl+]',run:()=>{ui.view=null;render()}},'-',
-   {label:T('language'),sub:[{label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');buildChrome();render()}},{label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');buildChrome();render()}}]}]},
-  {label:T('help'),items:[{label:T('about'),run:()=>message(T('panelHint'),T('panelMgrTitle'))}]}]);
+  {id:'file',label:T('file'),items:[{id:'newKit',label:T('newKit'),sc:'Ctrl+N',run:newKit},{id:'newPanel',label:T('newPanel'),run:newPanel},{id:'duplicatePanel',label:T('duplicatePanel'),run:duplicatePanel},{id:'duplicateKit',label:T('duplicateKit'),run:duplicateKit},{id:'newMarker',label:T('newMarker'),run:newMarker},'-',{id:'importPanels',label:T('importPanels'),sc:'Ctrl+M',run:importPanels},{id:'importBinSet',label:T('importBinSet'),sc:'Ctrl+Shift+B',run:importBins},{id:'importStutter',label:T('importStutter'),sc:'Ctrl+Shift+M',run:importStutter},'-',
+   {id:'exportPanels',label:T('exportPanels'),sc:'Ctrl+E',run:exportPanels},{id:'exportBinSet',label:T('exportBinSet'),sc:'Ctrl+Shift+E',run:exportBinSet},{id:'exportAllKits',label:T('exportAllKits'),sc:'Ctrl+K',run:exportAll},{id:'exportStutter',label:T('exportStutter'),sc:'Ctrl+Shift+X',run:exportStutter},'-',
+   {id:'print',label:T('print'),run:()=>window.print()},'-',{id:'closeWin',label:T('closeWin'),run:closeWin}]},
+  {id:'edit',label:T('edit'),items:[{id:'undo',label:T('undo'),sc:'Ctrl+Z',disabled:!undoStack.length,run:undo},'-',{id:'copy',label:T('copy'),sc:'Ctrl+C',run:copySel},{id:'paste',label:T('paste'),sc:'Ctrl+V',run:pasteSel},'-',{id:'deleteItem',label:T('deleteItem'),sc:'Delete',run:deleteNode}]},
+  {id:'binsMenu',label:T('binsMenu'),items:[{id:'newBinSet',label:T('newBinSet'),run:newBinSet},{id:'deleteBinSet',label:T('deleteBinSet'),run:deleteBinSet},'-',{id:'addBin',label:T('addBin'),sc:'Ctrl+B',run:()=>binDialog(null)},
+   {id:'editBin',label:T('editBin'),sc:'Ctrl+H',run:editBin},{id:'deleteBin',label:T('deleteBin'),sc:'Ctrl+D',run:deleteBin},{id:'addMultipleBins',label:T('addMultipleBins'),sc:'Ctrl+G',run:addMultipleBins},'-',{id:'autoBin',label:T('autoBin'),disabled:true},{id:'addReferenceData',label:T('addReferenceData'),disabled:true}]},
+  {id:'view',label:T('view'),items:[{id:'showNavigator',label:T('showNavigator'),sc:'Ctrl+Shift+N',checked:!ui.hideNav,run:()=>{ui.hideNav=!ui.hideNav;buildChrome();render()}},{id:'fullView',label:T('fullView'),sc:'Ctrl+]',run:()=>{ui.view=null;render()}},'-',
+   {id:'language',label:T('language'),sub:[{id:'lang.ru',label:'Русский',checked:I18N.lang==='ru',run:()=>{I18N.set('ru');buildChrome();render()}},{id:'lang.en',label:'English',checked:I18N.lang==='en',run:()=>{I18N.set('en');buildChrome();render()}}]}]},
+  {id:'help',label:T('help'),items:[{id:'about',label:T('about'),run:()=>message(T('panelHint'),T('panelMgrTitle'))}]}]);
  const tb=$('toolbar');tb.replaceChildren(
   tbutton('newItem',T('newKit'),newItem,{id:'tbNew'}),tbutton('clearItem',T('clearBtn'),deleteNode,{id:'tbClear'}),tsep(),
   tbutton('addBin',T('addBin'),()=>binDialog(null),{id:'tbAddBin'}),tbutton('deleteBin',T('deleteBin'),deleteBin,{id:'tbDeleteBin'}),tbutton('editBin',T('editBin'),editBin,{id:'tbEditBin'}),
   tbutton('fullView',T('fullView'),()=>{ui.view=null;render()}),tsep(),
-  tbutton('panel',T('importPanels'),importPanels,{id:'tbImportPanels'}),tbutton('bin',T('importBinSet'),importBins,{id:'tbImportBins'}),tbutton('stutter',T('importStutter'),importStutter,{id:'tbImportStutter'}),tsep(),
-  el('span',{class:'tlabel',text:T('binSet')}));
+  tbutton('panel',T('importPanels'),importPanels,{id:'tbImportPanels'}),tbutton('bin',T('importBinSet'),importBins,{id:'tbImportBins'}),tbutton('stutter',T('importStutter'),importStutter,{id:'tbImportStutter'}),tsep());
  const combo=el('select',{class:'combo',id:'binSetCombo',title:T('binSet')});combo.addEventListener('change',()=>{ui.binSet=combo.value;render()});
- tb.append(combo,tbutton('newBinSet',T('newBinSet'),newBinSet,{id:'tbNewBinSet'}));
+ // caption + combo box: one toolbar element for the interface settings
+ tb.append(el('span',{class:'tgrp','data-cmd':'binSet','data-label':T('binSet')},el('span',{class:'tlabel',text:T('binSet')}),combo),tbutton('newBinSet',T('newBinSet'),newBinSet,{id:'tbNewBinSet'}));
  $('applyBtn').textContent=T('apply');$('okBtn').textContent=T('ok');$('cancelBtn').textContent=T('cancel')}
 
 $('applyBtn').addEventListener('click',apply);
@@ -500,4 +500,6 @@ document.addEventListener('keydown',e=>{const inField=!!e.target.closest('input,
 window.addEventListener('storage',e=>{if(e.key===KitStore.KEY&&!ui.dirty){saved=KitStore.load();work=KitStore.clone(saved);lastSnap=JSON.stringify(work);undoStack.length=0;render()}});
 window.PM={state:ui,go,get work(){return work}};
 buildChrome();render();
+// interface shell: visibility / order of menus and buttons changed (here or in another window)
+if(window.Shell)Shell.onChange(()=>{buildChrome();render()});
 })();

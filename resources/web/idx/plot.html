@@ -1,25 +1,27 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-window="plot">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OpenTrace</title>
 <link rel="stylesheet" href="/idx/idx.css">
+<link rel="stylesheet" href="/idx/shell.css">
 <script src="/idx/i18n.js"></script>
 <script src="/idx/ui.js"></script>
+<script src="/idx/shell.js"></script>
 <script src="/idx/security.js"></script>
 <script src="/idx/plotsettings.js"></script>
 </head>
 <body>
 <div class="printhead" id="printHead"></div>
-<div class="menubar" id="menubar"></div>
-<div class="toolbar" id="toolbar1"></div>
-<div class="toolbar" id="toolbar2"></div>
-<div class="editbar" id="editbar"></div>
+<div class="menubar" id="menubar" data-window="plot"></div>
+<div class="toolbar" id="toolbar1" data-area="plot.toolbar1" data-area-title="shPlotToolbar1"></div>
+<div class="toolbar" id="toolbar2" data-area="plot.toolbar2" data-area-title="shPlotToolbar2"></div>
+<div class="editbar" id="editbar" data-area="plot.editbar" data-area-title="shEditBarArea"></div>
 <div class="colhead" id="colhead"></div>
 <div class="plotarea" id="plotarea"></div>
 <div class="lower" id="lower"><div class="grid" id="gtGrid"></div><div class="qvd" id="qvd"></div></div>
-<div class="statusbar"><div class="cell" id="xy" style="width:170px"></div><div class="cell grow" id="markerInfo"></div><div class="cell" id="phr" style="width:300px"></div></div>
+<div class="statusbar" data-area="plot.status" data-area-title="shStatusArea" data-area-kind="status"><div class="cell" id="xy" style="width:170px" data-cmd="xy" data-kind="element" data-label-key="shCursorXY"></div><div class="cell grow" id="markerInfo" data-cmd="markerInfo" data-critical="1" data-kind="element" data-label-key="shMarkerInfo"></div><div class="cell" id="phr" style="width:300px" data-cmd="phr" data-kind="element" data-label-key="shPhrCell"></div></div>
 <script src="/idx/plot.js"></script>
 </body>
 </html>

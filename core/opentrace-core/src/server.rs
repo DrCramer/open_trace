@@ -18,11 +18,11 @@ use std::time::Duration;
 
 pub const MAX_JSON_BYTES: usize = 1024 * 1024 * 1024;
 const DEFAULT_GROUP: &str = "GeneMapper ID-X Security Group";
-const IDX_FILES: [&str; 26] = [
+const IDX_FILES: [&str; 28] = [
     "project.html", "plot.html", "panels.html", "idx.css", "i18n.js", "ui.js", "kits.js", "project.js", "plot.js",
     "panels.js", "methods.js", "tables.js", "sizestd.js", "sizematch.js", "options.js", "reports.js", "report.js",
     "report.html", "print.js", "print.html", "profiles.js", "mixture.js", "security.js", "sampleviews.js",
-    "plotsettings.js", "matrices.js",
+    "plotsettings.js", "matrices.js", "shell.js", "shell.css",
 ];
 const POST_PATHS: [&str; 23] = [
     "/api/analyze", "/api/demo", "/api/demo-sizing", "/api/demo-pipeline", "/api/str", "/api/demo-str", "/api/str-run",

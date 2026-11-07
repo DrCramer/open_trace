@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-window="report">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>OpenTrace</title>
 <link rel="stylesheet" href="/idx/idx.css">
+<link rel="stylesheet" href="/idx/shell.css">
 <script src="/idx/i18n.js"></script>
 <script src="/idx/ui.js"></script>
+<script src="/idx/shell.js"></script>
 <script src="/idx/tables.js"></script>
 <script src="/idx/reports.js"></script>
 </head>
 <body class="reportwin">
-<div class="menubar" id="menubar"></div>
-<div class="toolbar" id="toolbar"></div>
+<div class="menubar" id="menubar" data-window="report"></div>
+<div class="toolbar" id="toolbar" data-area="report.toolbar" data-area-title="shToolbarArea"></div>
 <div class="rptitle" id="rptitle"></div>
 <div class="grid" id="reportGrid"></div>
 <div class="statusbar"><div class="cell grow" id="statusText"></div></div>
