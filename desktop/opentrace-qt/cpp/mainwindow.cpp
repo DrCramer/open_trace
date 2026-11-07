@@ -33,6 +33,7 @@
 #include <QTableView>
 #include <QTextStream>
 #include <QTimer>
+#include <QEventLoop>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QSet>
@@ -311,7 +312,9 @@ void MainWindow::pollProgress() {
             auto *w = new PlotWindow(*backend_, ok.mid(0, 3), nullptr);
             w->resize(1400, 900);
             w->show();
-            QApplication::processEvents();
+            QEventLoop wait;                        // let the window lay out its panes before the screenshot
+            QTimer::singleShot(400, &wait, &QEventLoop::quit);
+            wait.exec();
             w->grab().save(out + "/plot.png");
             pdf = w->savePdf(out + "/plots.pdf");
             w->close();
