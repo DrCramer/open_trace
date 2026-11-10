@@ -33,7 +33,7 @@ tar xf "$src"
 mkdir build && cd build
 ../qtbase-everywhere-src-${QT_VER}/configure -prefix "$QT_PREFIX" -release -opensource -confirm-license \
   -nomake examples -nomake tests -no-opengl -no-dbus -no-glib -no-icu -no-openssl \
-  -qt-zlib -qt-libpng -qt-libjpeg -qt-harfbuzz -qt-pcre -qt-freetype -fontconfig \
+  -qt-zlib -qt-libpng -qt-libjpeg -qt-harfbuzz -qt-pcre -system-freetype -fontconfig \
   -xcb -xkbcommon -bundled-xcb-xinput -cups -no-feature-sql -- -G Ninja
 cmake --build . --parallel "$(nproc)"
 cmake --install .
@@ -42,6 +42,6 @@ cp ../qtbase-everywhere-src-${QT_VER}/LICENSE.LGPL3 "$QT_PREFIX/licenses/" 2>/de
 {
   echo "Qt $QT_VER (qtbase), built from $base/$src"
   echo "gcc: $(gcc --version | head -1)"
-  echo "configure: -prefix $QT_PREFIX -release -opensource -confirm-license -nomake examples -nomake tests -no-opengl -no-dbus -no-glib -no-icu -no-openssl -qt-zlib -qt-libpng -qt-libjpeg -qt-harfbuzz -qt-pcre -qt-freetype -fontconfig -xcb -xkbcommon -bundled-xcb-xinput -cups -no-feature-sql -- -G Ninja"
+  echo "configure: -prefix $QT_PREFIX -release -opensource -confirm-license -nomake examples -nomake tests -no-opengl -no-dbus -no-glib -no-icu -no-openssl -qt-zlib -qt-libpng -qt-libjpeg -qt-harfbuzz -qt-pcre -system-freetype -fontconfig -xcb -xkbcommon -bundled-xcb-xinput -cups -no-feature-sql -- -G Ninja"
 } > "$QT_PREFIX/qt-build-info.txt"
 echo "$QT_VER" > "$QT_PREFIX/.opentrace-qt-built"
