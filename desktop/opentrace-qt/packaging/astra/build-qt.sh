@@ -12,7 +12,7 @@ gcc --version | head -1
 dnf -y install \
   libxcb-devel xcb-util-devel xcb-util-image-devel xcb-util-keysyms-devel xcb-util-renderutil-devel xcb-util-wm-devel \
   libxkbcommon-devel libxkbcommon-x11-devel libX11-devel libXext-devel libXrender-devel libXi-devel \
-  fontconfig-devel freetype-devel cups-devel perl-core xz curl-minimal ca-certificates
+  fontconfig-devel freetype-devel cups-devel perl-core
 "$PYBIN/pip" install --quiet cmake ninja patchelf
 
 work=/tmp/qtbuild
