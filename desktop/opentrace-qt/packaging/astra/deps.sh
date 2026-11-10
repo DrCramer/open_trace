@@ -13,3 +13,4 @@ if ! dnf -y install xcb-util-cursor-devel; then
   curl -fsSL -O https://xcb.freedesktop.org/dist/xcb-util-cursor-0.1.4.tar.xz
   tar xf xcb-util-cursor-0.1.4.tar.xz && (cd xcb-util-cursor-0.1.4 && ./configure --prefix=/usr --libdir=/usr/lib64 && make -j"$(nproc)" && make install)
 fi
+/opt/python/cp312-cp312/bin/pip install --quiet patchelf
