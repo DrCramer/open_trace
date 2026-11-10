@@ -1,6 +1,7 @@
 #include "opentrace-qt/cpp/mainwindow.h"
 #include "opentrace-qt/cpp/plotwindow.h"
 #include "opentrace-qt/cpp/plotsettingsdialog.h"
+#include "opentrace-qt/cpp/tablesettingsdialog.h"
 #include "opentrace-qt/cpp/samplemodel.h"
 #include "opentrace-qt/cpp/style.h"
 #include "opentrace-qt/cpp/simpleplot.h"
@@ -70,17 +71,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     table_->setModel(proxy_);
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    // the rows follow the sort keys of the table setting until a column header is clicked (connected before the view's
+    // own handler, so the proxy already compares by the clicked column when the view sorts)
+    connect(table_->horizontalHeader(), &QHeaderView::sortIndicatorChanged, this, [this] {
+        proxy_->setSettingOrder(false);
+        table_->horizontalHeader()->setSortIndicatorShown(true);
+    });
     table_->setSortingEnabled(true);
-    table_->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);   // project order until a column is clicked
-    proxy_->sort(-1);
     table_->setAlternatingRowColors(true);
     table_->verticalHeader()->setDefaultSectionSize(table_->fontMetrics().height() + 6);
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->setColumnWidth(SampleModel::Status, 130);
-    table_->setColumnWidth(SampleModel::SampleFile, 280);
-    table_->setColumnWidth(SampleModel::SampleName, 140);
-    table_->setColumnWidth(SampleModel::SQ, 40);
     connect(table_, &QTableView::doubleClicked, this, [this] { showPlots(); });
     connect(table_->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this] { updateInfo(); refreshSampleViews(); });
 
@@ -153,7 +154,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), backend_(new_back
     eptPage_ = new QWidget;
     eptLay_ = new QVBoxLayout(eptPage_);
     tabs_->addTab(eptPage_, QString::fromUtf8("Данные EPT"));
-    connect(tabs_, &QTabWidget::currentChanged, this, [this] { refreshSampleViews(); });
+    connect(tabs_, &QTabWidget::currentChanged, this, [this] { refreshSampleViews(); updateTableNote(); });
+    connect(model_, &QAbstractItemModel::modelReset, this, [this] { updateTableNote(); });
+    connect(model_, &QAbstractItemModel::dataChanged, this, [this] { updateTableNote(); });
     auto *split = new QSplitter;
     split->addWidget(nav_);
     split->addWidget(tabs_);
@@ -279,6 +282,12 @@ void MainWindow::buildMenus() {
     auto *tools = menuBar()->addMenu(QString::fromUtf8("&Инструменты"));
     tools->addAction(QString::fromUtf8("Менеджер &панелей..."), QKeySequence("Ctrl+J"), this, [this] { panelManager(); });
     tools->addAction(QString::fromUtf8("Настройки &графиков..."), this, [this] { PlotSettingsManager m(*backend_, this); m.exec(); });
+    tools->addAction(QString::fromUtf8("Настройки &таблиц..."), this, [this] {
+        TableSettingsManager m(*backend_, this);
+        m.onChanged = [this] { fillTableSettings(); applyTableSetting(); };
+        m.exec();
+    });
+    tools->addAction(QString::fromUtf8("&Редактор настройки таблицы..."), QKeySequence("Ctrl+T"), this, [this] { editTableSetting(); });
     tools->addSeparator();
     tools->addAction(QString::fromUtf8("Импорт &метода анализа (GeneMapper XML)..."), this, [this] { importLibraryFile(true); });
     tools->addAction(QString::fromUtf8("Импорт &стандарта длин (GeneMapper XML)..."), this, [this] { importLibraryFile(false); });
@@ -299,6 +308,25 @@ void MainWindow::buildMenus() {
     tb->addAction(analyzeAct_);
     tb->addSeparator();
     tb->addAction(aPlots);
+    tb->addSeparator();
+    tb->addWidget(new QLabel(QString::fromUtf8(" Настройка таблиц: ")));
+    tableSetting_ = new QComboBox;
+    tableSetting_->setObjectName("tableSetting");
+    tableSetting_->setMinimumWidth(210);
+    tableSetting_->setToolTip(QString::fromUtf8("Столбцы, фильтры и сортировка таблиц «Образцы» и «Генотипы»"));
+    connect(tableSetting_, &QComboBox::activated, this, [this] {
+        const QByteArray n = tableSetting_->currentText().toUtf8();
+        backend_->table_setting_set_active(rust::Str(n.constData(), n.size()));
+        applyTableSetting();
+    });
+    tb->addWidget(tableSetting_);
+    auto *aTs = tb->addAction(s->standardIcon(QStyle::SP_FileDialogDetailedView), QString::fromUtf8("Редактор настройки таблицы (Ctrl+T)"), this, [this] { editTableSetting(); });
+    aTs->setToolTip(QString::fromUtf8("Редактор настройки таблицы (Ctrl+T)"));
+    tableNote_ = new QLabel;
+    tableNote_->setStyleSheet("color:#7a4b00; padding-left:8px");
+    tb->addWidget(tableNote_);
+    fillTableSettings();
+    applyTableSetting();
 }
 
 void MainWindow::addSamples() {
@@ -516,10 +544,64 @@ void MainWindow::pollProgress() {
         bool reopen = q(backend_->save_project_file(r(out + "/project.otproj"))).isEmpty() && q(backend_->open_project_file(r(out + "/project.otproj"))).isEmpty() &&
                       q(backend_->genotype_digest()) == digest;
         model_->refresh();
+        // table settings: a setting with column filters, its own columns, sort keys and three alleles; then back
+        const int tableSettings = static_cast<int>(backend_->table_setting_names().size());
+        bool tableOk = false;
+        {
+            const QByteArray js = R"({"name":"self-test","samples":{"visible":["sampleName","sampleType","SQ"],"sort":[{"col":"sampleName","desc":true}],"filters":{"sampleType":{"op":3}}},
+                "genotypes":{"visible":["sampleName","marker","dye","allele","size","height","GQ"],"numAlleles":3,"sort":[{"col":"marker","desc":true}],"filters":{"dye":{"op":1}}}})";
+            const QByteArray none, name("self-test"), dflt("Data Interpretation");
+            const bool put = backend_->table_setting_put(rust::Str(js.constData(), js.size()), rust::Str(none.constData(), none.size())).empty();
+            backend_->table_setting_set_active(rust::Str(name.constData(), name.size()));
+            fillTableSettings();
+            applyTableSetting();
+            int ladders = 0;
+            for (int i = 0; i < model_->rowCount(); ++i) if (model_->row(i).stype == "ladder") ++ladders;
+            bool blue = genoShown_ > 0 && genoShown_ < genoTotal_, sorted = true;
+            // independent check of the order: digit runs compare as numbers, letters without regard to case
+            auto natural = [](const QString &a, const QString &b) {
+                static const QRegularExpression part("(\\d+|\\D+)");
+                auto ia = part.globalMatch(a.toLower()), ib = part.globalMatch(b.toLower());
+                while (ia.hasNext() && ib.hasNext()) {
+                    const QString x = ia.next().captured(), y = ib.next().captured();
+                    bool nx = false, ny = false;
+                    const qlonglong vx = x.toLongLong(&nx), vy = y.toLongLong(&ny);
+                    if (nx && ny) { if (vx != vy) return vx < vy ? -1 : 1; }
+                    else if (x != y) return x < y ? -1 : 1;
+                }
+                return ia.hasNext() ? 1 : ib.hasNext() ? -1 : 0;
+            };
+            for (int i = 0; i < genoTable_->rowCount(); ++i) {
+                if (genoTable_->item(i, 2)->text() != "B") blue = false;
+                if (i && natural(genoTable_->item(i - 1, 1)->text(), genoTable_->item(i, 1)->text()) < 0) sorted = false;   // marker, descending
+            }
+            tableOk = put && model_->columnCount() == 3 && ladders > 0 && proxy_->rowCount() == ladders && genoTable_->columnCount() == 13 && blue && sorted && !tableNote_->text().isEmpty();
+            tabs_->setCurrentIndex(0);
+            QApplication::processEvents();
+            grab().save(out + "/table_setting_samples.png");
+            tabs_->setCurrentWidget(genoTable_);
+            QApplication::processEvents();
+            grab().save(out + "/table_setting_genotypes.png");
+            {
+                TableSettingEditor ed(*backend_, parseJsonObject(q(backend_->table_setting_json(rust::Str(name.constData(), name.size())))), "self-test", this);
+                ed.show();
+                QApplication::processEvents();
+                ed.grab().save(out + "/table_setting_editor.png");
+            }
+            backend_->table_setting_set_active(rust::Str(dflt.constData(), dflt.size()));
+            backend_->table_setting_remove(rust::Str(name.constData(), name.size()));
+            fillTableSettings();
+            applyTableSetting();
+            tableOk = tableOk && model_->columnCount() == 16 && proxy_->rowCount() == model_->rowCount() && tableNote_->text().isEmpty();
+            tabs_->setCurrentIndex(0);
+            QApplication::processEvents();
+            grab().save(out + "/table_setting_default.png");
+        }
         QFile f(out + "/result.json");
         if (f.open(QIODevice::WriteOnly)) {
-            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"edit_ok\":%8,\"plot_settings\":%9,\"rows\":[%6]}\n")
-                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").arg(editOk ? "true" : "false").arg(plotSettings).toUtf8());
+            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"edit_ok\":%8,\"plot_settings\":%9,\"table_settings\":%10,\"table_setting_ok\":%11,\"rows\":[%6]}\n")
+                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").arg(editOk ? "true" : "false").arg(plotSettings)
+                        .arg(tableSettings).arg(tableOk ? "true" : "false").toUtf8());
         }
         QApplication::exit(ok.isEmpty() ? 1 : 0);
     });
@@ -602,17 +684,13 @@ void MainWindow::exportTable() {
         status_->setText(QString::fromUtf8("Сохранено: ") + path);
         return;
     }
-    QStringList head;
-    for (int c = 0; c < model_->columnCount(); ++c) head << model_->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
+    QStringList head;   // Samples tab: the columns and rows as shown (quality columns as text)
+    for (int c = 0; c < model_->columnCount(); ++c) head << cell(model_->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString());
     out << head.join(sep) << "\n";
     for (int i = 0; i < proxy_->rowCount(); ++i) {
         QStringList row;
-        const RowView &rv = model_->row(proxy_->mapToSource(proxy_->index(i, 0)).row());
-        for (int c = 0; c < model_->columnCount(); ++c) {
-            QString v = c == SampleModel::SQ ? rv.sq : model_->data(model_->index(proxy_->mapToSource(proxy_->index(i, 0)).row(), c), Qt::DisplayRole).toString();
-            if (sep == ',' && (v.contains(',') || v.contains('"'))) v = '"' + QString(v).replace("\"", "\"\"") + '"';
-            row << v;
-        }
+        const int src = proxy_->mapToSource(proxy_->index(i, 0)).row();
+        for (int c = 0; c < model_->columnCount(); ++c) row << cell(model_->exportText(src, c));
         out << row.join(sep) << "\n";
     }
     status_->setText(QString::fromUtf8("Сохранено: ") + path);
@@ -831,51 +909,124 @@ QString MainWindow::alasDialog(const QString &summaryJson) {
     return answer;
 }
 
+// A cell of the Genotypes table: numbers sort as numbers, quality icons by their value.
+class GenoItem : public QTableWidgetItem {
+public:
+    using QTableWidgetItem::QTableWidgetItem;
+    bool operator<(const QTableWidgetItem &o) const override {
+        const QString a = text().isEmpty() ? data(Qt::UserRole).toString() : text(), b = o.text().isEmpty() ? o.data(Qt::UserRole).toString() : o.text();
+        bool x = false, y = false;
+        const double da = a.toDouble(&x), db = b.toDouble(&y);
+        if (x && y) return da < db;
+        return QString::localeAwareCompare(a, b) < 0;
+    }
+};
+
+// Genotypes table: the columns, cells, filters and order of the active table setting (computed by the backend).
 void MainWindow::refreshGenotypes() {
-    const auto rows = backend_->genotype_rows();
-    std::size_t maxN = 2;
-    for (const auto &g : rows) maxN = std::max<std::size_t>(maxN, g.alleles.size());
-    maxN = std::min<std::size_t>(maxN, 8);
-    QStringList head{QString::fromUtf8("Файл образца"), QString::fromUtf8("Имя образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Краситель")};
-    for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Аллель %1").arg(k);
-    for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Размер %1").arg(k);
-    for (std::size_t k = 1; k <= maxN; ++k) head << QString::fromUtf8("Высота %1").arg(k);
-    static const QStringList FLAGS{"OS", "BIN", "PHR", "LPH", "MPH", "SPK", "AN", "ACC", "BD", "CC", "PLI", "ME", "GQ"};
-    head << FLAGS << QString::fromUtf8("Причина изменения");
+    const auto cols = backend_->table_columns("genotypes");
+    const auto rows = backend_->genotypes_table();
+    static const QHash<QString, QString> DYE_TAG{{"B", "DATA1"}, {"G", "DATA2"}, {"Y", "DATA3"}, {"R", "DATA4"}, {"O", "DATA105"}, {"P", "DATA106"}};
     genoTable_->setSortingEnabled(false);
     genoTable_->clear();
-    genoTable_->setColumnCount(head.size());
-    genoTable_->setHorizontalHeaderLabels(head);
-    genoTable_->setRowCount(static_cast<int>(rows.size()));
+    genoTable_->setColumnCount(static_cast<int>(cols.size()));
+    for (std::size_t c = 0; c < cols.size(); ++c) {
+        auto *h = new QTableWidgetItem(q(cols[c].head));
+        h->setToolTip(q(cols[c].title));
+        genoTable_->setHorizontalHeaderItem(static_cast<int>(c), h);
+    }
+    genoTotal_ = static_cast<int>(rows.size());
+    genoShown_ = 0;
+    for (const auto &g : rows) if (g.shown) ++genoShown_;
+    genoTable_->setRowCount(genoShown_);
     int i = 0;
     for (const auto &g : rows) {
-        int c = 0;
-        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.file)));
-        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.name)));
-        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.marker)));
-        auto *dye = new QTableWidgetItem(dyeName(q(g.dye)));
-        dye->setIcon(colorIcon(dyeSwatch(q(g.dye))));
-        genoTable_->setItem(i, c++, dye);
-        for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.alleles.size() ? q(g.alleles[k]) : QString()));
-        for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.sizes.size() ? QString::number(g.sizes[k], 'f', 2) : QString()));
-        for (std::size_t k = 0; k < maxN; ++k) genoTable_->setItem(i, c++, new QTableWidgetItem(k < g.heights.size() ? QString::number(std::lround(g.heights[k])) : QString()));
-        QHash<QString, QString> fl;
-        for (const auto &kv : g.flags) { const QString t = q(kv); fl[t.section('=', 0, 0)] = t.section('=', 1); }
-        for (const QString &k : FLAGS) {
-            auto *it = new QTableWidgetItem;
-            const QString v = k == "GQ" ? q(g.gq) : fl.value(k, "na");
-            it->setIcon(qualityIcon(v));
-            it->setToolTip(k + ": " + v);
-            it->setData(Qt::UserRole, v);
-            genoTable_->setItem(i, c++, it);
+        if (!g.shown) continue;
+        for (std::size_t c = 0; c < cols.size() && c < g.cells.size(); ++c) {
+            const QString kind = q(cols[c].kind), id = q(cols[c].id), v = q(g.cells[c]);
+            auto *it = new GenoItem;
+            if (kind == "pqv") {
+                it->setIcon(qualityIcon(v));
+                const QString tip = c < g.tips.size() ? q(g.tips[c]) : QString();
+                it->setToolTip(id + ": " + v + (tip.isEmpty() ? QString() : " (" + tip + ")"));
+                it->setData(Qt::UserRole, v);
+            } else {
+                it->setText(v);
+                if (kind == "num") it->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+                if (kind == "mark") it->setTextAlignment(Qt::AlignCenter);
+                if (id == "dye" && DYE_TAG.contains(v)) it->setIcon(colorIcon(dyeSwatch(DYE_TAG.value(v))));
+            }
+            it->setData(Qt::UserRole + 1, static_cast<int>(g.source));
+            genoTable_->setItem(i, static_cast<int>(c), it);
         }
-        genoTable_->setItem(i, c++, new QTableWidgetItem(q(g.reason)));
         ++i;
     }
+    genoTable_->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);   // order of the table setting until a header is clicked
     genoTable_->setSortingEnabled(true);
     genoTable_->resizeColumnsToContents();
+    updateTableNote();
 }
 
+void MainWindow::fillTableSettings() {
+    if (!tableSetting_) return;
+    const QSignalBlocker block(tableSetting_);
+    tableSetting_->clear();
+    for (const auto &n : backend_->table_setting_names()) tableSetting_->addItem(q(n));
+    tableSetting_->setCurrentIndex(tableSetting_->findText(q(backend_->table_setting_active())));
+}
+
+// The active table setting changed (or was edited): columns, widths, font, filters and order of both tables.
+void MainWindow::applyTableSetting() {
+    model_->refresh();
+    auto font = [this](QTableView *t, const char *kind) {
+        QFont f = QApplication::font();
+        const int z = backend_->table_font_size(kind);
+        if (z) f.setPointSize(z);
+        t->setFont(f);
+        t->verticalHeader()->setDefaultSectionSize(QFontMetrics(f).height() + 6);
+    };
+    font(table_, "samples");
+    font(genoTable_, "genotypes");
+    const QFontMetrics fm(table_->font());
+    const auto &cols = model_->columns();
+    for (int c = 0; c < cols.size(); ++c) {
+        const int w = cols[c].kind == "status" ? 130 : cols[c].id == "sampleFile" ? 280 : cols[c].width * 5 / 4;
+        table_->setColumnWidth(c, std::max(w, fm.horizontalAdvance(cols[c].head) + 26));
+    }
+    {
+        const QSignalBlocker block(table_->horizontalHeader());
+        table_->horizontalHeader()->setSortIndicatorShown(false);
+        table_->horizontalHeader()->setSortIndicator(0, Qt::AscendingOrder);
+    }
+    proxy_->setSettingOrder(true);
+    proxy_->sort(0, Qt::AscendingOrder);
+    proxy_->reapply();
+    refreshGenotypes();
+}
+
+// "Filtered by table setting «name» (columns): shown / all" for the table of the current tab
+void MainWindow::updateTableNote() {
+    if (!tableNote_) return;
+    const bool geno = tabs_->currentWidget() == genoTable_;
+    QStringList ids;
+    for (const auto &id : backend_->table_filter_columns(geno ? "genotypes" : "samples")) ids << q(id);
+    if (ids.isEmpty()) { tableNote_->clear(); return; }
+    tableNote_->setText(QString::fromUtf8("Отфильтровано настройкой таблицы «%1» (%2): %3 / %4")
+                            .arg(q(backend_->table_setting_active()), ids.join(", "))
+                            .arg(geno ? genoShown_ : model_->shownCount())
+                            .arg(geno ? genoTotal_ : model_->rowCount()));
+}
+
+void MainWindow::editTableSetting() {
+    const QString name = q(backend_->table_setting_active());
+    const QByteArray nb = name.toUtf8();
+    TableSettingEditor ed(*backend_, parseJsonObject(q(backend_->table_setting_json(rust::Str(nb.constData(), nb.size())))), name, this);
+    if (ed.exec() != QDialog::Accepted) return;
+    const QByteArray sb = ed.savedName().toUtf8();
+    backend_->table_setting_set_active(rust::Str(sb.constData(), sb.size()));
+    fillTableSettings();
+    applyTableSetting();
+}
 
 void MainWindow::updateTitle() {
     const QString name = projectPath_.isEmpty() ? QString::fromUtf8("без имени") : QFileInfo(projectPath_).completeBaseName();

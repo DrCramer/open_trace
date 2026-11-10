@@ -75,6 +75,14 @@ private:
     void projectOptions();
     QString alasDialog(const QString &summaryJson);
     void refreshGenotypes();
+    // Table Settings: columns, filters and order of the Samples and Genotypes tables
+    QComboBox *tableSetting_ = nullptr;
+    QLabel *tableNote_ = nullptr;
+    int genoShown_ = 0, genoTotal_ = 0;
+    void fillTableSettings();
+    void applyTableSetting();
+    void updateTableNote();
+    void editTableSetting();
     QTableWidget *genoTable_ = nullptr;
     QString projectPath_;
     bool dirty_ = false;

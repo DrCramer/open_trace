@@ -40,6 +40,30 @@ pub mod ffi {
         flags: Vec<String>,
         reason: String,
     }
+    /// One column of the Samples / Genotypes table as the active table setting shows it.
+    struct TableCol {
+        /// catalog id (allele columns repeat it once per shown allele)
+        id: String,
+        head: String,
+        title: String,
+        width: i32,
+        /// text | num | pqv (quality icon) | status | mark
+        kind: String,
+        /// allele number of an allele column, else -1
+        index: i32,
+    }
+    /// One row of a table: the cells of the visible columns.
+    struct TableRow {
+        /// sample index
+        source: usize,
+        marker: String,
+        cells: Vec<String>,
+        tips: Vec<String>,
+        /// false: hidden by a column filter of the table setting
+        shown: bool,
+        /// place in the order of the sort keys of the table setting
+        rank: usize,
+    }
     struct PlotMarker {
         name: String,
         tag: String,
@@ -181,6 +205,22 @@ pub mod ffi {
         fn plot_setting_export(self: &Backend, name: &str, path: &str) -> String;
         /// matched size-standard peaks of the reference dye (x in bp or data points; size_bp = expected size)
         fn size_std_marks(self: &Backend, i: usize, bp: bool) -> Vec<PeakMark>;
+        // ---- Table Settings (Samples and Genotypes tables)
+        fn table_columns(self: &Backend, kind: &str) -> Vec<TableCol>;
+        fn samples_table(self: &Backend) -> Vec<TableRow>;
+        fn genotypes_table(self: &Backend) -> Vec<TableRow>;
+        fn table_filter_columns(self: &Backend, kind: &str) -> Vec<String>;
+        fn table_font_size(self: &Backend, kind: &str) -> i32;
+        fn table_setting_names(self: &Backend) -> Vec<String>;
+        fn table_setting_json(self: &Backend, name: &str) -> String;
+        fn table_setting_new_json(self: &Backend) -> String;
+        fn table_setting_put(self: &Backend, json: &str, previous: &str) -> String;
+        fn table_setting_remove(self: &Backend, name: &str);
+        fn table_setting_active(self: &Backend) -> String;
+        fn table_setting_set_active(self: &Backend, name: &str);
+        fn table_setting_import(self: &Backend, path: &str) -> String;
+        fn table_setting_export(self: &Backend, name: &str, path: &str) -> String;
+        fn table_setting_catalog(self: &Backend, kind: &str) -> String;
     }
 
     unsafe extern "C++" {
@@ -289,7 +329,7 @@ impl Backend {
                 continue;
             }
             let kit = self.kit_of(s);
-            for r in crate::flags::marker_rows(s, kit.as_ref().map(|k| &k.kit), 2) {
+            for r in crate::flags::marker_rows(s, kit.as_ref().map(|k| &k.kit), self.num_alleles()) {
                 let labelled: Vec<&serde_json::Value> = r.calls.iter().filter(|c| !c["label"].is_null()).collect();
                 out.push(ffi::GenoRow {
                     sample: i,
@@ -380,8 +420,8 @@ impl Backend {
         for s in &list {
             let kit = self.kit_of(s);
             let method = self.methods.lock().unwrap().iter().find(|m| m["name"] == s.method.as_str()).cloned();
-            let sf = crate::flags::sample_flags(s, kit.as_ref().map(|k| &k.kit), method.as_ref(), 2);
-            let rows: Vec<serde_json::Value> = crate::flags::marker_rows(s, kit.as_ref().map(|k| &k.kit), 2).iter().map(|r| serde_json::json!({"marker": r.marker, "flags": r.flags})).collect();
+            let sf = crate::flags::sample_flags(s, kit.as_ref().map(|k| &k.kit), method.as_ref(), self.num_alleles());
+            let rows: Vec<serde_json::Value> = crate::flags::marker_rows(s, kit.as_ref().map(|k| &k.kit), self.num_alleles()).iter().map(|r| serde_json::json!({"marker": r.marker, "flags": r.flags})).collect();
             out.push(serde_json::json!({"file": s.file, "flags": sf, "rows": rows}));
         }
         serde_json::Value::Array(out).to_string()
@@ -723,7 +763,7 @@ impl Backend {
         drop(list);
         let kit = self.kit_of(&s);
         let method = self.methods.lock().unwrap().iter().find(|m| m["name"] == s.method.as_str()).cloned();
-        let fl = crate::flags::sample_flags(&s, kit.as_ref().map(|k| &k.kit), method.as_ref(), 2);
+        let fl = crate::flags::sample_flags(&s, kit.as_ref().map(|k| &k.kit), method.as_ref(), self.num_alleles());
         let s = &s;
         ffi::SampleRow {
             file: s.file.clone(),

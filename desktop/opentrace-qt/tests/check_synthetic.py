@@ -19,4 +19,11 @@ for f, markers in exp.items():
             if bad < 10: print('MISMATCH', f, mk, labels, got.get(f, {}).get(mk))
 n = sum(len(m) for m in exp.values())
 print(f'{n - bad}/{n} markers as expected')
+# table settings: the default and the 14 shipped ID-X settings are there, and a setting with column filters, its own
+# columns, sort keys and three alleles shows exactly what it describes (checked inside the application)
+r = json.load(open(out + '/result.json', encoding='utf-8'))
+if 'table_setting_ok' in r:
+    good = r['table_setting_ok'] is True and r['table_settings'] == 15
+    print('table settings:', r['table_settings'], 'ok' if good else 'FAILED')
+    bad += 0 if good else 1
 sys.exit(1 if bad else 0)

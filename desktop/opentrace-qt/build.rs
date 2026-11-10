@@ -1,7 +1,7 @@
 use cxx_qt_build::CxxQtBuilder;
 
 fn main() {
-    let cpp = ["cpp/app.h", "cpp/app.cpp", "cpp/mainwindow.h", "cpp/mainwindow.cpp", "cpp/samplemodel.h", "cpp/samplemodel.cpp", "cpp/plotwindow.h", "cpp/plotwindow.cpp", "cpp/style.h", "cpp/style.cpp", "cpp/simpleplot.h", "cpp/simpleplot.cpp", "cpp/plotsettingsdialog.h", "cpp/plotsettingsdialog.cpp"];
+    let cpp = ["cpp/app.h", "cpp/app.cpp", "cpp/mainwindow.h", "cpp/mainwindow.cpp", "cpp/samplemodel.h", "cpp/samplemodel.cpp", "cpp/plotwindow.h", "cpp/plotwindow.cpp", "cpp/style.h", "cpp/style.cpp", "cpp/simpleplot.h", "cpp/simpleplot.cpp", "cpp/plotsettingsdialog.h", "cpp/plotsettingsdialog.cpp", "cpp/tablesettingsdialog.h", "cpp/tablesettingsdialog.cpp"];
     unsafe {
         CxxQtBuilder::new()
             .qt_module("Widgets")

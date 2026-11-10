@@ -107,6 +107,7 @@ pub struct Inner {
     pub options: Mutex<crate::genotype::Options>,
     pub ask: crate::genotype::Ask,
     pub plot_settings: Mutex<crate::plotsettings::Db>,
+    pub table_settings: Mutex<crate::tablesettings::Db>,
 }
 
 impl Backend {
@@ -142,6 +143,7 @@ impl Inner {
             options: Mutex::new(Default::default()),
             ask: Default::default(),
             plot_settings: Mutex::new(Default::default()),
+            table_settings: Mutex::new(Default::default()),
             data_dir: Mutex::new(None),
             resources,
             methods: Mutex::new(methods),
@@ -159,8 +161,27 @@ impl Inner {
     pub fn load_library(&self, dir: &str) {
         let d = PathBuf::from(dir);
         *self.data_dir.lock().unwrap() = Some(d.clone());
-        let Ok(b) = std::fs::read(d.join("library.json")) else { return };
-        let Ok(v) = serde_json::from_slice::<Value>(&b) else { return };
+        let v = std::fs::read(d.join("library.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+        if let Some(v) = &v {
+            if v["table_settings"].is_object() {
+                *self.table_settings.lock().unwrap() = crate::tablesettings::Db::from_json(&v["table_settings"]);
+            }
+        }
+        // the ID-X Database Defaults table settings are added once per data folder
+        let added = self.table_settings.lock().unwrap().ensure_shipped(&self.resources.join("data").join("shipped_table_settings"));
+        let Some(v) = v else {
+            if added {
+                let _ = self.save_library();
+            }
+            return;
+        };
+        self.load_library_rest(&v);
+        if added {
+            let _ = self.save_library();
+        }
+    }
+
+    fn load_library_rest(&self, v: &Value) {
         let mut ms = self.methods.lock().unwrap();
         for m in v["methods"].as_array().into_iter().flatten() {
             if let Some(name) = m["name"].as_str() {
@@ -224,6 +245,7 @@ impl Inner {
             "kits": self.kits.lock().unwrap().to_json(),
             "options": options,
             "plot_settings": self.plot_settings.lock().unwrap().to_json(),
+            "table_settings": self.table_settings.lock().unwrap().to_json(),
         });
         let tmp = d.join("library.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(&v).unwrap()).map_err(|e| e.to_string())?;

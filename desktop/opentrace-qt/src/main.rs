@@ -7,6 +7,8 @@ mod genotype;
 mod kits;
 mod plotsettings;
 mod project;
+mod tables;
+mod tablesettings;
 
 // Qt support libraries of cxx-qt are linked (their C++ initialisers run before the application starts).
 extern crate cxx_qt;
