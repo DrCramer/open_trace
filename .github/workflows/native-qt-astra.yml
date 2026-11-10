@@ -28,7 +28,7 @@ jobs:
 
       - name: Qt cache (built once per Qt version and build script)
         id: qtcache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/astra-qt
           key: astra-qt-${{ env.QT_VER }}-${{ hashFiles('desktop/opentrace-qt/packaging/astra/build-qt.sh', 'desktop/opentrace-qt/packaging/astra/common.sh') }}
@@ -47,20 +47,28 @@ jobs:
           docker image inspect "$BUILDER_IMAGE" --format '{{index .RepoDigests 0}}' | tee _astra/builder-image.txt
 
       - name: Qt ${{ env.QT_VER }} from source (glibc 2.28)
+        id: qtbuild
         if: steps.qtcache.outputs.cache-hit != 'true'
         run: |
           docker run --rm -v "$PWD:/work" -v "$HOME/astra-qt:/opt/qt" -v "$HOME/astra-cache:/cache" \
             -e QT_VER "$BUILDER_IMAGE" bash /work/$PKG/build-qt.sh
 
+      - name: Save Qt cache (also when a later step fails)
+        if: steps.qtbuild.conclusion == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/astra-qt
+          key: astra-qt-${{ env.QT_VER }}-${{ hashFiles('desktop/opentrace-qt/packaging/astra/build-qt.sh', 'desktop/opentrace-qt/packaging/astra/common.sh') }}
+
       - name: Build opentrace-qt (release, glibc 2.28)
         run: |
           docker run --rm -v "$PWD:/work" -v "$HOME/astra-qt:/opt/qt:ro" -v "$HOME/astra-cache:/cache" \
-            -e QT_VER "$BUILDER_IMAGE" bash /work/$PKG/build-app.sh
+            -e QT_VER "$BUILDER_IMAGE" bash -c "bash /work/$PKG/deps.sh >/dev/null && bash /work/$PKG/build-app.sh"
 
       - name: Application folder (Qt libraries, plugins, resources, licences)
         run: |
           docker run --rm -v "$PWD:/work" -v "$HOME/astra-qt:/opt/qt:ro" -v "$HOME/astra-cache:/cache" \
-            "$BUILDER_IMAGE" bash -c ". /work/$PKG/common.sh && cd /work && python3 /work/$PKG/package.py"
+            "$BUILDER_IMAGE" bash -c "bash /work/$PKG/deps.sh >/dev/null && . /work/$PKG/common.sh && cd /work && python3 /work/$PKG/package.py"
           find _astra/dist/OpenTrace-Qt -maxdepth 2 | sort | head -60
           du -sh _astra/dist/OpenTrace-Qt
 

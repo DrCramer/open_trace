@@ -9,19 +9,11 @@ if [ -f "$QT_PREFIX/.opentrace-qt-built" ] && grep -qx "$QT_VER" "$QT_PREFIX/.op
 fi
 set -x
 gcc --version | head -1
-dnf -y install \
-  libxcb-devel xcb-util-devel xcb-util-image-devel xcb-util-keysyms-devel xcb-util-renderutil-devel xcb-util-wm-devel \
-  libxkbcommon-devel libxkbcommon-x11-devel libX11-devel libXext-devel libXrender-devel libXi-devel \
-  fontconfig-devel freetype-devel cups-devel perl-core
+bash "$here/deps.sh"
 "$PYBIN/pip" install --quiet cmake ninja patchelf
 
 work=/tmp/qtbuild
 mkdir -p "$work" && cd "$work"
-# xcb-util-cursor (needed by the Qt >= 6.5 xcb plugin): distribution package if present, else built from the freedesktop sources
-if ! dnf -y install xcb-util-cursor-devel; then
-  curl -fsSL -O https://xcb.freedesktop.org/dist/xcb-util-cursor-0.1.4.tar.xz
-  tar xf xcb-util-cursor-0.1.4.tar.xz && (cd xcb-util-cursor-0.1.4 && ./configure --prefix=/usr --libdir=/usr/lib64 && make -j"$(nproc)" && make install)
-fi
 export PKG_CONFIG_PATH=/usr/lib64/pkgconfig:/usr/share/pkgconfig:/usr/lib/pkgconfig
 
 base="https://download.qt.io/archive/qt/${QT_VER%.*}/${QT_VER}/submodules"
