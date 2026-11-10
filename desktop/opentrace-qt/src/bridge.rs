@@ -61,6 +61,8 @@ pub mod ffi {
         marker: String,
         kind: String,
         edited: bool,
+        /// label lines per the active plot setting (Labels tab); "omr" / "spk" labels: one line
+        lines: Vec<String>,
     }
     struct EditRow {
         sample: usize,
@@ -162,6 +164,23 @@ pub mod ffi {
         fn last_import_error(self: &Backend) -> String;
         fn autotest_synthetic(self: &Backend, dir: &str, n: usize) -> Vec<String>;
         fn synthetic_standard_name() -> String;
+        // plot settings (Plot Settings Editor / Manager); settings as the web JSON
+        fn plot_setting_names(self: &Backend) -> Vec<String>;
+        fn plot_setting_json(self: &Backend, name: &str) -> String;
+        fn plot_setting_new_json(self: &Backend) -> String;
+        /// "" on success, else the reason; replaces the setting named `previous` (a new name must be free)
+        fn plot_setting_put(self: &Backend, json: &str, previous: &str) -> String;
+        fn plot_setting_remove(self: &Backend, name: &str);
+        fn plot_setting_active(self: &Backend) -> String;
+        fn plot_setting_set_active(self: &Backend, name: &str);
+        /// display settings with the last interactive state when the setting says "use last"
+        fn plot_setting_display(self: &Backend, name: &str) -> String;
+        fn plot_setting_save_view(self: &Backend, name: &str, view_json: &str);
+        /// imported setting JSON (not stored yet), or "" with the reason in last_import_error()
+        fn plot_setting_import(self: &Backend, path: &str) -> String;
+        fn plot_setting_export(self: &Backend, name: &str, path: &str) -> String;
+        /// matched size-standard peaks of the reference dye (x in bp or data points; size_bp = expected size)
+        fn size_std_marks(self: &Backend, i: usize, bp: bool) -> Vec<PeakMark>;
     }
 
     unsafe extern "C++" {
@@ -498,6 +517,19 @@ impl Backend {
         let Some(s) = self.samples.lock().unwrap().get(i).cloned() else { return Vec::new() };
         let eff = crate::edits::effective(&s);
         let c = s.analysis.as_ref().map(|a| backend::curve(a)).unwrap_or_default();
+        let labels_cfg = {
+            let db = self.plot_settings.lock().unwrap();
+            db.get(&db.active_name()).map(|v| v["labels"].clone()).unwrap_or_else(|| crate::plotsettings::base("", "")["labels"].clone())
+        };
+        // AE reason of a label: the reason of the active edit behind it (web `editReasons`)
+        let reasons: std::collections::HashMap<String, String> = crate::edits::active(&s)
+            .map(|e| {
+                let k = if e["callId"].is_null() { format!("u{}", crate::kits::js_num(&e["id"])) } else { crate::kits::js_num(&e["callId"]) };
+                (k, e["reason"].as_str().unwrap_or("").to_string())
+            })
+            .collect();
+        let null = serde_json::Value::Null;
+        let report: &serde_json::Value = s.report.as_deref().unwrap_or(&null);
         let x_of = |x: &serde_json::Value| -> f64 {
             if bp {
                 x["size_bp"].as_f64().unwrap_or(0.0)
@@ -509,6 +541,7 @@ impl Backend {
                 })
             }
         };
+        let ladder = s.stype == "ladder";
         let mut out: Vec<ffi::PlotLabel> = eff
             .calls
             .iter()
@@ -523,20 +556,126 @@ impl Backend {
                 marker: x["marker"].as_str().unwrap_or("").to_string(),
                 kind: "call".into(),
                 edited: x["user_edited"].as_bool().unwrap_or(false),
+                lines: crate::plotsettings::label_lines(x, report, ladder, &labels_cfg, &reasons),
             })
             .collect();
-        out.extend(eff.artifacts.iter().map(|a| ffi::PlotLabel {
+        let one = |a: &serde_json::Value, text: String, kind: &str, id: String, flagged: bool| ffi::PlotLabel {
             tag: a["channel"].as_str().unwrap_or("").to_string(),
             x: x_of(a),
             height: a["height"].as_f64().unwrap_or(0.0),
-            text: crate::kits::js_num(&a["label"]),
-            flagged: true,
-            id: crate::kits::js_num(&a["id"]),
+            lines: vec![text.clone()],
+            text,
+            flagged,
+            id,
             marker: a["marker"].as_str().unwrap_or("").to_string(),
-            kind: "art".into(),
-            edited: true,
-        }));
+            kind: kind.into(),
+            edited: kind == "art",
+        };
+        out.extend(eff.artifacts.iter().map(|a| one(a, crate::kits::js_num(&a["label"]), "art", crate::kits::js_num(&a["id"]), true)));
+        if s.report.is_some() {
+            let kit = self.kit_of(&s);
+            let kit = kit.as_ref().map(|k| &k.kit);
+            // SPK: spike peaks in the dyes of the panel; OMR: peaks between marker ranges (web spikeArtifacts / omrPeaks)
+            if let Some(k) = kit {
+                let dyes: std::collections::HashSet<&str> = k["markers"].as_array().into_iter().flatten().filter_map(|m| m["channel"].as_str()).collect();
+                for p in report["peaks"].as_array().into_iter().flatten() {
+                    let spike = !matches!(p["spike"], serde_json::Value::Null | serde_json::Value::Bool(false));
+                    if spike && p["size_bp"].is_number() && p["channel"].as_str().is_some_and(|c| dyes.contains(c)) {
+                        out.push(one(p, "SPK".into(), "spk", String::new(), true));
+                    }
+                }
+            }
+            let method = self.methods.lock().unwrap().iter().find(|m| m["name"] == s.method.as_str()).cloned();
+            for o in crate::flags::omr_peaks(&s, kit, method.as_ref()) {
+                out.push(one(&o, "OMR".into(), "omr", String::new(), true));
+            }
+        }
         out
+    }
+    fn size_std_marks(&self, i: usize, bp: bool) -> Vec<ffi::PeakMark> {
+        let Some(a) = self.analysis_of(i) else { return Vec::new() };
+        let tag = a["sizing"]["reference_channel"].as_str().unwrap_or("").to_string();
+        let mut out = Vec::new();
+        for m in a["sizing"]["matched"].as_array().into_iter().flatten() {
+            let size = m["expected_bp"].as_f64().or_else(|| m["bp"].as_f64());
+            let (Some(scan), Some(size)) = (m["scan"].as_f64(), size) else { continue };
+            out.push(ffi::PeakMark {
+                tag: tag.clone(),
+                x: if bp { m["bp"].as_f64().unwrap_or(size) } else { scan },
+                height: m["height"].as_f64().unwrap_or(0.0),
+                offscale: false,
+                scan,
+                size_bp: size,
+                area: 0.0,
+            });
+        }
+        out
+    }
+    fn plot_setting_names(&self) -> Vec<String> {
+        self.plot_settings.lock().unwrap().names()
+    }
+    fn plot_setting_json(&self, name: &str) -> String {
+        self.plot_settings.lock().unwrap().get(name).map(|v| v.to_string()).unwrap_or_default()
+    }
+    fn plot_setting_new_json(&self) -> String {
+        let name = self.plot_settings.lock().unwrap().untitled_name();
+        crate::plotsettings::base(&name, "").to_string()
+    }
+    fn plot_setting_put(&self, json: &str, previous: &str) -> String {
+        let v: serde_json::Value = match serde_json::from_str(json) {
+            Ok(v) => v,
+            Err(_) => return crate::plotsettings::MSG_XML_INVALID.into(),
+        };
+        let r = self.plot_settings.lock().unwrap().put(&v, previous);
+        match r {
+            Ok(_) => self.save_library().err().unwrap_or_default(),
+            Err(e) => e,
+        }
+    }
+    fn plot_setting_remove(&self, name: &str) {
+        self.plot_settings.lock().unwrap().remove(name);
+        let _ = self.save_library();
+    }
+    fn plot_setting_active(&self) -> String {
+        self.plot_settings.lock().unwrap().active_name()
+    }
+    fn plot_setting_set_active(&self, name: &str) {
+        {
+            let mut db = self.plot_settings.lock().unwrap();
+            if db.active == name {
+                return;
+            }
+            db.active = name.to_string();
+        }
+        let _ = self.save_library();
+    }
+    fn plot_setting_display(&self, name: &str) -> String {
+        self.plot_settings.lock().unwrap().effective_display(name).to_string()
+    }
+    fn plot_setting_save_view(&self, name: &str, view_json: &str) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(view_json) else { return };
+        {
+            let mut db = self.plot_settings.lock().unwrap();
+            if db.get(name).is_none_or(|s| s["display"]["persistence"] != "last") {
+                return;
+            }
+            db.last_view.insert(name.to_string(), v);
+        }
+        let _ = self.save_library();
+    }
+    fn plot_setting_import(&self, path: &str) -> String {
+        let r = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| {
+            if t.trim_start().starts_with('{') {
+                serde_json::from_str::<serde_json::Value>(&t).map_err(|_| crate::plotsettings::MSG_XML_INVALID.to_string()).and_then(|v| crate::plotsettings::validate(&v))
+            } else {
+                crate::plotsettings::from_xml(&t)
+            }
+        });
+        self.import_result(r.map(|v| v.to_string()))
+    }
+    fn plot_setting_export(&self, name: &str, path: &str) -> String {
+        let Some(s) = self.plot_settings.lock().unwrap().get(name).cloned() else { return "нет такой настройки".into() };
+        std::fs::write(path, crate::plotsettings::to_xml(&s)).err().map(|e| e.to_string()).unwrap_or_default()
     }
     fn ask_pending(&self) -> String {
         self.ask.pending().unwrap_or_default()

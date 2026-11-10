@@ -138,7 +138,7 @@ pub fn effective(s: &Sample) -> Effective {
     out
 }
 
-fn now_iso() -> String {
+pub fn now_iso() -> String {
     // UTC ISO-8601 like JavaScript Date.toISOString (no external crate)
     let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     let secs = d.as_secs() as i64;

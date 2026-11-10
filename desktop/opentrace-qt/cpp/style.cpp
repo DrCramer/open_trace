@@ -28,35 +28,47 @@ QIcon colorIcon(const QColor &c) {
     return QIcon(pm);
 }
 
-QIcon qualityIcon(const QString &q) {
-    QPixmap pm(16, 16);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
+// Quality symbol in a 16-unit box scaled to r: pass square, check triangle, low circle with a bar, override square with a bar.
+void paintQuality(QPainter &p, const QRectF &r, const QString &q) {
+    if (q != "pass" && q != "check" && q != "low" && q != "override") return;
+    p.save();
+    p.translate(r.topLeft());
+    p.scale(r.width() / 16.0, r.height() / 16.0);
     p.setRenderHint(QPainter::Antialiasing);
-    if (q == "pass") {            // green square
-        p.setPen(QColor(0, 110, 0));
+    QPen edge;
+    edge.setCosmetic(false);
+    edge.setWidthF(1.0);
+    if (q == "pass" || q == "override") {
+        edge.setColor(QColor(0, 110, 0));
+        p.setPen(edge);
         p.setBrush(QColor(60, 190, 60));
         p.drawRoundedRect(QRectF(2.5, 3.5, 11, 9), 2, 2);
-    } else if (q == "check") {    // yellow triangle
-        p.setPen(QColor(140, 100, 0));
+        if (q == "override") {
+            p.setPen(QPen(Qt::white, 1.6));
+            p.drawLine(QPointF(5, 8), QPointF(11, 8));
+        }
+    } else if (q == "check") {
+        edge.setColor(QColor(140, 100, 0));
+        p.setPen(edge);
         p.setBrush(QColor(255, 200, 0));
-        QPolygonF t{QPointF(8, 2), QPointF(14.5, 14), QPointF(1.5, 14)};
-        p.drawPolygon(t);
-    } else if (q == "low") {      // red circle with a bar
-        p.setPen(QColor(150, 0, 0));
+        p.drawPolygon(QPolygonF{QPointF(8, 2), QPointF(14.5, 14), QPointF(1.5, 14)});
+    } else {
+        edge.setColor(QColor(150, 0, 0));
+        p.setPen(edge);
         p.setBrush(QColor(220, 30, 30));
         p.drawEllipse(QRectF(2, 2, 12, 12));
         p.setPen(QPen(Qt::white, 2));
         p.drawLine(QPointF(5, 8), QPointF(11, 8));
-    } else if (q == "override") { // green square with a mark
-        p.setPen(QColor(0, 110, 0));
-        p.setBrush(QColor(60, 190, 60));
-        p.drawRoundedRect(QRectF(2.5, 3.5, 11, 9), 2, 2);
-        p.setPen(QPen(Qt::white, 1.6));
-        p.drawLine(QPointF(5, 8), QPointF(11, 8));
-    } else {
-        return QIcon();
     }
+    p.restore();
+}
+
+QIcon qualityIcon(const QString &q) {
+    if (q != "pass" && q != "check" && q != "low" && q != "override") return QIcon();
+    QPixmap pm(16, 16);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    paintQuality(p, QRectF(0, 0, 16, 16), q);
     return QIcon(pm);
 }
 

@@ -106,6 +106,7 @@ pub struct Inner {
     pub kit_cache: Mutex<std::collections::HashMap<String, Arc<crate::genotype::KitEntry>>>,
     pub options: Mutex<crate::genotype::Options>,
     pub ask: crate::genotype::Ask,
+    pub plot_settings: Mutex<crate::plotsettings::Db>,
 }
 
 impl Backend {
@@ -140,6 +141,7 @@ impl Inner {
             kit_cache: Mutex::new(Default::default()),
             options: Mutex::new(Default::default()),
             ask: Default::default(),
+            plot_settings: Mutex::new(Default::default()),
             data_dir: Mutex::new(None),
             resources,
             methods: Mutex::new(methods),
@@ -168,6 +170,9 @@ impl Inner {
             }
         }
         *self.kits.lock().unwrap() = crate::kits::KitDb::from_json(&v["kits"]);
+        if v["plot_settings"].is_object() {
+            *self.plot_settings.lock().unwrap() = crate::plotsettings::Db::from_json(&v["plot_settings"]);
+        }
         if let Some(o) = v["options"].as_object() {
             let mut op = self.options.lock().unwrap();
             if let Some(a) = o.get("alas").and_then(|v| v.as_str()).filter(|a| ["stop", "passing", "all"].contains(a)) {
@@ -218,6 +223,7 @@ impl Inner {
             "size_standards": self.standards.lock().unwrap().iter().filter(|s| !defaults.contains(&s.name)).map(|s| json!({"name": s.name, "dye": s.dye, "sizes": s.sizes})).collect::<Vec<_>>(),
             "kits": self.kits.lock().unwrap().to_json(),
             "options": options,
+            "plot_settings": self.plot_settings.lock().unwrap().to_json(),
         });
         let tmp = d.join("library.json.tmp");
         std::fs::write(&tmp, serde_json::to_vec_pretty(&v).unwrap()).map_err(|e| e.to_string())?;

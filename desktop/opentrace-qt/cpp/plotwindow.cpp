@@ -40,6 +40,12 @@
 #include <QJsonObject>
 #include <QLayoutItem>
 #include <QTimer>
+#include <QRegularExpression>
+#include <QComboBox>
+#include <QJsonArray>
+#include <QCloseEvent>
+#include <QSignalBlocker>
+#include "opentrace-qt/cpp/plotsettingsdialog.h"
 #include <cmath>
 #include <algorithm>
 
@@ -66,10 +72,22 @@ static QColor gqFill(const QString &q) {
 // label text colour per dye (DATA3 dark yellow, readable on white)
 static QColor labelColor(const QString &tag) { return tag == "DATA3" ? QColor(0x7a, 0x6a, 0x00) : dyeColor(tag); }
 
+// Java logical fonts of ID-X plot settings -> installed families
+static QFont labelFontOf(const QString &name) {
+    QFont f;
+    if (name == "Serif") { f.setFamily("Times New Roman"); f.setStyleHint(QFont::Serif); }
+    else if (name == "SansSerif" || name == "Dialog") { f.setFamily("Arial"); f.setStyleHint(QFont::SansSerif); }
+    else if (name == "Monospaced" || name == "DialogInput") { f.setFamily("Courier New"); f.setStyleHint(QFont::Monospace); }
+    else f.setFamily(name);
+    return f;
+}
+
+static const QStringList PQV_KEYS{"SOS", "SQ", "SSPK", "MIX", "OMR", "CGQ"};
+
 // Geometry of a pane shared by the painter and the mouse handlers: plot rectangle and label rows.
-PaneGeometry paneGeometry(const QRectF &rect, const QFontMetricsF &fm, double gap, bool markers, int labelRows, double rowH) {
+PaneGeometry paneGeometry(const QRectF &rect, const QFontMetricsF &fm, double gap, bool header, bool markers, int labelRows, double rowH) {
     PaneGeometry g;
-    const double headH = fm.height() + gap;
+    const double headH = header ? fm.height() + gap : 0;
     g.head = QRectF(rect.left(), rect.top(), rect.width(), headH);
     g.L = rect.left() + fm.horizontalAdvance("000000") + 2 * gap;
     g.R = rect.right() - 2 * gap;
@@ -92,51 +110,87 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     const double mm = print ? p.device()->logicalDpiY() / 25.4 : 0;   // printer units per millimetre
     const double gap = print ? 1.2 * mm : 6;
     const bool showMarkers = v.markerRange && !d.markers.isEmpty() && v.bp;
-    // allele labels: boxes in up to 4 rows under the axis, each label in the first row where it does not overlap
-    QFont lf = small;
-    lf.setPointSizeF(small.pointSizeF() + (print ? 0.5 : 1.0));
+    // allele labels (plot setting Labels tab: font, size, up to 4 lines): boxes in up to 4 rows under the axis,
+    // each label in the first row where it does not overlap
+    QFont lf = labelFontOf(v.labelFont);
+    if (print) lf.setPointSizeF(std::max(4.0, (v.labelSize + 2) * 0.62));
+    else lf.setPixelSize(std::max(6, v.labelSize + 2));
     const QFontMetricsF lfm(lf, p.device());
-    const double rowH = lfm.height() + gap * 0.9;
-    struct Placed { double x, w; int row; const LabelData *l; int index; };
+    const double lineH = lfm.height();
+    int nl = 1;
+    for (const auto &l : d.labels) if (v.dyes.contains(l.tag)) nl = std::max(nl, int(l.lines.size()));
+    const double rowH = nl * lineH + gap * 0.9;
+    struct Placed { double x, w, h; int row; const LabelData *l; int index; };
     QVector<Placed> placed;
     int rows = 0;
     auto layoutLabels = [&](double L, double R, int maxRows) {
         placed.clear();
         rows = 0;
-        if (!v.labels) return;
+        if (v.labels == "none") return;
         for (int li = 0; li < d.labels.size(); ++li) {
             const LabelData &l = d.labels[li];
             if (!v.dyes.contains(l.tag) || l.x < x0 || l.x > x1) continue;
             const double x = L + (l.x - x0) / (x1 - x0) * (R - L);
-            const double w = std::max(lfm.height() * 1.2, lfm.horizontalAdvance(l.text) + gap * 1.2);
+            const QStringList lines = l.lines.isEmpty() ? QStringList{l.text} : l.lines;
+            double w = lfm.height() * 1.2;
+            for (const auto &t : lines) w = std::max(w, lfm.horizontalAdvance(t) + gap * 1.2);
             int row = 0;
             while (row < maxRows - 1 && std::any_of(placed.begin(), placed.end(), [&](const Placed &q) { return q.row == row && std::abs(q.x - x) < (q.w + w) / 2 + 2; })) ++row;
-            placed.push_back({x, w, row, &l, li});
+            placed.push_back({x, w, lines.size() * lineH + gap * 0.3, row, &l, li});
             rows = std::max(rows, row + 1);
         }
     };
-    PaneGeometry g0 = paneGeometry(rect, fm, gap, showMarkers, 0, rowH);
+    PaneGeometry g0 = paneGeometry(rect, fm, gap, v.header, showMarkers, 0, rowH);
     layoutLabels(g0.L, g0.R, 4);
-    // as many label rows as fit while the trace keeps a usable height (35 mm-ish printed / 50 px on screen)
+    // as many label rows as fit while the trace keeps a usable height (12 mm printed / 50 px on screen)
     const double minTrace = print ? 12 * mm : 50;
     int maxRows = std::max(0, std::min(4, int((g0.bottom - g0.top - minTrace) / rowH)));
     if (rows > maxRows) layoutLabels(g0.L, g0.R, std::max(1, maxRows));
-    const PaneGeometry g = paneGeometry(rect, fm, gap, showMarkers, rows, rowH);
+    const PaneGeometry g = paneGeometry(rect, fm, gap, v.header, showMarkers, rows, rowH);
     const double L = g.L, R = g.R, top = g.top, bottom = g.bottom;
-    // header: sample name and file (sample name is what ID-X prints as the title)
-    p.fillRect(g.head, print ? QColor(255, 255, 255) : QColor(236, 239, 244));
-    p.setPen(QColor(40, 40, 40));
-    QString title = d.name.isEmpty() ? d.file : d.name + QStringLiteral("   ") + d.file;
-    p.drawText(g.head.adjusted(gap, 0, -gap, 0), Qt::AlignVCenter | Qt::AlignLeft, title);
+    // sample header: the fields chosen on the Sample Header tab (file, name, panel, sample PQVs)
+    if (v.header) {
+        p.fillRect(g.head, print ? QColor(255, 255, 255) : QColor(236, 239, 244));
+        p.setPen(QColor(40, 40, 40));
+        double hx = g.head.left() + gap;
+        auto text = [&](const QString &t, double minW) {
+            if (t.isEmpty() && minW <= 0) return;
+            const double w = std::max(minW, fm.horizontalAdvance(t) + 2 * gap);
+            p.drawText(QRectF(hx, g.head.top(), w, g.head.height()), Qt::AlignVCenter | Qt::AlignLeft, t);
+            hx += w;
+        };
+        if (d.overlay) text(QString::fromUtf8("Наложение: %1").arg(d.name), 0);
+        else {
+            if (v.sampleHeader.contains("sampleFileName")) text(d.file, 0);
+            if (v.sampleHeader.contains("sampleName")) text(d.name, 0);
+            if (v.sampleHeader.contains("panel")) text(d.panel, 0);
+            const double sym = fm.height() * 0.85;
+            for (const QString &k : PQV_KEYS) {
+                if (!v.sampleHeader.contains(k)) continue;
+                const QString val = d.pqv.value(k);
+                const double kw = fm.horizontalAdvance(k) + gap * 0.5;
+                p.setPen(QColor(90, 90, 90));
+                p.drawText(QRectF(hx, g.head.top(), kw, g.head.height()), Qt::AlignVCenter | Qt::AlignLeft, k);
+                paintQuality(p, QRectF(hx + kw, g.head.center().y() - sym / 2, sym, sym), val);
+                if (val == "na" || val.isEmpty()) p.drawText(QRectF(hx + kw, g.head.top(), sym, g.head.height()), Qt::AlignCenter, "–");
+                hx += kw + sym + gap * 1.5;
+            }
+            p.setPen(QColor(40, 40, 40));
+        }
+    }
     if (bottom - top < 10 || R - L < 20) { p.restore(); return; }
     auto X = [&](double x) { return L + (x - x0) / (x1 - x0) * (R - L); };
-    // y range: maximum of the shown dyes in the visible range
+    // y range: scaled individually (maximum of the shown dyes in the visible range), to the maximum of all panes,
+    // or to the entered value (Display Settings "Y axis"); result dye scales multiply the data
     double ymax = 1;
     for (const auto &t : d.traces) {
         if (!v.dyes.contains(t.tag)) continue;
-        for (const auto &pt : t.pts) if (pt.x() >= x0 && pt.x() <= x1 && pt.y() > ymax) ymax = pt.y();
+        const double k = v.scaleOf(t.tag);
+        for (const auto &pt : t.pts) if (pt.x() >= x0 && pt.x() <= x1 && pt.y() * k > ymax) ymax = pt.y() * k;
     }
-    ymax *= 1.08;
+    if (v.yAxis == "entered") ymax = std::max(1.0, v.yValue);
+    else if (v.yAxis == "max" && v.yGlobal > 0) ymax = v.yGlobal * 1.08;
+    else ymax *= 1.08;
     auto Y = [&](double y) { return bottom - std::min(y, ymax * 1.2) / ymax * (bottom - top); };
     if (hits) { hits->labels.clear(); hits->markers.clear(); hits->head = g.head; hits->L = L; hits->R = R; hits->top = top; hits->bottom = bottom; hits->ymax = ymax; }
     QPen axis(Qt::black);
@@ -185,10 +239,21 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
     // traces (clipped to the plot rectangle)
     p.save();
     p.setClipRect(QRectF(L, top, R - L, bottom - top), Qt::IntersectClip);
+    // off-scale data: pink band (Display Settings "Off-scale data")
+    if (v.offscale)
+        for (const auto &pk : d.peaks) {
+            if (!pk.offscale || !v.dyes.contains(pk.tag)) continue;
+            const double xa = v.bp ? X(pk.x) - 3 : X(pk.x - 3), xb = v.bp ? X(pk.x) + 3 : X(pk.x + 3);
+            p.fillRect(QRectF(std::min(xa, xb), top, std::max(2.0, std::abs(xb - xa)), bottom - top), QColor(255, 105, 180, 77));
+        }
     p.setRenderHint(QPainter::Antialiasing, true);
+    int ti = 0;
     for (const auto &t : d.traces) {
         if (!v.dyes.contains(t.tag)) continue;
-        QPen pen(dyeColor(t.tag));
+        const double k = v.scaleOf(t.tag);
+        const QColor col = v.customColors && !v.colors.isEmpty() ? QColor(v.colors[ti % v.colors.size()]) : dyeColor(t.tag);
+        ++ti;
+        QPen pen(col);
         pen.setWidthF(print ? 0.15 * mm : 1.0);
         pen.setCosmetic(!print);
         p.setPen(pen);
@@ -199,21 +264,21 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
         int i = 0;
         while (i < n && t.pts[i].x() < x0) ++i;
         if (i > 0) --i;
-        double col = -1e300, mn = 0, mx = 0, firstY = 0, lastY = 0;
+        double col0 = -1e300, mn = 0, mx = 0, firstY = 0, lastY = 0;
         auto flush = [&](double cx) {
-            if (col < -1e299) return;
+            if (col0 < -1e299) return;
             if (!started) { path.moveTo(cx, Y(firstY)); started = true; } else path.lineTo(cx, Y(firstY));
             path.lineTo(cx, Y(mn)); path.lineTo(cx, Y(mx)); path.lineTo(cx, Y(lastY));
         };
         const double res = print ? 0.1 * mm : 1.0;   // printer: 0.1 mm columns (vector output)
         for (; i < n; ++i) {
-            const double px = X(t.pts[i].x()), y = t.pts[i].y();
+            const double px = X(t.pts[i].x()), y = t.pts[i].y() * k;
             const double c = std::floor(px / res) * res;
-            if (c != col) { flush(col); col = c; mn = mx = firstY = lastY = y; }
+            if (c != col0) { flush(col0); col0 = c; mn = mx = firstY = lastY = y; }
             else { mn = std::min(mn, y); mx = std::max(mx, y); lastY = y; }
             if (t.pts[i].x() > x1) break;
         }
-        flush(col);
+        flush(col0);
         p.drawPath(path);
     }
     // marker indicators: red triangles at the start and end of each marker window (after bin offsets)
@@ -232,36 +297,72 @@ void paintPane(QPainter &p, const QRectF &rect, const PaneData &d, const ViewSta
         }
         p.setBrush(Qt::NoBrush);
     }
+    // peak position indicators: a tick under each detected peak
+    if (v.peakPositions)
+        for (const auto &pk : d.peaks) {
+            if (!v.dyes.contains(pk.tag)) continue;
+            const double x = X(pk.x);
+            if (x < L || x > R) continue;
+            QPen tick(dyeColor(pk.tag));
+            tick.setWidthF(print ? 0.15 * mm : 1.0);
+            tick.setCosmetic(!print);
+            p.setPen(tick);
+            p.drawLine(QPointF(x, bottom - (print ? 0.3 * mm : 1)), QPointF(x, bottom - (print ? 1.8 * mm : 7)));
+        }
+    // size-standard labels on the reference dye
+    if (v.sizeStdLabels) {
+        p.setFont(small);
+        p.setPen(Qt::black);
+        for (const auto &m : d.stdMarks) {
+            if (!v.dyes.contains(m.tag) || m.x < x0 || m.x > x1) continue;
+            const QString t = QString::number(m.size, 'f', 1).remove(QRegularExpression("\\.0$"));
+            const double y = std::max(top + fm.height(), Y(m.height * v.scaleOf(m.tag)) - (print ? mm : 4));
+            const double w = fm.horizontalAdvance(t) + gap;
+            p.drawText(QRectF(X(m.x) - w / 2, y - fm.height(), w, fm.height()), Qt::AlignHCenter | Qt::AlignBottom, t);
+        }
+    }
     if (sel && sel->peak >= 0 && sel->peak < d.peaks.size()) {   // selected peak: filled dot at its top
         const PeakData &pk = d.peaks[sel->peak];
         p.setPen(QPen(Qt::black, 1));
         p.setBrush(dyeSwatch(pk.tag));
-        p.drawEllipse(QPointF(X(pk.x), Y(pk.height)), 4.5, 4.5);
+        p.drawEllipse(QPointF(X(pk.x), Y(pk.height * v.scaleOf(pk.tag))), 4.5, 4.5);
         p.setBrush(Qt::NoBrush);
     }
     p.restore();
-    // allele label boxes with a lead line to the axis
+    // allele label boxes with a lead line to the axis; colours per the setting's label colour scheme
+    static const QColor ART(0xe0, 0x40, 0xa0), ART_TEXT(0xb0, 0x00, 0x6a), EDITED(0xb0, 0x00, 0x60), LEAD(0x99, 0x99, 0x99), OMR(0xd0, 0x70, 0x0a), OMR_BG(0xff, 0xf3, 0xe0), OMR_TEXT(0xa0, 0x4f, 0x00);
     p.setFont(lf);
     for (const auto &pl : placed) {
-        const double y = bottom + gap * 0.6 + pl.row * rowH, h = lfm.height() + gap * 0.3;
-        const QColor col = labelColor(pl.l->tag);
-        QPen border(pl.l->flagged ? QColor(0xe0, 0x40, 0xa0) : col);
-        border.setWidthF(print ? 0.2 * mm : 1.0);
-        border.setCosmetic(!print);
-        QPen lead(col);
-        lead.setWidthF(print ? 0.15 * mm : 1.0);
-        lead.setCosmetic(!print);
-        p.setPen(lead);
+        const double y = bottom + gap * 0.6 + pl.row * rowH;
+        const LabelData &l = *pl.l;
+        const QColor dyeCol = labelColor(l.tag);
+        QColor border, text, lead, fill = Qt::white;
+        double bw = print ? 0.2 * mm : 1.0;
+        if (l.kind == "omr") { border = OMR; text = OMR_TEXT; lead = OMR; fill = OMR_BG; }
+        else if (l.kind == "art" || l.kind == "spk") { border = ART; text = ART_TEXT; lead = ART; bw *= 1.5; }
+        else {
+            border = l.flagged ? ART : v.colorScheme == "bw" ? QColor(Qt::black) : dyeCol;
+            text = v.alleleChanges && l.edited ? EDITED : v.colorScheme == "dyeAll" ? dyeCol : QColor(Qt::black);
+            lead = v.colorScheme == "bw" ? LEAD : dyeCol;
+        }
+        QPen lp(lead);
+        lp.setWidthF(print ? 0.15 * mm : 1.0);
+        lp.setCosmetic(!print);
+        p.setPen(lp);
         p.drawLine(QPointF(pl.x, bottom), QPointF(pl.x, y));
-        const QRectF box(pl.x - pl.w / 2, y, pl.w, h);
+        const QRectF box(pl.x - pl.w / 2, y, pl.w, pl.h);
         const bool selected = sel && sel->label == pl.index;
-        p.fillRect(box, selected ? QColor(255, 247, 150) : Qt::white);
-        if (selected) border.setWidthF(print ? 0.4 * mm : 2.0);
-        p.setPen(border);
+        p.fillRect(box, selected ? QColor(255, 247, 150) : fill);
+        QPen bp(border);
+        bp.setWidthF(selected ? (print ? 0.4 * mm : 2.0) : bw);
+        bp.setCosmetic(!print);
+        p.setPen(bp);
         p.drawRect(box);
-        p.setPen(pl.l->kind == "art" ? QColor(0xb0, 0x00, 0x6a) : pl.l->edited ? QColor(0xb0, 0x00, 0x60) : QColor(Qt::black));
-        p.drawText(box, Qt::AlignCenter, pl.l->text);
-        if (hits) hits->labels.push_back({box, pl.index});
+        p.setPen(text);
+        const QStringList lines = l.lines.isEmpty() ? QStringList{l.text} : l.lines;
+        for (int k = 0; k < lines.size(); ++k)
+            p.drawText(QRectF(box.left(), box.top() + gap * 0.15 + k * lineH, box.width(), lineH), Qt::AlignCenter, lines[k]);
+        if (hits && (l.kind == "call" || l.kind == "art")) hits->labels.push_back({box, pl.index});
     }
     p.restore();
 }
@@ -276,6 +377,7 @@ PaneWidget::PaneWidget(PlotWindow *win, int index) : QWidget(), win_(win), index
 QSize PaneWidget::sizeHint() const { return QSize(800, 220); }
 
 void PaneWidget::paintEvent(QPaintEvent *) {
+    if (index_ >= win_->paneCount()) return;
     QPainter p(this);
     double x0, x1;
     win_->visibleRange(x0, x1);
@@ -301,6 +403,7 @@ double PaneWidget::xAt(double px) const {
 // label box under the point, else the detected peak nearest in x (within 6 px, below its top) on a shown dye
 bool PaneWidget::hitTest(const QPointF &pt, int &label, int &peak) const {
     label = peak = -1;
+    if (win_->paneData(index_).overlay) return false;   // labels are edited in the panes of one sample
     for (const auto &h : hits_.labels) if (h.first.contains(pt)) { label = h.second; return true; }
     if (pt.y() < hits_.top || pt.y() > hits_.bottom) return false;
     double x0, x1;
@@ -312,7 +415,7 @@ bool PaneWidget::hitTest(const QPointF &pt, int &label, int &peak) const {
         const PeakData &pk = d.peaks[k];
         if (!v.dyes.contains(pk.tag) || pk.x < x0 || pk.x > x1) continue;
         const double px = hits_.L + (pk.x - x0) / (x1 - x0) * (hits_.R - hits_.L);
-        const double top = hits_.bottom - std::min(pk.height, hits_.ymax * 1.2) / hits_.ymax * (hits_.bottom - hits_.top);
+        const double top = hits_.bottom - std::min(pk.height * v.scaleOf(pk.tag), hits_.ymax * 1.2) / hits_.ymax * (hits_.bottom - hits_.top);
         if (std::abs(px - pt.x()) < best && pt.y() >= top - 8) { best = std::abs(px - pt.x()); peak = k; }
     }
     return peak >= 0;
@@ -367,8 +470,7 @@ PlotWindow::PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget
     setWindowTitle(QStringLiteral("OpenTrace — Графики"));
     for (const char *d : DYES) view_.dyes.insert(d);
     view_.dyes.remove("DATA105");   // size standard hidden by default (ID-X "Data Interpretation" plot setting)
-    QSettings st;
-    view_.panes = std::clamp(st.value("plot/panes", 2).toInt(), 1, 8);
+    applySetting(q(backend_.plot_setting_active()));
     load();
     scroll_ = new QScrollArea(this);
     scroll_->setWidgetResizable(true);
@@ -378,6 +480,7 @@ PlotWindow::PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget
     layout_->setContentsMargins(0, 0, 0, 0);
     layout_->setSpacing(0);
     scroll_->setWidget(host_);
+    scroll_->viewport()->installEventFilter(this);   // pane heights follow the viewport (lower table shown / hidden, splitter)
     rebuildPanes();
     lower_ = new QTableWidget;
     lower_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -409,19 +512,26 @@ PlotWindow::PlotWindow(const Backend &backend, const QVector<int> &rows, QWidget
     statusBar()->addPermanentWidget(new QLabel(QString::fromUtf8("Образцов: %1").arg(panes_.size())));
     buildMenus();
     resize(1200, 820);
+    QTimer::singleShot(0, this, [this] {   // setting with the Label Edit Viewer as its table
+        if (setting_.value("display").toObject().value("table").toString() == "lev" && onLabelEditViewer) onLabelEditViewer();
+    });
 }
 
 void PlotWindow::load() {
     panes_.clear();
     for (int r : rows_) {
         PaneData d;
-        SampleRow row = backend_.sample_row(static_cast<std::size_t>(r));
+        const std::size_t ri = static_cast<std::size_t>(r);
+        SampleRow row = backend_.sample_row(ri);
         d.file = q(row.file);
         d.name = q(row.name);
         d.sq = q(row.sq);
-        bool sized = !backend_.sized_range(static_cast<std::size_t>(r)).empty();
+        d.stype = q(row.stype);
+        d.panel = q(row.panel);
+        d.pqv = {{"SOS", q(row.sos)}, {"SQ", q(row.sq)}, {"SSPK", q(row.sspk)}, {"MIX", q(row.mix)}, {"OMR", q(row.omr)}, {"CGQ", q(row.cgq)}};
+        bool sized = !backend_.sized_range(ri).empty();
         const bool bp = view_.bp && sized;
-        auto traces = backend_.sample_traces(static_cast<std::size_t>(r), bp);
+        auto traces = backend_.sample_traces(ri, bp);
         d.lo = 1e300; d.hi = -1e300;
         for (const auto &t : traces) {
             TraceData td;
@@ -431,19 +541,23 @@ void PlotWindow::load() {
             d.traces.push_back(std::move(td));
         }
         if (bp) {
-            for (const auto &m : backend_.plot_markers(static_cast<std::size_t>(r))) {
+            for (const auto &m : backend_.plot_markers(ri)) {
                 MarkerData md{q(m.name), q(m.tag), q(m.gq), m.min_bp, m.max_bp, {}, {}};
                 for (double w : m.window) md.window << w;
                 for (std::size_t k = 0; k + 2 < m.bins.size(); k += 3) md.bins << BinData{m.bins[k], m.bins[k + 1], m.bins[k + 2] > 0.5};
                 d.markers << md;
             }
         }
-        for (const auto &l : backend_.plot_labels(static_cast<std::size_t>(r), bp))
-            d.labels << LabelData{q(l.tag), q(l.text), l.x, l.height, l.flagged, q(l.id), q(l.marker), q(l.kind), l.edited};
-        for (const auto &pk : backend_.sample_peaks(static_cast<std::size_t>(r), bp)) d.peaks << PeakData{q(pk.tag), pk.x, pk.height, pk.scan, pk.size_bp, pk.area};
+        for (const auto &l : backend_.plot_labels(ri, bp)) {
+            QStringList lines;
+            for (const auto &x : l.lines) lines << q(x);
+            d.labels << LabelData{q(l.tag), q(l.text), l.x, l.height, l.flagged, q(l.id), q(l.marker), q(l.kind), l.edited, lines};
+        }
+        for (const auto &pk : backend_.sample_peaks(ri, bp)) d.peaks << PeakData{q(pk.tag), pk.x, pk.height, pk.scan, pk.size_bp, pk.area, pk.offscale};
+        for (const auto &pk : backend_.size_std_marks(ri, bp)) d.stdMarks << PeakData{q(pk.tag), pk.x, pk.height, pk.scan, pk.size_bp, 0, false};
         d.sample = r;
         if (bp) {
-            auto range = backend_.sized_range(static_cast<std::size_t>(r));
+            auto range = backend_.sized_range(ri);
             d.lo = range[0] - 10; d.hi = range[1] + 10;
         } else {
             for (const auto &t : d.traces) if (!t.pts.isEmpty()) { d.lo = std::min(d.lo, t.pts.first().x()); d.hi = std::max(d.hi, t.pts.last().x()); }
@@ -459,25 +573,77 @@ ViewState PlotWindow::paneView(int item) const {
     return v;
 }
 
-// Panes: per sample one pane (combined dyes) or one pane per shown dye that the sample has (separate).
+// Panes: per sample one pane (combined dyes) or one pane per shown dye that the sample has (separate), or one pane
+// with every shown sample (overlay). Controls / allelic ladders first when the setting brings them to the top.
 void PlotWindow::rebuildPanes() {
     items_.clear();
-    for (int i = 0; i < panes_.size(); ++i) {
-        if (!view_.separate) { items_.push_back({i, QString()}); continue; }
-        for (const char *d : DYES) {
-            const QString tag = d;
-            if (!view_.dyes.contains(tag)) continue;
-            if (std::any_of(panes_[i].traces.begin(), panes_[i].traces.end(), [&](const TraceData &t) { return t.tag == tag; })) items_.push_back({i, tag});
+    QVector<int> order;
+    for (int i = 0; i < panes_.size(); ++i) order << i;
+    auto rank = [this](int i) {
+        const QString t = panes_[i].stype;
+        return (view_.laddersTop && t == "ladder") || (view_.controlsTop && (t == "positive" || t == "negative")) ? 0 : 1;
+    };
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rank(a) < rank(b); });
+    if (view_.layout == "overlay") {
+        overlay_ = PaneData{};
+        overlay_.overlay = true;
+        overlay_.lo = 1e300; overlay_.hi = -1e300;
+        QStringList names;
+        for (int i : order) {
+            const PaneData &d = panes_[i];
+            for (const auto &t : d.traces) if (view_.dyes.contains(t.tag)) overlay_.traces << t;
+            overlay_.labels << d.labels;
+            overlay_.peaks << d.peaks;
+            overlay_.stdMarks << d.stdMarks;
+            if (overlay_.markers.isEmpty()) overlay_.markers = d.markers;
+            overlay_.lo = std::min(overlay_.lo, d.lo);
+            overlay_.hi = std::max(overlay_.hi, d.hi);
+            names << (d.name.isEmpty() ? d.file : d.name);
+        }
+        overlay_.name = QString::fromUtf8("%1 образцов").arg(names.size());
+        if (!panes_.isEmpty()) items_.push_back({-1, QString()});
+    } else {
+        for (int i : order) {
+            if (view_.layout != "separate") { items_.push_back({i, QString()}); continue; }
+            for (const char *d : DYES) {
+                const QString tag = d;
+                if (!view_.dyes.contains(tag)) continue;
+                if (std::any_of(panes_[i].traces.begin(), panes_[i].traces.end(), [&](const TraceData &t) { return t.tag == tag; })) items_.push_back({i, tag});
+            }
         }
     }
+    selItem_ = -1;
+    sel_ = PaneSelection{};
+    updateYGlobal();
     if (!layout_) return;
     while (QLayoutItem *it = layout_->takeAt(0)) {
-        if (it->widget()) it->widget()->deleteLater();
+        if (QWidget *w = it->widget()) {   // out of the window at once (a pending delete must not paint a stale index)
+            w->hide();
+            w->setParent(nullptr);
+            w->deleteLater();
+        }
         delete it;
     }
     for (int k = 0; k < items_.size(); ++k) layout_->addWidget(new PaneWidget(this, k));
     layout_->addStretch(1);
     relayout();
+}
+
+// "Scale to the maximum Y of all panes": the highest shown (scaled) data point in the visible X range.
+void PlotWindow::updateYGlobal() {
+    view_.yGlobal = 0;
+    if (view_.yAxis != "max") return;
+    double x0, x1;
+    visibleRange(x0, x1);
+    for (int k = 0; k < items_.size(); ++k) {
+        const PaneData &d = paneData(k);
+        const ViewState v = paneView(k);
+        for (const auto &t : d.traces) {
+            if (!v.dyes.contains(t.tag)) continue;
+            const double f = v.scaleOf(t.tag);
+            for (const auto &pt : t.pts) if (pt.x() >= x0 && pt.x() <= x1) view_.yGlobal = std::max(view_.yGlobal, pt.y() * f);
+        }
+    }
 }
 
 void PlotWindow::visibleRange(double &x0, double &x1) const {
@@ -498,11 +664,24 @@ void PlotWindow::showCursor(double x, double) {
 }
 
 void PlotWindow::repaintPanes() {
+    if (!host_) return;
+    updateYGlobal();
     for (auto *w : host_->findChildren<PaneWidget *>()) w->update();
 }
 
 void PlotWindow::relayout() {
-    const int h = std::max(120, scroll_->viewport()->height() / std::max(1, view_.panes));
+    if (!scroll_ || !host_) return;
+    // multi-line labels (Labels tab) get extra room so the trace keeps its height
+    int nl = 1;
+    const QJsonObject L = setting_.value("labels").toObject();
+    for (const char *k : {"assigned", "custom", "ladder", "artifact"}) {
+        const QJsonArray a = L.value(k).toArray();
+        int n = 0;
+        while (n < a.size() && a.at(n).toString() != "none") ++n;
+        nl = std::max(nl, n);
+    }
+    const int extra = view_.labels == "none" ? 0 : 2 * (nl - 1) * (view_.labelSize + 3);
+    const int h = std::max(120 + extra, scroll_->viewport()->height() / std::max(1, view_.panes));
     for (auto *w : host_->findChildren<PaneWidget *>()) w->setFixedHeight(h);
     scroll_->verticalScrollBar()->setSingleStep(h);
     scroll_->verticalScrollBar()->setPageStep(h * view_.panes);
@@ -516,6 +695,130 @@ void PlotWindow::resizeEvent(QResizeEvent *e) {
 void PlotWindow::showEvent(QShowEvent *e) {
     QMainWindow::showEvent(e);
     QTimer::singleShot(0, this, [this] { relayout(); });
+}
+
+bool PlotWindow::eventFilter(QObject *o, QEvent *e) {
+    if (scroll_ && o == scroll_->viewport() && e->type() == QEvent::Resize) {
+        const int h = static_cast<QResizeEvent *>(e)->size().height();
+        if (h != lastViewportH_) { lastViewportH_ = h; QTimer::singleShot(0, this, [this] { relayout(); }); }
+    }
+    return QMainWindow::eventFilter(o, e);
+}
+
+void PlotWindow::closeEvent(QCloseEvent *e) {
+    saveLastView();
+    QMainWindow::closeEvent(e);
+}
+
+// ------------------------------------------------------------------ plot settings
+static const QList<QPair<QString, QString>> SETTING_DYES{{"blue", "DATA1"}, {"green", "DATA2"}, {"yellow", "DATA3"}, {"red", "DATA4"}, {"purple", "DATA106"}, {"orange", "DATA105"}};
+
+// Display Settings, Labels, Sample Header and Sizing Table of the setting; "use last" settings bring back the
+// interactive state of the last plot window that used them.
+void PlotWindow::applySetting(const QString &name) {
+    const QByteArray nb = name.toUtf8();
+    setting_ = parseJsonObject(q(backend_.plot_setting_json(rust::Str(nb.constData(), nb.size()))));
+    if (setting_.isEmpty()) return;
+    settingName_ = name;
+    backend_.plot_setting_set_active(rust::Str(nb.constData(), nb.size()));
+    const QJsonObject D = parseJsonObject(q(backend_.plot_setting_display(rust::Str(nb.constData(), nb.size()))));
+    view_.panes = std::clamp(D.value("panes").toInt(2), 1, 16);
+    view_.layout = D.value("layout").toString("separate");
+    view_.labels = D.value("labels").toString("h");
+    view_.bins = D.value("bins").toBool(true);
+    view_.header = D.value("header").toBool(true);
+    view_.markerRange = D.value("markerRange").toBool(true);
+    view_.indicators = D.value("markerIndicator").toBool(true);
+    view_.bp = D.value("xAxis").toString("bp") != "dp";
+    view_.yAxis = D.value("yAxis").toString("individual");
+    view_.yValue = D.value("yValue").toDouble(1000);
+    view_.peakPositions = D.value("peakPositions").toBool();
+    view_.offscale = D.value("offscale").toBool(true);
+    view_.alleleChanges = D.value("alleleChanges").toBool(true);
+    view_.sizeStdLabels = D.value("sizeStdLabels").toBool();
+    view_.controlsTop = D.value("controlsTop").toBool();
+    view_.laddersTop = D.value("laddersTop").toBool();
+    const QJsonObject dyes = D.value("dyes").toObject();
+    view_.dyes.clear();
+    for (const auto &d : SETTING_DYES) if (dyes.value(d.first).toBool(true)) view_.dyes.insert(d.second);
+    view_.colors.clear();
+    for (const auto &c : D.value("customColors").toArray()) view_.colors << c.toString();
+    view_.scale.clear();
+    const QJsonObject sc = D.value("dyeScales").toObject();
+    for (const auto &d : SETTING_DYES) view_.scale[d.second] = sc.value(d.first).toDouble(1.0);
+    view_.x0 = view_.x1 = 0;
+    if (!D.value("allDyes").toBool(true) && view_.bp && D.value("end").toDouble() > D.value("start").toDouble()) {
+        view_.x0 = D.value("start").toDouble();
+        view_.x1 = D.value("end").toDouble();
+    }
+    const QJsonObject L = setting_.value("labels").toObject();
+    view_.labelFont = L.value("font").toString("Serif");
+    view_.labelSize = L.value("size").toInt(10);
+    view_.colorScheme = L.value("color").toString("bw");
+    view_.sampleHeader.clear();
+    const QJsonObject H = setting_.value("sampleHeader").toObject();
+    for (auto it = H.begin(); it != H.end(); ++it) if (it.value().toBool()) view_.sampleHeader.insert(it.key());
+    const QJsonObject ST = setting_.value("sizingTable").toObject();
+    sizingCols_.clear();
+    const QJsonObject cols = ST.value("cols").toObject();
+    for (auto it = cols.begin(); it != cols.end(); ++it) if (it.value().toBool()) sizingCols_.insert(it.key());
+    sizingFont_ = ST.value("font").toString("Dialog");
+    sizingSize_ = ST.value("size").toInt(11);
+    const QString table = D.value("table").toString("genotypes");
+    table_ = table == "lev" ? "none" : table;
+    if (toolbar_) toolbar_->setVisible(D.value("toolbar").toBool(true));
+    if (!host_) return;   // constructor: the panes are built next
+    load();   // label lines follow the setting's Labels tab
+    rebuildPanes();
+    fillLower();
+    syncActions();
+    if (table == "lev" && onLabelEditViewer) QTimer::singleShot(0, this, [this] { if (onLabelEditViewer) onLabelEditViewer(); });
+}
+
+// "Use the display settings last used for this plot": the interactive state is kept when the window closes.
+void PlotWindow::saveLastView() {
+    if (settingName_.isEmpty() || setting_.value("display").toObject().value("persistence").toString() != "last") return;
+    QJsonObject dyes;
+    for (const auto &d : SETTING_DYES) dyes[d.first] = view_.dyes.contains(d.second);
+    const QJsonObject v{{"panes", view_.panes}, {"layout", view_.layout}, {"labels", view_.labels}, {"bins", view_.bins}, {"header", view_.header},
+                        {"markerRange", view_.markerRange}, {"table", table_}, {"xAxis", view_.bp ? "bp" : "dp"}, {"yAxis", view_.yAxis}, {"dyes", dyes}};
+    const QByteArray nb = settingName_.toUtf8(), js = QJsonDocument(v).toJson(QJsonDocument::Compact);
+    backend_.plot_setting_save_view(rust::Str(nb.constData(), nb.size()), rust::Str(js.constData(), js.size()));
+}
+
+void PlotWindow::fillSettingBox() {
+    if (!settingBox_) return;
+    QSignalBlocker block(settingBox_);
+    settingBox_->clear();
+    for (const auto &n : backend_.plot_setting_names()) settingBox_->addItem(q(n));
+    settingBox_->setCurrentText(settingName_);
+}
+
+// check marks of the menu after a setting changed the view
+void PlotWindow::syncActions() {
+    auto set = [this](const QString &k, bool on) { if (auto *a = acts_.value(k)) { QSignalBlocker b(a); a->setChecked(on); } };
+    for (const char *d : DYES) set(QString("dye:") + d, view_.dyes.contains(d));
+    for (const char *l : {"separate", "combine", "overlay"}) set(QString("layout:") + l, view_.layout == l);
+    for (const char *t : {"none", "sizing", "genotypes"}) set(QString("table:") + t, table_ == t);
+    for (const char *l : {"none", "h", "v"}) set(QString("labels:") + l, view_.labels == l);
+    for (const char *y : {"individual", "max", "entered"}) set(QString("y:") + y, view_.yAxis == y);
+    set("x:bp", view_.bp);
+    set("x:dp", !view_.bp);
+    set("bins", view_.bins);
+    set("markerRange", view_.markerRange);
+    set("indicators", view_.indicators);
+    set("header", view_.header);
+    set("peakPositions", view_.peakPositions);
+    set("offscale", view_.offscale);
+    set("sizeStdLabels", view_.sizeStdLabels);
+    set("alleleChanges", view_.alleleChanges);
+    set("customColors", view_.customColors);
+    set("controlsTop", view_.controlsTop);
+    set("laddersTop", view_.laddersTop);
+    set("toolbar", toolbar_ && toolbar_->isVisible());
+    if (auto *a = acts_.value("y:entered")) a->setText(QString::fromUtf8("По введённому значению (%1)...").arg(view_.yValue));
+    if (panesBox_) { QSignalBlocker b(panesBox_); panesBox_->setValue(view_.panes); }
+    fillSettingBox();
 }
 
 void PlotWindow::buildMenus() {
@@ -542,90 +845,127 @@ void PlotWindow::buildMenus() {
     edit->addAction(QString::fromUtf8("Добавить &аллель на выделенный пик..."), QKeySequence("Insert"), this, [this] { editSelected("add"); });
 
     auto *view = menuBar()->addMenu(QString::fromUtf8("&Вид"));
-    auto *tb = addToolBar(QString::fromUtf8("Графики"));
-    tb->setObjectName("plotToolbar");
-    tb->setIconSize(QSize(16, 16));
+    toolbar_ = addToolBar(QString::fromUtf8("Графики"));
+    toolbar_->setObjectName("plotToolbar");
+    toolbar_->setIconSize(QSize(16, 16));
+    auto *tb = toolbar_;
+    // plot setting of the window (ID-X toolbar "Plot Setting") and its editor
+    tb->addWidget(new QLabel(QString::fromUtf8(" Настройка: ")));
+    settingBox_ = new QComboBox;
+    settingBox_->setMinimumContentsLength(18);
+    settingBox_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    connect(settingBox_, &QComboBox::currentTextChanged, this, [this](const QString &n) { if (!n.isEmpty() && n != settingName_) { saveLastView(); applySetting(n); } });
+    tb->addWidget(settingBox_);
+    auto *aEditSetting = tb->addAction(QString::fromUtf8("Изменить..."), this, [this] {
+        PlotSettingsEditor ed(backend_, setting_, settingName_, false, this);
+        if (ed.exec() == QDialog::Accepted) applySetting(ed.savedName());
+    });
+    aEditSetting->setToolTip(QString::fromUtf8("Редактор настроек графика"));
+    tb->addSeparator();
     tb->addAction(aPrint);
     tb->addAction(aPreview);
     tb->addAction(aPdf);
     tb->addSeparator();
+    auto check = [this](QMenu *m, const QString &key, const QString &label, const char *sc, bool on, std::function<void(bool)> f) {
+        auto *a = m->addAction(label);
+        a->setCheckable(true);
+        a->setChecked(on);
+        if (sc && *sc) a->setShortcut(QKeySequence(sc));
+        connect(a, &QAction::toggled, this, f);
+        acts_[key] = a;
+        return a;
+    };
     const char *keys[] = {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+0"};
     for (int k = 0; k < 6; ++k) {
         const QString tag = DYES[k];
-        auto *a = view->addAction(colorIcon(dyeSwatch(tag)), QString::fromUtf8("Краситель: ") + dyeName(tag));
-        a->setCheckable(true);
-        a->setChecked(view_.dyes.contains(tag));
-        a->setShortcut(QKeySequence(keys[k]));
-        connect(a, &QAction::toggled, this, [this, tag](bool on) { if (on) view_.dyes.insert(tag); else view_.dyes.remove(tag); if (view_.separate) rebuildPanes(); else repaintPanes(); if (table_ == "sizing") fillLower(); });
+        auto *a = check(view, "dye:" + tag, QString::fromUtf8("Краситель: ") + dyeName(tag), keys[k], view_.dyes.contains(tag), [this, tag](bool on) {
+            if (on) view_.dyes.insert(tag); else view_.dyes.remove(tag);
+            if (view_.layout != "combine") rebuildPanes(); else repaintPanes();
+            if (table_ == "sizing") fillLower();
+        });
+        a->setIcon(colorIcon(dyeSwatch(tag)));
         tb->addAction(a);
     }
+    view->addSeparator();
+    check(view, "toolbar", QString::fromUtf8("Панель инструментов"), "", true, [this](bool on) { toolbar_->setVisible(on); });
+    check(view, "header", QString::fromUtf8("Заголовок графика"), "", view_.header, [this](bool on) { view_.header = on; repaintPanes(); });
     tb->addSeparator();
     auto *plots = menuBar()->addMenu(QString::fromUtf8("&Графики"));
     auto *aFull = plots->addAction(style()->standardIcon(QStyle::SP_BrowserReload), QString::fromUtf8("Полный вид"), this, [this] { fullView(); });
     aFull->setShortcut(QKeySequence("Ctrl+]"));
     tb->addAction(aFull);
     plots->addSeparator();
-    auto toggle = [this, plots, tb](const char *label, const char *key, bool ViewState::*field) {
-        auto *a = plots->addAction(QString::fromUtf8(label));
-        a->setCheckable(true);
-        a->setChecked(view_.*field);
-        a->setShortcut(QKeySequence(key));
-        connect(a, &QAction::toggled, this, [this, field](bool on) { view_.*field = on; repaintPanes(); });
-        Q_UNUSED(tb);
-        return a;
-    };
-    {
-        auto *lay = plots->addMenu(QString::fromUtf8("Компоновка"));
-        auto *lg = new QActionGroup(this);
-        auto *aSep = lay->addAction(QString::fromUtf8("Раздельно (краситель на панель)"));
-        auto *aComb = lay->addAction(QString::fromUtf8("Совмещённо (все красители образца)"));
-        for (auto *a : {aSep, aComb}) { a->setCheckable(true); lg->addAction(a); }
-        aSep->setChecked(view_.separate);
-        aComb->setChecked(!view_.separate);
-        aSep->setShortcut(QKeySequence("Ctrl+8"));
-        aComb->setShortcut(QKeySequence("Ctrl+7"));
-        connect(aSep, &QAction::triggered, this, [this] { view_.separate = true; rebuildPanes(); });
-        connect(aComb, &QAction::triggered, this, [this] { view_.separate = false; rebuildPanes(); });
-    }
-    {
-        auto *tm = plots->addMenu(QString::fromUtf8("Таблица"));
-        auto *tg = new QActionGroup(this);
-        for (auto [key, label, sc] : {std::tuple{"none", "Без таблицы", "Ctrl+Q"}, std::tuple{"sizing", "Таблица размеров (Sizing)", "Ctrl+A"}, std::tuple{"genotypes", "Таблица генотипов", "Ctrl+W"}}) {
-            auto *a = tm->addAction(QString::fromUtf8(label));
+    auto radio = [this](QMenu *m, const QString &group, const QList<std::tuple<QString, QString, const char *>> &items, const QString &cur, std::function<void(const QString &)> f) {
+        auto *g = new QActionGroup(this);
+        for (const auto &[key, label, sc] : items) {
+            auto *a = m->addAction(label);
             a->setCheckable(true);
-            a->setChecked(table_ == key);
-            a->setShortcut(QKeySequence(sc));
-            tg->addAction(a);
+            a->setChecked(key == cur);
+            if (sc && *sc) a->setShortcut(QKeySequence(sc));
+            g->addAction(a);
+            acts_[group + ":" + key] = a;
             const QString k = key;
-            connect(a, &QAction::triggered, this, [this, k] { table_ = k; fillLower(); });
+            connect(a, &QAction::triggered, this, [f, k] { f(k); });
         }
-    }
-    toggle("Бины", "Ctrl+Shift+B", &ViewState::bins);
-    toggle("Диапазоны маркеров", "Ctrl+Shift+R", &ViewState::markerRange);
-    toggle("Метки аллелей", "Ctrl+Shift+H", &ViewState::labels);
-    toggle("Индикаторы маркеров", "Ctrl+K", &ViewState::indicators);
+    };
+    radio(plots->addMenu(QString::fromUtf8("Компоновка")), "layout",
+          {{"combine", QString::fromUtf8("Объединить красители"), "Ctrl+7"}, {"separate", QString::fromUtf8("Разделить красители"), "Ctrl+8"}, {"overlay", QString::fromUtf8("Наложить все"), "Ctrl+9"}},
+          view_.layout, [this](const QString &k) { view_.layout = k; rebuildPanes(); });
+    radio(plots->addMenu(QString::fromUtf8("Таблица")), "table",
+          {{"none", QString::fromUtf8("Без таблицы"), "Ctrl+Q"}, {"sizing", QString::fromUtf8("Таблица размеров (Sizing)"), "Ctrl+A"}, {"genotypes", QString::fromUtf8("Таблица генотипов"), "Ctrl+W"}},
+          table_, [this](const QString &k) { table_ = k; fillLower(); });
+    radio(plots->addMenu(QString::fromUtf8("Обозначения")), "labels",
+          {{"none", QString::fromUtf8("Без обозначений"), "Ctrl+Shift+N"}, {"h", QString::fromUtf8("Горизонтальные обозначения"), "Ctrl+Shift+H"}, {"v", QString::fromUtf8("Вертикальные обозначения"), "Ctrl+Shift+V"}},
+          view_.labels, [this](const QString &k) { view_.labels = k; relayout(); repaintPanes(); });
+    check(plots, "bins", QString::fromUtf8("Бины"), "Ctrl+Shift+B", view_.bins, [this](bool on) { view_.bins = on; repaintPanes(); });
+    check(plots, "markerRange", QString::fromUtf8("Диапазоны маркеров"), "Ctrl+R", view_.markerRange, [this](bool on) { view_.markerRange = on; repaintPanes(); });
+    check(plots, "indicators", QString::fromUtf8("Индикаторы маркеров"), "Ctrl+K", view_.indicators, [this](bool on) { view_.indicators = on; repaintPanes(); });
+    check(plots, "peakPositions", QString::fromUtf8("Положения пиков"), "", view_.peakPositions, [this](bool on) { view_.peakPositions = on; repaintPanes(); });
+    check(plots, "offscale", QString::fromUtf8("Индикатор зашкаливающих пиков"), "", view_.offscale, [this](bool on) { view_.offscale = on; repaintPanes(); });
+    check(plots, "sizeStdLabels", QString::fromUtf8("Обозначения размерного стандарта"), "", view_.sizeStdLabels, [this](bool on) { view_.sizeStdLabels = on; repaintPanes(); });
+    check(plots, "alleleChanges", QString::fromUtf8("Изменения аллелей"), "", view_.alleleChanges, [this](bool on) { view_.alleleChanges = on; repaintPanes(); });
+    check(plots, "customColors", QString::fromUtf8("Свои цвета кривых"), "", view_.customColors, [this](bool on) { view_.customColors = on; repaintPanes(); });
+    check(plots, "controlsTop", QString::fromUtf8("Контроли наверх"), "", view_.controlsTop, [this](bool on) { view_.controlsTop = on; rebuildPanes(); });
+    check(plots, "laddersTop", QString::fromUtf8("Леддеры наверх"), "", view_.laddersTop, [this](bool on) { view_.laddersTop = on; rebuildPanes(); });
     plots->addSeparator();
-    auto *axis = plots->addMenu(QString::fromUtf8("Ось X"));
-    auto *grp = new QActionGroup(this);
-    auto *aBp = axis->addAction(QString::fromUtf8("Пары нуклеотидов"));
-    auto *aDp = axis->addAction(QString::fromUtf8("Точки данных"));
-    for (auto *a : {aBp, aDp}) { a->setCheckable(true); grp->addAction(a); }
-    aBp->setChecked(true);
-    aBp->setShortcut(QKeySequence("Ctrl+Y"));
-    aDp->setShortcut(QKeySequence("Ctrl+N"));
-    connect(aBp, &QAction::triggered, this, [this] { view_.bp = true; view_.x0 = view_.x1 = 0; load(); rebuildPanes(); });
-    connect(aDp, &QAction::triggered, this, [this] { view_.bp = false; view_.x0 = view_.x1 = 0; load(); rebuildPanes(); });
+    radio(plots->addMenu(QString::fromUtf8("Ось X")), "x", {{"bp", QString::fromUtf8("Пары нуклеотидов"), "Ctrl+Y"}, {"dp", QString::fromUtf8("Точки данных"), "Ctrl+N"}},
+          view_.bp ? "bp" : "dp", [this](const QString &k) { view_.bp = k == "bp"; view_.x0 = view_.x1 = 0; load(); rebuildPanes(); });
+    radio(plots->addMenu(QString::fromUtf8("Масштаб по оси Y")), "y",
+          {{"max", QString::fromUtf8("Масштаб по максимуму Y"), "Ctrl+Shift+M"}, {"individual", QString::fromUtf8("Масштабировать индивидуально"), "Ctrl+Shift+D"},
+           {"entered", QString::fromUtf8("По введённому значению (%1)...").arg(view_.yValue), "Ctrl+Shift+Y"}},
+          view_.yAxis, [this](const QString &k) {
+              if (k == "entered") {
+                  bool ok = false;
+                  const double v = QInputDialog::getDouble(this, QString::fromUtf8("Масштаб по оси Y"), QString::fromUtf8("Максимум оси Y (RFU):"), view_.yValue, 1, 1e7, 0, &ok);
+                  if (!ok) { syncActions(); return; }
+                  view_.yValue = v;
+              }
+              view_.yAxis = k;
+              syncActions();
+              repaintPanes();
+          });
+    plots->addSeparator();
+    plots->addAction(QString::fromUtf8("Настройки графиков..."), this, [this] {
+        PlotSettingsManager m(backend_, this);
+        m.exec();
+        if (q(backend_.plot_setting_json(rust::Str(settingName_.toUtf8().constData(), settingName_.toUtf8().size()))).isEmpty()) applySetting(q(backend_.plot_setting_active()));
+        else fillSettingBox();
+    });
+    plots->addAction(aEditSetting);
     tb->addSeparator();
     tb->addWidget(new QLabel(QString::fromUtf8(" Панели: ")));
     panesBox_ = new QSpinBox;
-    panesBox_->setRange(1, 8);
+    panesBox_->setRange(1, 16);
     panesBox_->setValue(view_.panes);
-    connect(panesBox_, qOverload<int>(&QSpinBox::valueChanged), this, [this](int n) { view_.panes = n; QSettings().setValue("plot/panes", n); relayout(); });
+    connect(panesBox_, qOverload<int>(&QSpinBox::valueChanged), this, [this](int n) { view_.panes = n; relayout(); });
     tb->addWidget(panesBox_);
     auto *help = menuBar()->addMenu(QString::fromUtf8("&Справка"));
     help->addAction(QString::fromUtf8("Управление графиком"), this, [this] {
         statusBar()->showMessage(QString::fromUtf8("Протяжка мышью — увеличить участок; двойной щелчок — полный вид; Ctrl+колесо — масштаб; Ctrl+1…5, Ctrl+0 — красители"), 10000);
     });
+    fillSettingBox();
+    toolbar_->setVisible(setting_.value("display").toObject().value("toolbar").toBool(true));
+    syncActions();
 }
 
 // ------------------------------------------------------------------ printing (vector)
@@ -851,8 +1191,15 @@ void PlotWindow::fillLower() {
     if (table_ == "none") return;
     static const QHash<QString, QString> letter{{"DATA1", "B"}, {"DATA2", "G"}, {"DATA3", "Y"}, {"DATA4", "R"}, {"DATA105", "O"}, {"DATA106", "P"}};
     if (table_ == "sizing") {
-        const QStringList head{QString::fromUtf8("Краситель/пик"), QString::fromUtf8("Файл образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Аллель"),
-                               QString::fromUtf8("Размер"), QString::fromUtf8("Высота"), QString::fromUtf8("Площадь"), QString::fromUtf8("Точка данных")};
+        // columns of the plot setting's Sizing Table tab (ID-X order), its font
+        static const QList<QPair<QString, QString>> COLS{{"sampleFileName", "Файл образца"}, {"marker", "Маркер"}, {"dyeSamplePeak", "Краситель/пик"}, {"minutes", "Минуты"},
+                                                         {"size", "Размер"}, {"height", "Высота"}, {"area", "Площадь"}, {"dataPoint", "Точка данных"}, {"alleleCall", "Аллель"}};
+        QStringList keys, head;
+        for (const auto &c : COLS) if (sizingCols_.isEmpty() || sizingCols_.contains(c.first)) { keys << c.first; head << c.second; }
+        QFont tf = lower_->font();
+        tf.setFamily(sizingFont_ == "Dialog" || sizingFont_ == "SansSerif" ? QString("Arial") : sizingFont_ == "Serif" ? QString("Times New Roman") : sizingFont_ == "Monospaced" || sizingFont_ == "DialogInput" ? QString("Courier New") : sizingFont_);
+        tf.setPixelSize(std::max(8, sizingSize_ + 2));
+        lower_->setFont(tf);
         lower_->setColumnCount(head.size());
         lower_->setHorizontalHeaderLabels(head);
         int row = 0;
@@ -869,13 +1216,16 @@ void PlotWindow::fillLower() {
                     const PeakData &pk = d.peaks[k];
                     ++n;
                     const LabelData *lab = nullptr;
-                    for (const auto &l : d.labels) if (l.tag == tag && std::abs(l.x - pk.x) < 0.05) { lab = &l; break; }
+                    for (const auto &l : d.labels) if (l.kind == "call" && l.tag == tag && std::abs(l.x - pk.x) < 0.05) { lab = &l; break; }
                     lower_->insertRow(row);
-                    const QStringList v{QString("%1,%2").arg(letter.value(tag, tag)).arg(n), d.file, lab ? lab->marker : QString(), lab ? lab->text : QString(),
-                                        QString::number(pk.size, 'f', 2), QString::number(std::lround(pk.height)), QString::number(std::lround(pk.area)), QString::number(std::lround(pk.scan))};
-                    for (int c = 0; c < v.size(); ++c) {
-                        auto *it = new QTableWidgetItem(v[c]);
-                        if (c == 0) { it->setIcon(colorIcon(dyeSwatch(tag))); it->setData(Qt::UserRole, di); it->setData(Qt::UserRole + 1, k); }
+                    const QHash<QString, QString> v{{"sampleFileName", d.file}, {"marker", lab ? lab->marker : QString()}, {"dyeSamplePeak", QString("%1,%2").arg(letter.value(tag, tag)).arg(n)},
+                                                    {"minutes", QString()}, {"size", QString::number(pk.size, 'f', 2)}, {"height", QString::number(std::lround(pk.height))},
+                                                    {"area", QString::number(std::lround(pk.area))}, {"dataPoint", QString::number(std::lround(pk.scan))}, {"alleleCall", lab ? lab->text : QString()}};
+                    for (int c = 0; c < keys.size(); ++c) {
+                        auto *it = new QTableWidgetItem(v.value(keys[c]));
+                        if (keys[c] == "dyeSamplePeak") it->setIcon(colorIcon(dyeSwatch(tag)));
+                        it->setData(Qt::UserRole, di);
+                        it->setData(Qt::UserRole + 1, k);
                         lower_->setItem(row, c, it);
                     }
                     ++row;
@@ -883,6 +1233,7 @@ void PlotWindow::fillLower() {
             }
         }
     } else {
+        lower_->setFont(QFont());
         QStringList head{QString::fromUtf8("Имя образца"), QString::fromUtf8("Маркер"), QString::fromUtf8("Аллель 1"), QString::fromUtf8("Аллель 2"),
                          QString::fromUtf8("Аллель 3"), QString::fromUtf8("Аллель 4"), "GQ"};
         lower_->setColumnCount(head.size());

@@ -1,5 +1,6 @@
 #include "opentrace-qt/cpp/mainwindow.h"
 #include "opentrace-qt/cpp/plotwindow.h"
+#include "opentrace-qt/cpp/plotsettingsdialog.h"
 #include "opentrace-qt/cpp/samplemodel.h"
 #include "opentrace-qt/cpp/style.h"
 #include "opentrace-qt/cpp/simpleplot.h"
@@ -34,6 +35,7 @@
 #include <QTableView>
 #include <QTextStream>
 #include <QTimer>
+#include <QRegularExpression>
 #include <QEventLoop>
 #include <QToolBar>
 #include <QTreeWidget>
@@ -276,6 +278,7 @@ void MainWindow::buildMenus() {
 
     auto *tools = menuBar()->addMenu(QString::fromUtf8("&Инструменты"));
     tools->addAction(QString::fromUtf8("Менеджер &панелей..."), QKeySequence("Ctrl+J"), this, [this] { panelManager(); });
+    tools->addAction(QString::fromUtf8("Настройки &графиков..."), this, [this] { PlotSettingsManager m(*backend_, this); m.exec(); });
     tools->addSeparator();
     tools->addAction(QString::fromUtf8("Импорт &метода анализа (GeneMapper XML)..."), this, [this] { importLibraryFile(true); });
     tools->addAction(QString::fromUtf8("Импорт &стандарта длин (GeneMapper XML)..."), this, [this] { importLibraryFile(false); });
@@ -457,6 +460,7 @@ void MainWindow::pollProgress() {
             rows << QString("{\"file\":\"%1\",\"status\":\"%2\",\"sq\":\"%3\",\"error\":\"%4\"}").arg(rv.file, rv.status, rv.sq, err);
         }
         bool pdf = false;
+        int plotSettings = 0;
         if (!ok.isEmpty()) {
             auto *w = new PlotWindow(*backend_, ok.mid(0, 3), nullptr);
             w->resize(1400, 900);
@@ -466,6 +470,18 @@ void MainWindow::pollProgress() {
             wait.exec();
             w->grab().save(out + "/plot.png");
             pdf = w->savePdf(out + "/plots.pdf");
+            // every factory plot setting applied to the same window (layouts, tables, labels), one screenshot each
+            for (const auto &n : backend_->plot_setting_names()) {
+                const QString name = q(n);
+                w->applySetting(name);
+                QTimer::singleShot(150, &wait, &QEventLoop::quit);
+                wait.exec();
+                QString file = name;
+                file.replace(QRegularExpression("[^A-Za-z0-9]+"), "_");
+                w->grab().save(out + "/plot_setting_" + file + ".png");
+                ++plotSettings;
+            }
+            w->applySetting("Data Interpretation");
             w->close();
         }
         // label edit round trip: delete one allele label of the first genotyped sample, then undo it
@@ -502,8 +518,8 @@ void MainWindow::pollProgress() {
         model_->refresh();
         QFile f(out + "/result.json");
         if (f.open(QIODevice::WriteOnly)) {
-            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"edit_ok\":%8,\"rows\":[%6]}\n")
-                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").arg(editOk ? "true" : "false").toUtf8());
+            f.write(QString("{\"samples\":%1,\"analyzed\":%2,\"failed\":%3,\"pdf\":%4,\"genotype_rows\":%5,\"reopen_identical\":%7,\"edit_ok\":%8,\"plot_settings\":%9,\"rows\":[%6]}\n")
+                        .arg(model_->rowCount()).arg(ok.size()).arg(failed).arg(pdf ? "true" : "false").arg(genoTable_->rowCount()).arg(rows.join(",")).arg(reopen ? "true" : "false").arg(editOk ? "true" : "false").arg(plotSettings).toUtf8());
         }
         QApplication::exit(ok.isEmpty() ? 1 : 0);
     });
@@ -552,6 +568,7 @@ void MainWindow::showPlots() {
     if (ok.isEmpty()) { QMessageBox::information(this, "OpenTrace", QString::fromUtf8("Выделенные образцы ещё не проанализированы.")); return; }
     auto *w = new PlotWindow(*backend_, ok, nullptr);
     w->onEdited = [this] { model_->refreshValues(); refreshGenotypes(); markDirty(); };
+    w->onLabelEditViewer = [this] { labelEditViewer(); };
     w->show();
 }
 

@@ -5,6 +5,7 @@ mod edits;
 mod flags;
 mod genotype;
 mod kits;
+mod plotsettings;
 mod project;
 
 // Qt support libraries of cxx-qt are linked (their C++ initialisers run before the application starts).
