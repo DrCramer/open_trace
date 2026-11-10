@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=OpenTrace
+Name[ru]=OpenTrace
+GenericName=Fragment analysis
+GenericName[ru]=Анализ фрагментов ДНК
+Comment=Open-source fragment analysis (research software, not validated for diagnostic or forensic use)
+Comment[ru]=Анализ фрагментов ДНК с открытым кодом (исследовательское ПО, не валидировано для диагностического и судебно-экспертного применения)
+Exec=opentrace-qt
+Icon=opentrace-qt
+Terminal=false
+Categories=Science;Biology;Graphics;
+StartupNotify=true
+StartupWMClass=opentrace-qt

@@ -1,0 +1,102 @@
+name: native-qt-astra
+
+# OpenTrace Qt for Astra Linux Special Edition 1.7.x (glibc 2.28): Qt 6 built from source and the application compiled inside
+# the manylinux_2_28 image (AlmaLinux 8, glibc 2.28), self-contained folder, DEB + portable tar.gz, ABI check, tests on a clean
+# Debian 10 (glibc 2.28). The Docker images are used on the CI runner only; the user needs no Docker.
+# The existing native-qt workflow (opentrace-qt-linux, opentrace-qt-windows) is not touched.
+on:
+  push:
+    branches: [feature/native-qt-desktop]
+  pull_request:
+    paths: ['desktop/opentrace-qt/**', 'core/**', 'resources/**', '.github/workflows/native-qt-astra.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  QT_VER: '6.8.3'
+  BUILDER_IMAGE: quay.io/pypa/manylinux_2_28_x86_64:latest
+  PKG: desktop/opentrace-qt/packaging/astra
+
+jobs:
+  astra-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt cache (built once per Qt version and build script)
+        id: qtcache
+        uses: actions/cache@v4
+        with:
+          path: ~/astra-qt
+          key: astra-qt-${{ env.QT_VER }}-${{ hashFiles('desktop/opentrace-qt/packaging/astra/build-qt.sh', 'desktop/opentrace-qt/packaging/astra/common.sh') }}
+
+      - name: Rust cache (cargo registry and toolchain of the container)
+        uses: actions/cache@v4
+        with:
+          path: ~/astra-cache
+          key: astra-cargo-${{ hashFiles('desktop/opentrace-qt/Cargo.lock') }}
+          restore-keys: astra-cargo-
+
+      - name: Builder image (glibc 2.28)
+        run: |
+          mkdir -p ~/astra-qt ~/astra-cache _astra
+          docker pull "$BUILDER_IMAGE"
+          docker image inspect "$BUILDER_IMAGE" --format '{{index .RepoDigests 0}}' | tee _astra/builder-image.txt
+
+      - name: Qt ${{ env.QT_VER }} from source (glibc 2.28)
+        if: steps.qtcache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$PWD:/work" -v "$HOME/astra-qt:/opt/qt" -v "$HOME/astra-cache:/cache" \
+            -e QT_VER "$BUILDER_IMAGE" bash /work/$PKG/build-qt.sh
+
+      - name: Build opentrace-qt (release, glibc 2.28)
+        run: |
+          docker run --rm -v "$PWD:/work" -v "$HOME/astra-qt:/opt/qt:ro" -v "$HOME/astra-cache:/cache" \
+            -e QT_VER "$BUILDER_IMAGE" bash /work/$PKG/build-app.sh
+
+      - name: Application folder (Qt libraries, plugins, resources, licences)
+        run: |
+          docker run --rm -v "$PWD:/work" -v "$HOME/astra-qt:/opt/qt:ro" -v "$HOME/astra-cache:/cache" \
+            "$BUILDER_IMAGE" bash -c ". /work/$PKG/common.sh && cd /work && python3 /work/$PKG/package.py"
+          find _astra/dist/OpenTrace-Qt -maxdepth 2 | sort | head -60
+          du -sh _astra/dist/OpenTrace-Qt
+
+      - name: ABI check of every ELF file (glibc <= 2.28)
+        run: |
+          mkdir -p _astra/out
+          docker run --rm -v "$PWD:/work" "$BUILDER_IMAGE" bash -c "/opt/python/cp312-cp312/bin/python3 /work/$PKG/check_abi.py /work/_astra/dist/OpenTrace-Qt /work/_astra/out/abi-report.txt"
+
+      - name: DEB and portable tar.gz
+        run: |
+          ver="$(grep -m1 '^version' desktop/opentrace-qt/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')~git$(git rev-parse --short HEAD)"
+          bash $PKG/make-packages.sh _astra/dist/OpenTrace-Qt _astra/out "$ver"
+          cp _astra/builder-image.txt _astra/dist/OpenTrace-Qt/licenses/ 2>/dev/null || true
+
+      - name: Tests on a clean Debian 10 (glibc 2.28, minimal system libraries)
+        run: bash $PKG/test-debian10.sh _astra/out _astra/out/test
+
+      - name: Release-build compatibility summary
+        if: always()
+        run: |
+          { echo '### OpenTrace Qt for Astra Linux 1.7 (glibc 2.28)'; echo; echo '```'; cat _astra/out/abi-report.txt 2>/dev/null; echo '```';
+            echo '```'; tail -5 _astra/out/test/test-debian10.log 2>/dev/null; echo '```';
+            echo 'Real Astra Linux 1.7.9.41 / Fly Desktop is NOT tested by this job: manual check pending.'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Make files removable by the runner
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" _astra ~/astra-qt ~/astra-cache || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opentrace-qt-astra-1.7-x86_64
+          path: |
+            _astra/out/*.deb
+            _astra/out/*.tar.gz
+            _astra/out/abi-report.txt
+            _astra/out/test/
+            _astra/builder-image.txt
+          if-no-files-found: warn
