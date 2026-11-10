@@ -7,19 +7,24 @@
 Сборка: workflow `.github/workflows/native-qt-astra.yml`, артефакт `opentrace-qt-astra-1.7-x86_64`
 (действующие артефакты `opentrace-qt-linux` и `opentrace-qt-windows` не затронуты).
 
-## Что проверено (статус на момент написания)
+## Что проверено (CI-прогон native-qt-astra #42877017056, коммит 3660127, зелёный)
 
 | Проверка | Статус |
 |---|---|
-| Сборка в окружении с glibc 2.28 (AlmaLinux 8, образ manylinux_2_28) | в CI |
-| Ни один ELF-файл пакета не требует `GLIBC_` новее 2.28 (`check_abi.py`) | в CI |
-| Самотест (6 выдуманных FSA → анализ → генотипы → окно графиков → PDF → проект → правка/отмена) на чистом Debian 10 (glibc 2.28) с `offscreen` и с X-сервером Xvfb (`xcb`) | в CI |
-| Установка/запуск/удаление DEB на Debian 10 | в CI |
-| Путь с кириллицей, каталог приложения только для чтения | в CI |
+| Сборка в окружении с glibc 2.28 (AlmaLinux 8, образ manylinux_2_28) |выполнено в CI |
+| Ни один ELF-файл пакета не требует `GLIBC_` новее 2.28 (`check_abi.py`) |выполнено в CI |
+| Самотест (6 выдуманных FSA → анализ → генотипы → окно графиков → PDF → проект → правка/отмена) на чистом Debian 10 (glibc 2.28) с `offscreen` и с X-сервером Xvfb (`xcb`) |выполнено в CI |
+| Установка/запуск/удаление DEB на Debian 10 |выполнено в CI |
+| Путь с кириллицей, каталог приложения только для чтения |выполнено в CI |
 | **Реальная Astra Linux 1.7.9.41, Fly Desktop (X11), печать, системные диалоги, масштаб/DPI, сетевые каталоги** | **не проверено — ждёт ручной проверки** |
 
 Debian 10 имеет ту же glibc 2.28, но это не Astra: результаты CI не заменяют проверку на реальной системе.
-Результаты каждого прогона — в артефакте (`abi-report.txt`, `test/test-debian10.log`, `test/*/result.json`).
+Факты прогона: Qt 6.8.3; 49 ELF-файлов, максимальный требуемый `GLIBC_` = 2.28, `GLIBCXX_3.4.21` (поставляется libstdc++ до 3.4.25);
+в `lib/` 40 библиотек (Qt6 Core/Gui/Widgets/PrintSupport/XcbQpa, xcb-*, xkbcommon(-x11), libstdc++, libgcc_s и транзитивные
+зависимости из AlmaLinux 8, в т.ч. цепочка libcups: gcrypt/nettle/p11-kit/mount и др.); системными остаются libc, X11,
+fontconfig, freetype, cups, uuid, selinux, cap-ng, Xau. Тест Debian 10: «ALL PASSED» (120/120 маркеров, PDF, повторное
+открытие проекта идентично, правка, 11 настроек графика, кириллический путь `/opt/тест`, Xvfb+xcb, DEB установка/удаление).
+Размер: DEB 13,8 МБ, tar.gz 18,9 МБ. Результаты каждого прогона — в артефакте (`abi-report.txt`, `test/test-debian10.log`, `test/*/result.json`).
 
 ## Поддерживаемые системы
 
@@ -94,7 +99,7 @@ glibc, загрузчик и библиотеки X11/fontconfig/freetype/OpenGL
 * Приложение и Qt компилируются **внутри образа manylinux_2_28** (AlmaLinux 8, glibc 2.28): бинарники физически не могут
   потребовать более новых символов glibc, чем есть в этом окружении. Сборка на Ubuntu 24.04 не используется.
 * Qt 6.8.3 (только `qtbase`) собирается из официальных исходников (`build-qt.sh`, md5 из `md5sums.txt` сервера Qt):
-  `-no-opengl -no-dbus -no-glib -no-icu -no-openssl -qt-zlib -qt-libpng -qt-libjpeg -qt-harfbuzz -qt-pcre -qt-freetype
+  `-no-opengl -no-dbus -no-glib -no-icu -no-openssl -qt-zlib -qt-libpng -qt-libjpeg -qt-harfbuzz -qt-pcre -system-freetype
   -fontconfig -xcb -xkbcommon -bundled-xcb-xinput -cups`.
 * `package.py` кладёт в `lib/` Qt и транзитивные зависимости плагина xcb (xcb-*, xkbcommon, libstdc++ сборочного
   компилятора), кроме glibc и системных библиотек из `sysdeps.py`; `patchelf` задаёт `$ORIGIN`-пути поиска.
@@ -108,9 +113,9 @@ glibc, загрузчик и библиотеки X11/fontconfig/freetype/OpenGL
 ```bash
 B=quay.io/pypa/manylinux_2_28_x86_64:latest; P=desktop/opentrace-qt/packaging/astra
 mkdir -p ~/astra-qt ~/astra-cache
-docker run --rm -v $PWD:/work -v ~/astra-qt:/opt/qt -v ~/astra-cache:/cache $B bash /work/$P/build-qt.sh        # ~40 мин, один раз
-docker run --rm -v $PWD:/work -v ~/astra-qt:/opt/qt -v ~/astra-cache:/cache $B bash /work/$P/build-app.sh
-docker run --rm -v $PWD:/work -v ~/astra-qt:/opt/qt -v ~/astra-cache:/cache $B bash -c ". /work/$P/common.sh && cd /work && python3 /work/$P/package.py"
+docker run --rm -v $PWD:/work -v ~/astra-qt:/opt/qt -v ~/astra-cache:/cache $B bash /work/$P/build-qt.sh        # один раз (ставит системные -devel через deps.sh)
+docker run --rm -v $PWD:/work -v ~/astra-qt:/opt/qt -v ~/astra-cache:/cache $B bash -c "bash /work/$P/deps.sh && bash /work/$P/build-app.sh"
+docker run --rm -v $PWD:/work -v ~/astra-qt:/opt/qt -v ~/astra-cache:/cache $B bash -c "bash /work/$P/deps.sh && . /work/$P/common.sh && cd /work && python3 /work/$P/package.py"
 docker run --rm -v $PWD:/work $B /opt/python/cp312-cp312/bin/python3 /work/$P/check_abi.py /work/_astra/dist/OpenTrace-Qt
 bash $P/make-packages.sh _astra/dist/OpenTrace-Qt _astra/out 0.1.0-local
 bash $P/test-debian10.sh _astra/out _astra/out/test
